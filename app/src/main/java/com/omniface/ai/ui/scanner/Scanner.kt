@@ -634,6 +634,24 @@ fun ScannerScreen(
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    val faceDetector = remember {
+        FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                .setMinFaceSize(0.10f)
+                .enableTracking()
+                .build()
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            faceDetector.close()
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.initEngine(context)
     }
@@ -883,16 +901,6 @@ fun ScannerScreen(
                                     val preview = previewBuilder.build().also {
                                         it.setSurfaceProvider(previewView.surfaceProvider)
                                     }
-
-                                    val faceDetector = FaceDetection.getClient(
-                                        FaceDetectorOptions.Builder()
-                                            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                                            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-                                            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-                                            .setMinFaceSize(0.10f)
-                                            .enableTracking()
-                                            .build()
-                                    )
 
                                     val analysisSelector = ResolutionSelector.Builder()
                                         .setResolutionStrategy(
