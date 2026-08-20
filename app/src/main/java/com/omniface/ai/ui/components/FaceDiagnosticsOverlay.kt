@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import com.omniface.ai.ml.ConfidenceZone
 import com.omniface.ai.ml.EyeGazeResult
 import com.omniface.ai.ml.FaceAttributesResult
@@ -79,14 +80,15 @@ fun FaceDiagnosticsOverlay(
 
             drawReticleBrackets(rect, haloColor)
 
-            // 2. 468-Point MediaPipe Dense 3D Face Mesh Wireframe
+            // 2. 468-Point MediaPipe Dense 3D Face Mesh Wireframe & HRNet Constellation
             val mesh = face.meshResult?.landmarks468x3
             if (showMeshWireframe && mesh != null && mesh.isNotEmpty()) {
                 drawMediaPipeMeshTessellation(mesh, rect, haloColor)
             } else if (face.landmarks5Pts != null) {
-                // Fallback: 5-Point Canonical Alignment Landmarks
+                // Fallback: Canonical Alignment Landmarks
                 for (p in face.landmarks5Pts) {
-                    drawCircle(Color(0xFF00E5FF), radius = 3.5f, center = Offset(p.x, p.y))
+                    drawCircle(Color.White, radius = 4f, center = Offset(p.x, p.y))
+                    drawCircle(Color(0xFF00E5FF), radius = 2f, center = Offset(p.x, p.y))
                 }
             }
 
@@ -106,18 +108,23 @@ fun FaceDiagnosticsOverlay(
             if (showGazeRays && gaze != null) {
                 drawEyeGazeRays(cx, cy, faceRadius, gaze)
             }
+
+            // 6. Qualcomm AI Hub Cybernetic Attribute HUD Tags (Screenshot 3 & 4 style)
+            if (isDeveloperMode || face.attributes != null) {
+                drawQualcommAttributeTags(rect, face)
+            }
         }
     }
 }
 
-/** Draws hexagonal-styled corner brackets with liquid specular glow. */
+/** Draws rounded reticle brackets with liquid specular glow. */
 private fun DrawScope.drawReticleBrackets(rect: androidx.compose.ui.geometry.Rect, color: Color) {
     val cornerLen = (rect.width * 0.18f).coerceIn(18f, 42f)
-    val strokeW = 4f
+    val strokeW = 3.5f
 
-    // Corner glow shadow
-    val glowColor = color.copy(alpha = 0.35f)
-    drawRect(glowColor, Offset(rect.left, rect.top), Size(rect.width, rect.height), style = Stroke(width = 1f))
+    // Soft surrounding bounding box
+    val glowColor = color.copy(alpha = 0.25f)
+    drawRect(glowColor, Offset(rect.left, rect.top), Size(rect.width, rect.height), style = Stroke(width = 1.2f))
 
     // Top-Left
     drawLine(color, Offset(rect.left, rect.top + cornerLen), Offset(rect.left, rect.top), strokeW, StrokeCap.Round)
@@ -136,7 +143,7 @@ private fun DrawScope.drawReticleBrackets(rect: androidx.compose.ui.geometry.Rec
     drawLine(color, Offset(rect.right, rect.bottom), Offset(rect.right, rect.bottom - cornerLen), strokeW, StrokeCap.Round)
 }
 
-/** Draws dense MediaPipe 468-point 3D facial mesh tessellation wireframe. */
+/** Draws dense MediaPipe 468-point 3D facial mesh tessellation wireframe & HRNet fiducials. */
 private fun DrawScope.drawMediaPipeMeshTessellation(
     mesh: Array<FloatArray>,
     bounds: androidx.compose.ui.geometry.Rect,
@@ -150,29 +157,33 @@ private fun DrawScope.drawMediaPipeMeshTessellation(
         return Offset(x, y)
     }
 
-    val wireColor = themeColor.copy(alpha = 0.45f)
-    val keypointColor = themeColor.copy(alpha = 0.85f)
+    val wireColor = Color.White.copy(alpha = 0.45f)
+    val haloColor = themeColor.copy(alpha = 0.70f)
 
-    // Canonical Face Oval Contour Indices
+    // 1. Canonical Face Oval Contour (Forehead to Chin)
     val faceOval = intArrayOf(
         10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
         400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21,
         54, 103, 67, 109, 10
     )
 
-    // Lips Contour Indices
-    val lips = intArrayOf(
-        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61
-    )
+    // 2. Eyebrows (Left & Right)
+    val leftEyebrow = intArrayOf(70, 63, 105, 66, 107, 55, 65, 52, 53, 46)
+    val rightEyebrow = intArrayOf(336, 296, 334, 293, 300, 285, 295, 282, 283, 276)
 
-    // Left Eye Contour Indices
+    // 3. Eye Sockets (Left & Right)
     val leftEye = intArrayOf(33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 33)
-    // Right Eye Contour Indices
     val rightEye = intArrayOf(362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398, 362)
-    // Nose Bridge Indices
-    val noseBridge = intArrayOf(168, 6, 197, 195, 5, 4, 1, 19, 94, 2)
 
-    val contourGroups = listOf(faceOval, lips, leftEye, rightEye, noseBridge)
+    // 4. Nose Bridge & Nostril Base
+    val noseBridge = intArrayOf(168, 6, 197, 195, 5, 4, 1, 19, 94, 2)
+    val noseBase = intArrayOf(98, 97, 2, 326, 327)
+
+    // 5. Dual Lip Contours (Outer Vermilion & Inner Opening)
+    val outerLips = intArrayOf(61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61)
+    val innerLips = intArrayOf(78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78)
+
+    val contourGroups = listOf(faceOval, leftEyebrow, rightEyebrow, leftEye, rightEye, noseBridge, noseBase, outerLips, innerLips)
 
     for (group in contourGroups) {
         val path = Path()
@@ -186,13 +197,98 @@ private fun DrawScope.drawMediaPipeMeshTessellation(
                 path.lineTo(pt.x, pt.y)
             }
         }
-        drawPath(path, color = wireColor, style = Stroke(width = 1.2f, join = StrokeJoin.Round))
+        drawPath(path, color = wireColor, style = Stroke(width = 1.3f, join = StrokeJoin.Round))
     }
 
-    // Draw select fiducial vertices
-    for (i in 0 until minOf(mesh.size, 468) step 6) {
-        val pt = meshPointToOffset(i) ?: continue
-        drawCircle(keypointColor, radius = 1.6f, center = pt)
+    // 6. HRNet-Style 29 Anatomical Landmark Constellation Points (Screenshot 2 & 4)
+    val fiducialKeypoints = intArrayOf(
+        // Face Oval Anchors
+        10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152,
+        // Eyebrows
+        70, 105, 46, 336, 334, 276,
+        // Eyes & Pupils
+        33, 133, 362, 263, 1, 4, 2,
+        // Mouth
+        61, 291, 0, 17
+    )
+
+    for (idx in fiducialKeypoints) {
+        val pt = meshPointToOffset(idx) ?: continue
+        // Outer Specular Halo
+        drawCircle(haloColor, radius = 4.0f, center = pt)
+        // Crisp White Core
+        drawCircle(Color.White, radius = 2.0f, center = pt)
+    }
+}
+
+/** Draws Qualcomm AI Hub Cybernetic Attribute Floating HUD Tags (Screenshot 3 style). */
+private fun DrawScope.drawQualcommAttributeTags(
+    bounds: androidx.compose.ui.geometry.Rect,
+    face: FaceGeometryVisualData
+) {
+    val nativeCanvas = drawContext.canvas.nativeCanvas
+
+    val tagTextPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        textSize = 24f
+        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+    }
+
+    val tagBgPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        style = android.graphics.Paint.Style.FILL
+        color = android.graphics.Color.argb(220, 11, 15, 25) // Frosted Obsidian Slate
+    }
+
+    val tagBorderPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 2.0f
+        color = android.graphics.Color.argb(160, 255, 255, 255) // Crisp white hairline
+    }
+
+    val attr = face.attributes
+    val tags = mutableListOf<Pair<String, Int>>()
+
+    // Tag 1: Identity Embedding
+    tags.add("Identity Embedding" to android.graphics.Color.WHITE)
+
+    // Tag 2: Eye Openness
+    val eyeOpen = (attr?.rawProbabilities?.getOrNull(3) ?: 0.95f) > 0.4f
+    val eyeColor = if (eyeOpen) android.graphics.Color.rgb(52, 199, 89) else android.graphics.Color.rgb(255, 59, 48)
+    tags.add("Eye Openness ${if (eyeOpen) "True" else "False"}" to eyeColor)
+
+    // Tag 3: Liveness
+    val liveColor = if (face.isLive) android.graphics.Color.rgb(52, 199, 89) else android.graphics.Color.rgb(255, 59, 48)
+    tags.add("Liveness ${if (face.isLive) "True" else "False"}" to liveColor)
+
+    // Tag 4: Mask
+    val mask = (attr?.rawProbabilities?.getOrNull(2) ?: 0.05f) > 0.5f
+    val maskColor = if (mask) android.graphics.Color.rgb(255, 149, 0) else android.graphics.Color.rgb(180, 180, 180)
+    tags.add("Mask ${if (mask) "True" else "False"}" to maskColor)
+
+    // Tag 5: Glasses
+    val glasses = (attr?.rawProbabilities?.getOrNull(1) ?: 0.1f) > 0.5f
+    val glassesColor = if (glasses) android.graphics.Color.rgb(255, 149, 0) else android.graphics.Color.rgb(180, 180, 180)
+    tags.add("Glasses ${if (glasses) "True" else "False"}" to glassesColor)
+
+    val startX = (bounds.left - 240f).coerceAtLeast(16f)
+    var currentY = bounds.top + 8f
+
+    for ((tagText, valColor) in tags) {
+        tagTextPaint.color = valColor
+        val textWidth = tagTextPaint.measureText(tagText)
+        val pillWidth = textWidth + 28f
+        val pillHeight = 36f
+        val rectF = android.graphics.RectF(startX, currentY, startX + pillWidth, currentY + pillHeight)
+
+        // Draw Frosted Card Background & Specular Border
+        nativeCanvas.drawRoundRect(rectF, 10f, 10f, tagBgPaint)
+        nativeCanvas.drawRoundRect(rectF, 10f, 10f, tagBorderPaint)
+        // Draw Text
+        nativeCanvas.drawText(tagText, startX + 14f, currentY + 25f, tagTextPaint)
+
+        currentY += pillHeight + 8f
     }
 }
 
@@ -275,3 +371,4 @@ private fun DrawScope.drawEyeGazeRays(
         drawCircle(Color.White, radius = 2.0f, center = target)
     }
 }
+
