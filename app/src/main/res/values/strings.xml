@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">OmniFace AI</string>
+    <string name="title_master_dashboard">OmniFace AI Biometrics</string>
+    <string name="subtitle_dashboard">Sovereign Edge NPU Face Attendance Suite</string>
+    <string name="btn_live_scan">Launch 30 FPS Live Scanner</string>
+    <string name="btn_enroll_student">Enroll New Face Biometric</string>
+    <string name="btn_view_ledger">Audit Attendance Ledger</string>
+    <string name="tier_standard">Standard (τ=0.240)</string>
+    <string name="tier_high">High Security (τ=0.416)</string>
+    <string name="tier_strict">Strict Biometric (τ=0.500)</string>
+</resources>

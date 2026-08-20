@@ -1,0 +1,232 @@
+# 🤖 Antigravity Configured Agents, Rules & Standards (OmniFace AI / FR Workspace)
+
+This directory (`/storage/emulated/0/AI-HUB/FR`) hosts the sovereign **OmniFace AI** Facial Recognition Platform, including the 10-phase model training pipeline, multi-tier TFLite Flatbuffers, and the production native Kotlin Android application.
+
+---
+
+## 🤖 Configured Subagents
+
+### 1. `research`
+- **Role**: Biometric Codebase & ML Researcher
+- **Capabilities**: Read-only codebase exploration, web search, TFLite operator inspection, model quantization analysis, documentation audit.
+- **Use Case**: Deep research tasks on neural graph operators, mathematical loss functions, and benchmark datasets.
+
+### 2. `self`
+- **Role**: General Engineering Subagent
+- **Capabilities**: Full execution subagent with file editing, Gradle builds, ADB testing, and parallel script execution.
+- **Use Case**: Background Android builds, APK packaging, and continuous integration workflows.
+
+### 3. `jules-orchestrator`
+- **Role**: Multi-Task Orchestration Agent
+- **Capabilities**: Project orchestration, work item tracking, and automated workflow execution across AI-HUB.
+
+### 4. `caveman`
+- **Role**: Token-Efficient Codebase Assistant
+- **Capabilities**: Concise, high-density responses, code execution, quick bug resolution.
+
+---
+
+## 📁 Workspace Directory Architecture
+
+```
+/storage/emulated/0/AI-HUB/FR/
+├── docs/                                # Architecture blueprints, technical specs & reports
+│   ├── BLUEPRINT.md                     # Master Architecture & Design System
+│   ├── SPECS.md                         # Technical Specifications & API Contracts
+│   ├── AGENTS.md                        # Workspace Rules & Agent Configurations
+│   ├── RUN_SUMMARY.md                   # 25-Epoch Training & Benchmarks Summary
+│   ├── FACE_RECOGNITION_ARCHITECTURE_BLUEPRINT.md
+│   ├── verification_report.json         # ISO/IEC & NIST Operating Points JSON
+│   └── biometric_training_dashboard.html# Standalone Interactive HTML Telemetry
+├── models/                              # Trained Flatbuffers & Keras Master Checkpoints
+│   ├── mobilefacenet_512d_int8.tflite   # 1.54 MB (NPU / NNAPI MLIR Per-Channel INT8)
+│   ├── mobilefacenet_512d_fp16.tflite   # 2.47 MB (Mobile GPU Delegate FP16)
+│   ├── mobilefacenet_512d_fp32.tflite   # 4.85 MB (CPU XNNPACK Threadpool FP32)
+│   ├── mobilefacenet_512d_deployment_bundle.zip # 28.38 MB Master CRC32 Zip Bundle
+│   ├── best_mobilefacenet_arcface.keras # 5.52 MB Standalone Embedding Extractor
+│   ├── best_mobilefacenet_full_trainer.keras # 16.59 MB Full Sub-Center ArcFace Trainer
+│   └── class_labels.json                # 105 Identity Class Mappings
+├── training/                            # Training pipelines & execution logs
+│   ├── train_mobilefacenet_arcface.py   # Single Master 10-Phase Training Script
+│   ├── training_metrics.csv             # 25-Epoch Convergence Telemetry
+│   ├── kernel-metadata.json             # Kaggle Tesla P100 Execution Config
+│   ├── download_dataset.sh              # PINS 105-Class Dataset Downloader
+│   ├── fetch_trained_models.sh          # Kaggle Bundle Fetcher & Integrity Gate
+│   └── requirements.txt                 # Python Dependencies
+├── app/                                 # OmniFace AI Native Android Application Module
+│   ├── build.gradle.kts                 # Application Build Configuration
+│   └── src/main/
+│       ├── AndroidManifest.xml          # Permissions & Activities
+│       ├── assets/                      # Embedded TFLite Flatbuffers
+│       ├── java/com/omniface/ai/        # Clean Kotlin Architecture
+│       │   ├── OmniFaceApplication.kt
+│       │   ├── ml/                      # Multi-Tier TFLite Inference & Liveness
+│       │   ├── security/                # AndroidKeyStore AES-256-GCM Cryptography
+│       │   ├── data/                    # Room SQLite Database & DAOs
+│       │   ├── presentation/            # Master Dashboard, Scanner, Enrollment Studio
+│       │   └── sync/                    # WorkManager Background Cloud Sync Worker
+│       └── res/                         # Obsidian Slate UI Layouts, Icons & Styles
+├── gradle/                              # Gradle 8.6 Wrapper
+├── build.gradle.kts                     # Root Project Gradle Build
+├── settings.gradle.kts                  # Root Project Settings
+├── gradle.properties                    # AndroidX, JVMArgs & Native AAPT2 Override
+├── local.properties                     # Android SDK Path
+├── gradlew                              # Gradle Executable Wrapper
+├── build_apk.sh                         # Linux ARM64 Native Gradle Build Runner
+└── OmniFace-AI.apk                      # Output Production APK Binary
+```
+
+---
+
+## 💎 Apple iOS & macOS Liquid Glassmorphic UI/UX Standards (Targets: Kyant0/AndroidLiquidGlass & philipplackner/LiquidGlassKMP)
+
+All UI components and screens in OmniFace AI must strictly adhere to the modern liquid glassmorphism design tokens inspired by [`Kyant0/AndroidLiquidGlass`](https://github.com/Kyant0/AndroidLiquidGlass/tree/kmp/androidApp) and [`philipplackner/LiquidGlassKMP`](https://github.com/philipplackner/LiquidGlassKMP.git):
+
+1. **Directional Specular Reflection Borders (`omniLiquidSpecularBorder`)**:
+   - Every card, dialog, button, and navigation dock must feature multi-stop linear gradient borders simulating a top-left ambient light source (crisp white specular highlight at 0.0f transitioning to dark refraction shadows at 1.0f).
+   - Never use solid opaque borders.
+
+2. **Layered Refraction Surface Diffusion (`omniLiquidSurfaceBrush`)**:
+   - Backgrounds and containers must utilize multi-layer vertical translucent gradients (`#381E293B` to `#3D0B0F19` in dark mode, `#F0FFFFFF` to `#C8F1F5F9` in light mode) allowing background camera viewfinders and canvas animations to refract naturally.
+
+3. **GPU Hardware Backdrop Blur & RuntimeShader Gating (`liquidGlassBackdrop`)**:
+   - On Android 12+ (API 31+ / Android S) & Android 13+ (API 33+ / Tiramisu AGSL), enable hardware-accelerated Skia `RenderEffect.createBlurEffect(16.dp, 16.dp, Shader.TileMode.CLAMP)` and runtime shader refraction overlays.
+   - On legacy Android 8–11 (API 26–30), smoothly fall back to high-density translucent gradient layers (`omniLiquidSurfaceBrush`) to guarantee zero crashes.
+
+4. **Spring-Damped Elastic Interaction Physics**:
+   - Interactive components (`FrostedGlassCard`, `CupertinoButton`, `CupertinoSegmentedControl`, `CupertinoTabBar`, `DynamicIslandCapsule`) must incorporate tactile press scale animations (`1.0f` -> `0.97f`/`0.92f`) with `Spring.DampingRatioMediumBouncy` and `Spring.StiffnessLow`.
+
+5. **Chromatic Aberration & Specular Light Sheen**:
+   - High-contrast interactive badges and reticle borders must leverage subtle cyan/emerald chromatic edge illumination simulating optical glass refraction.
+
+---
+
+## 📱 Linux ARM64 Native Android Build Rules
+
+1. **Linux ARM64 Target by Default**:
+   - Use standard Linux toolchain paths: `$HOME/Android/Sdk` or `/root/Android/Sdk` and `/usr/lib/jvm/java-17-openjdk-arm64`.
+   - Never use Termux conventions unless explicitly requested.
+
+2. **Storage Mount Execution Guardrail (`noexec`)**:
+   - Files stored on `/storage/emulated/0` cannot be executed directly (`./gradlew` fails with `Permission denied`).
+   - Always invoke shell scripts and wrappers explicitly: `bash ./gradlew <tasks>` or `bash build_apk.sh`.
+
+3. **AAPT2 Native ARM64 Override**:
+   - For AGP/Gradle builds on Linux `aarch64`, always configure native ARM64 `aapt2` in `gradle.properties`:
+     `android.aapt2FromMavenOverride=/root/Android/Sdk/aapt2`
+
+---
+
+## 🏗️ Zero-Stub Biometric Engineering & Verification Standards
+
+1. **Zero Simulated/Mock Vectors in Production Pipelines**:
+   - Face enrollment studios must ingest real CameraX video frames and extract genuine 512-D feature embeddings directly via TFLite/ArcFace engines.
+   - Biometric matching against local SQLite/Room records must transparently decrypt hardware Keystore AES-256-GCM ciphertexts in memory before computing cosine distance.
+   - Dashboard actions (CSV export, DPDP Act 2023 purge, manual overrides) must connect directly to active REST endpoints and Aegis SHA-256 blockchain minting.
+
+2. **TFLite Multi-Tier Hardware Delegate Pipeline**:
+   - **Primary (NPU / NNAPI)**: `mobilefacenet_512d_int8.tflite` for sub-10ms neural execution.
+   - **Fallback 1 (Mobile GPU)**: `mobilefacenet_512d_fp16.tflite` via `GpuDelegate`.
+   - **Fallback 2 (Multi-Core CPU)**: `mobilefacenet_512d_fp32.tflite` via Multi-Threaded XNNPACK (4 threads).
+
+3. **Multi-Decade Calibrated Decision Gates**:
+   - **STANDARD** ($\tau = 0.120$, $1\text{ in }10\text{ FAR}$): Doorway kiosks.
+   - **HIGH** ($\tau = 0.158$, $1\text{ in }100\text{ FAR}$): ISO/IEC standard operating point.
+   - **STRICT** ($\tau = 0.220$, $1\text{ in }1,000\text{ FAR}$): High-security / banking access.
+
+---
+
+## ⚡ Non-Interactive Execution Rules
+- Always append non-interactive flags (`--yes`, `--non-interactive`, `--no-daemon`) to CLI commands to prevent terminal hangs.
+
+---
+
+## 📐 3-Stage Engineering Pipeline ("Audit First, Design Second, Implement Third")
+
+1. **Phase 1 — Complete Codebase Audit**:
+   - Never invent architecture, files, APIs, features, or state that do not exist.
+   - Always audit real entities, DAOs, ViewModel `StateFlow` models, ML inference pipelines, and security layers before refactoring or adding UI/UX features.
+2. **Phase 2 — Centralized Design System Architecture**:
+   - Design reusable components and tokens that consume real state.
+   - Reusable components must reside in centralized component layers (`CupertinoGlass.kt`) rather than duplicated inside individual screens.
+3. **Phase 3 — Implementation & Validation**:
+   - Ensure all screens strictly inherit from the centralized design system.
+   - Run native Linux ARM64 Gradle builds (`bash build_apk.sh`) to verify zero compilation errors and zero deprecation warnings.
+
+---
+
+## 🧩 Centralized iOS Design System & Semantic UX Standards
+
+1. **Single Source of Truth (`CupertinoGlass.kt`)**:
+   - Group all reusable building blocks into `CupertinoGlass.kt`:
+     - `IOSCard` (`20dp` / `16dp` radius, `0.75dp` specular hairline, ambient shadow).
+     - `CupertinoButton` (`50dp` height, `14dp` radius, spring press scaling `0.97f`).
+     - `CupertinoSegmentedControl` (`12dp` rounded sliding pill selector).
+     - `CupertinoMetricTile` (`16dp` KPI metric card).
+     - `SectionHeader` (Uppercase `11sp` bold section header).
+     - `SettingRow` (Grouped iOS list row with switch/chevron/badge).
+     - `EmptyState` (Centered illustration, title, and message).
+   - Never create ad-hoc cards, custom button heights, or scattered hardcoded colors/radii across individual screens.
+
+2. **Semantic Precision (User-Facing vs Engineering Labels)**:
+   - Use clean, user-facing domain terms (e.g. **Students**, **Scanner**, **Overview**, **Ledger**) rather than internal engineering labels (e.g. "Studio").
+   - Hide raw mathematical/technical thresholds (e.g. $\tau = 0.158$) on primary user viewports; present semantic tiers (**Standard**, **High**, **Strict**).
+   - Dynamic database counts must always be observed reactively from Room SQLite flows (`getStudentCountFlow()`) rather than hardcoded.
+
+3. **Jetpack Compose BOM & Icon Compatibility**:
+   - For Jetpack Compose BOM `2024.02.00` and Material Icons Extended, standard icons (such as `ShowChart` and `ReceiptLong`) belong to `Icons.Default.*` / `Icons.Filled.*`. Avoid unverified AutoMirrored icon variants.
+
+---
+
+## 🧠 Genuine Silicon NPU & Hardware Detection Standards
+
+1. **Direct On-Device Hardware Discovery (`NpuHardwareDetector`)**:
+   - Inspects Linux `/proc/cpuinfo`, ARMv8/ARMv9 vector ISA extensions (`i8mm`, `asimddp`, `bf16`), and system properties (`ro.soc.model`, `ro.soc.manufacturer`, `ro.board.platform`, `ro.hardware`) to identify the exact physical NPU co-processor.
+   - Maps silicon models to their true neural accelerator hardware:
+     - **Qualcomm Snapdragon** (SM8650 / SM8550 / SM8450) $\to$ `Qualcomm Hexagon NPU (HTP Tensor Accelerator, 45.0 TOPS)`.
+     - **Google Tensor** (G4 / G3 / G2 / G1) $\to$ `Google Tensor TPU (EdgeTPU Engine, 25-30 TOPS)`.
+     - **MediaTek Dimensity** (9300 / 9200 / 8200) $\to$ `MediaTek APU 790 / 690 (NeuroPilot Engine, 30-46 TOPS)`.
+     - **Samsung Exynos** (2400 / 2200) $\to$ `Samsung Exynos Dual-NPU (17K MACs)`.
+     - **ARM NEON / Matrix** $\to$ `ARMv8/v9 Neural Matrix Engine (DotProd/I8MM)`.
+
+2. **Transparent User Verification**:
+   - The verified NPU name and peak TOPS rating are surfaced directly in the Scanner status pill (`Hexagon NPU • INT8`), the Overview Dashboard, the Kiosk Self-Test diagnostic suite, and the progressive disclosure panel in Settings.
+   - Prevents fake/simulated claims by attaching genuine Linux kernel and hardware platform signatures.
+
+---
+
+## 🤖 Qualcomm AI Hub Face Intelligence Suite Registry
+
+All models downloaded from `qaihub-public-assets.s3.us-west-2.amazonaws.com` at release `v0.60.0`.
+Engine: [`QualcommFaceIntelligenceEngine.kt`](app/src/main/java/com/omniface/ai/ml/QualcommFaceIntelligenceEngine.kt)
+Target hardware: Snapdragon® 8 Elite, 8 Gen 3, 8 Gen 2, 8 Gen 1, 888.
+
+| # | Model | `model_id` | Input Shape | `value_range` | Output Shape | Size |
+|:--|:------|:-----------|:------------|:--------------|:-------------|:-----|
+| 1 | **CavaFace** | `cavaface` | `[1,112,112,3]` RGB | `[0.0, 1.0]` | `[1,512]` L2 embedding | 250 MB |
+| 2 | **FaceMap 3DMM** | `facemap_3dmm` | `[1,128,128,3]` RGB | `[0.0, 1.0]` | `[1,265]` 3D shape params | 21 MB |
+| 3 | **FaceAttribNet** | `face_attrib_net` | `[1,128,128,3]` RGB | `[0.0, 1.0]` | `[1,5]` attribute probs | 42 MB |
+| 4 | **EyeGaze** | `eyegaze` | `[1,96,160]` grayscale | `[0.0, 1.0]` | `[1,2]` pitch/yaw + `[1,34,2]` eye landmarks | 9.7 MB |
+| 5 | **HRNetFace** | `hrnet_face` | `[1,256,256,3]` RGB | `[0.0, 1.0]` | `[1,29,64,64]` heatmaps | 37 MB |
+| 6 | **MediaPipe Face Mesh** | `mediapipe_face` | Detector: `[1,256,256,3]` RGB; Mesh: `[1,192,192,3]` RGB | `[0.0, 1.0]` | `[1]` face score + `[1,468,3]` XYZ landmarks | 2.9 MB |
+
+### Model Paths on Device
+```
+/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/
+├── cavaface/cavaface-tflite-float/cavaface.tflite
+├── facemap_3dmm/facemap_3dmm-tflite-float/facemap_3dmm.tflite
+├── face_attrib_net/face_attrib_net-tflite-float/face_attrib_net.tflite
+├── eyegaze/eyegaze-tflite-float/eyegaze.tflite
+├── hrnet_face/hrnet_face-tflite-float/hrnet_face.tflite
+└── mediapipe_face/mediapipe_face-tflite-float/
+    ├── face_detector.tflite         (0.57 MB)
+    └── face_landmark_detector.tflite (2.4 MB)
+```
+
+### Integration Workflow
+When adding a new Qualcomm AI Hub model, use the `qualcomm-aihub-model-integration` skill.
+The S3 URL pattern is:
+```
+https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/<model_id>/releases/v0.60.0/<model_id>-tflite-float.zip
+```
+

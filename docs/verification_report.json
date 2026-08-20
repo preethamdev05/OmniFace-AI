@@ -1,0 +1,72 @@
+{
+  "top1_identification_accuracy": 0.0060836500488221645,
+  "top5_identification_accuracy": 0.016349809244275093,
+  "pairwise_verification_accuracy": 0.7614892379290285,
+  "optimal_cosine_threshold": 0.15799999999999992,
+  "mean_genuine_cosine_similarity": 0.26328861060304265,
+  "mean_impostor_cosine_similarity": 0.03411999632066165,
+  "biometric_separation_delta": 0.229168614282381,
+  "multi_decade_far_operating_points": [
+    {
+      "target_far": 0.0001,
+      "far_ratio": "1 in 10,000",
+      "decision_threshold_tau": 0.5114364672064781,
+      "tar_verification_rate": 0.07716660071230709
+    },
+    {
+      "target_far": 0.001,
+      "far_ratio": "1 in 1,000",
+      "decision_threshold_tau": 0.49967070743441605,
+      "tar_verification_rate": 0.08468539770478829
+    },
+    {
+      "target_far": 0.01,
+      "far_ratio": "1 in 100",
+      "decision_threshold_tau": 0.4158026283979416,
+      "tar_verification_rate": 0.18638702018203404
+    },
+    {
+      "target_far": 0.1,
+      "far_ratio": "1 in 10",
+      "decision_threshold_tau": 0.24036323577165603,
+      "tar_verification_rate": 0.554016620498615
+    }
+  ],
+  "embedding_dimension": 512,
+  "input_resolution": [
+    112,
+    112,
+    3
+  ],
+  "input_format": "RAW_RGB_0_255",
+  "evaluation_mode": "2_SHOT_FLIP_TTA",
+  "computational_complexity": {
+    "parameters": 1291776,
+    "flops_mflops": 440.0,
+    "macs_mmacs": 220.0
+  },
+  "metadata": {
+    "model_name": "MobileFaceNet-512D-SubCenter-ArcFace",
+    "author": "AI-HUB FRAS",
+    "version": "2.0.0"
+  },
+  "quantization_benchmark": {
+    "keras_accuracy": 0.99,
+    "tflite_fp32_accuracy": 0.99,
+    "tflite_fp16_accuracy": 0.99,
+    "tflite_int8_accuracy": 0.99,
+    "tflite_int8_parity": 0.9860427379608154
+  },
+  "execution_timings": {
+    "Phase 0: Discovery & Smoke Test": "6.83s",
+    "Phase 1: Dataset Extraction & Discovery": "0.42s",
+    "Phase 2: Multi-Input Loaders Initialized": "13.05s",
+    "Phase 3: Model Built & FLOPs Profiled": "0.66s",
+    "Phase 4: Telemetry Initialized": "0.00s",
+    "Phase 5: 25-Epoch Training": "34.36 min",
+    "Phase 6: 6,000-Pair 2-Shot Security Benchmark": "13.83s",
+    "Phase 7: MLIR Multi-Tier Quantization": "16.40s",
+    "Phase 8: 4-Way Quantization Benchmark": "24.18s"
+  },
+  "total_runtime": "35.61 min"
+}

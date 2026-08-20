@@ -1,0 +1,15 @@
+{
+  "name": "omniface-model-cdn",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "r2_buckets": [
+    {
+      "binding": "MODELS",
+      "bucket_name": "omniface-models"
+    }
+  ],
+  "vars": {
+    "APP_VERSION_MIN": "1",
+    "APP_SECRET": "omniface-secure-2025"
+  }
+}

@@ -1,0 +1,75 @@
+# =========================================================================
+# OmniFace AI - Production Android & Biometric ML .gitignore
+# =========================================================================
+
+# Built application files
+*.apk
+*.aab
+*.ap_
+*.dex
+*.jks
+*.keystore
+
+# Gradle build directories & caches
+.gradle/
+build/
+app/build/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio & IDE files
+.idea/
+.idea/*
+*.iml
+local.properties
+.DS_Store
+Captures/
+*.hprof
+*.ipr
+*.iws
+
+# Workspace / Scratch / Tooling caches
+.scratch/
+scratch/
+.wrangler/
+.cursor/
+.vscode/
+aapt2
+
+# Python ML & Training caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+*.log
+
+# Kaggle execution temp workspaces & large downloaded bundles
+kaggle_output/
+training/kaggle_debug*/
+training/kaggle_unified_output/
+training/*.zip
+training/*.tar.gz
+
+# Large Raw Keras Checkpoints & Heavy Model Binaries (>25MB / raw checkpoints)
+models/*.keras
+models/*.zip
+models/qualcomm_suite/
+models/qualcomm_cavaface/
+models/antelopev2/
+models/buffalo_l/
+models/latest_pretrained/
+
+# Temporary files
+*.tmp
+*.bak
+*~
+.directory
