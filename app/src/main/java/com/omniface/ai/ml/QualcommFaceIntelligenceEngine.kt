@@ -100,13 +100,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
     private val outMeshScores = FloatArray(1)
     private val outMeshLandmarks = Array(1) { Array(468) { FloatArray(3) } }
 
-    val unifiedEngine: com.omniface.ai.qualcomm.UnifiedQualcommEngine? = try {
-        val eng = com.omniface.ai.qualcomm.UnifiedQualcommEngine(context)
-        if (eng.isReady) eng else null
-    } catch (_: Throwable) {
-        null
-    }
-
     var isSuiteLoaded: Boolean = false
         private set
 
@@ -121,11 +114,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
             ?.let { QualcommSuiteDownloadManager.resolveModelFile(context, it) }
 
     private fun initializeQualcommSuite() {
-        if (unifiedEngine?.isReady == true) {
-            isSuiteLoaded = true
-            Log.i(TAG, "✅ [QUALCOMM UNIFIED NPU] Master Unified Multi-Task Engine Ready (${unifiedEngine.hardwareLabel})")
-            return
-        }
         try {
             val gpuOptions = GpuDelegate.Options().apply {
                 setPrecisionLossAllowed(true)
@@ -169,7 +157,7 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
                 Log.i(TAG, "✅ [QUALCOMM AI HUB] MediaPipe Face Mesh (${f.length() / 1024 / 1024} MB)")
             }
 
-            isSuiteLoaded = (unifiedEngine?.isReady == true) || faceMapInterpreter != null || attribInterpreter != null ||
+            isSuiteLoaded = faceMapInterpreter != null || attribInterpreter != null ||
                 eyeGazeInterpreter != null || hrnetInterpreter != null || mediapipeMeshInterpreter != null
         } catch (t: Throwable) {
             Log.w(TAG, "⚠️ Qualcomm Face Intelligence Suite partial init: ${t.message}")
@@ -187,18 +175,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
      */
     @Synchronized
     fun estimate3dFaceMap(faceBitmap: Bitmap): FaceMap3DMMResult? {
-        if (unifiedEngine?.isReady == true) {
-            val res = unifiedEngine.executeUnifiedInference(faceBitmap)
-            if (res != null) {
-                return FaceMap3DMMResult(
-                    parameters265 = res.parameters3DMM,
-                    depthVariance = res.depthVariance,
-                    isTrue3DSurface = res.isTrue3DSurface,
-                    executionTimeMs = res.executionLatencyMs
-                )
-            }
-        }
-
         val interpreter = faceMapInterpreter ?: return null
         val t0 = System.nanoTime()
 
@@ -243,19 +219,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
      */
     @Synchronized
     fun detectFaceAttributes(faceBitmap: Bitmap): FaceAttributesResult? {
-        if (unifiedEngine?.isReady == true) {
-            val res = unifiedEngine.executeUnifiedInference(faceBitmap)
-            if (res != null) {
-                return FaceAttributesResult(
-                    smileScore = res.smileScore,
-                    eyeglassesScore = res.eyeglassesScore,
-                    poseYawScore = res.gazeYaw,
-                    rawProbabilities = floatArrayOf(res.smileScore, res.eyeglassesScore, res.maskScore, res.eyeOpenScore, res.livenessScore),
-                    executionTimeMs = res.executionLatencyMs
-                )
-            }
-        }
-
         val interpreter = attribInterpreter ?: return null
         val t0 = System.nanoTime()
 
@@ -297,20 +260,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
      */
     @Synchronized
     fun estimateEyeGaze(eyeCropBitmap: Bitmap): EyeGazeResult? {
-        if (unifiedEngine?.isReady == true) {
-            val res = unifiedEngine.executeUnifiedInference(eyeCropBitmap)
-            if (res != null) {
-                return EyeGazeResult(
-                    pitch = res.gazePitch,
-                    yaw = res.gazeYaw,
-                    gazeVectorNorm = kotlin.math.sqrt(res.gazePitch * res.gazePitch + res.gazeYaw * res.gazeYaw),
-                    eyeLandmarks34x2 = Array(34) { FloatArray(2) },
-                    isGazeAttentive = res.isGazeAttentive,
-                    executionTimeMs = res.executionLatencyMs
-                )
-            }
-        }
-
         val interpreter = eyeGazeInterpreter ?: return null
         val t0 = System.nanoTime()
 
@@ -423,18 +372,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
      */
     @Synchronized
     fun estimateMediaPipeFaceMesh(faceBitmap: Bitmap): MediaPipeMeshResult? {
-        if (unifiedEngine?.isReady == true) {
-            val res = unifiedEngine.executeUnifiedInference(faceBitmap)
-            if (res != null) {
-                return MediaPipeMeshResult(
-                    landmarks468x3 = res.landmarksMesh,
-                    faceScore = 1.0f,
-                    meshDepthVariance = res.depthVariance,
-                    executionTimeMs = res.executionLatencyMs
-                )
-            }
-        }
-
         val interpreter = mediapipeMeshInterpreter ?: return null
         val t0 = System.nanoTime()
 
@@ -486,7 +423,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
     }
 
     override fun close() {
-        try { unifiedEngine?.close() } catch (_: Throwable) {}
         try { faceMapInterpreter?.close() } catch (_: Throwable) {}
         try { attribInterpreter?.close() } catch (_: Throwable) {}
         try { eyeGazeInterpreter?.close() } catch (_: Throwable) {}
