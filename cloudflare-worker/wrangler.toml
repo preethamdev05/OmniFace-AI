@@ -1,8 +1,0 @@
-name = "omniface-model-gateway"
-main = "src/index.js"
-compatibility_date = "2026-08-20"
-
-# Configuration variables
-[vars]
-HF_REPO_ID = "preetham-dev/omniface-antelopev2"
-MODEL_FILENAME = "mobilefacenet_512d_fp16.tflite"
