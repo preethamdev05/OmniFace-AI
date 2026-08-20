@@ -60,7 +60,7 @@ object RegistrationQualityEvaluator {
         face: Face?,
         allDetectedFaces: List<Face>,
         frameWidth: Int,
-        frameHeight: Int,
+        @Suppress("UNUSED_PARAMETER") frameHeight: Int,
         faceCrop: Bitmap?,
         targetYaw: Float = 0f,
         targetPitch: Float = 0f,
@@ -142,6 +142,15 @@ object RegistrationQualityEvaluator {
                 RegistrationRejectionReason.EYES_CLOSED, RegistrationRejectionReason.EYES_CLOSED.userMessage)
         }
 
+        // Wire Qualcomm EyeGaze: reject enrollment if gaze is off-axis while eyes are open
+        if (qualcommGaze != null && !qualcommGaze.isGazeAttentive && leftEyeOpen > 0.30f && rightEyeOpen > 0.30f) {
+            return RegistrationQualityScore(
+                detectionScore, 80f, 80f, sharpnessScore, lightingScore,
+                poseScore, 100f, eyeQualityScore * 0.6f, 42f, false,
+                RegistrationRejectionReason.EYES_CLOSED, "Look directly at the camera"
+            )
+        }
+
         // 4. Occlusion & Attributes
         var occlusionScore = 100f
         if (qualcommAttributes != null) {
@@ -158,6 +167,10 @@ object RegistrationQualityEvaluator {
                     RegistrationRejectionReason.MASK_PRESENT, RegistrationRejectionReason.MASK_PRESENT.userMessage)
             }
             occlusionScore = ((1.0f - maxOf(sunglasses, mask)) * 100f).coerceIn(0f, 100f)
+            // Eyeglasses degrade eye region matching quality
+            if (eyeglasses > 0.75f) {
+                occlusionScore = (occlusionScore * 0.88f).coerceAtLeast(45f)
+            }
         }
 
         // 5. Landmark & Alignment Integrity

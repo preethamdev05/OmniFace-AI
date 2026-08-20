@@ -589,7 +589,20 @@ class ScannerViewModel : ViewModel() {
                         matchedZone = if (decision.isAttendanceAuthorized) ConfidenceZone.ACCEPT else ConfidenceZone.REJECT,
                         matchedExplanation = decision.technicalExplanation,
                         benchmarkLatencyMs = output.executionLatencyMs,
-                        hardwareTierLabel = output.activeHardwareTier
+                        hardwareTierLabel = output.activeHardwareTier,
+                        qualcommTelemetry = output.visualGeometries.firstOrNull()?.let { geo ->
+                            val g = geo.gazeResult
+                            val a = geo.attributes
+                            QualcommIntelligenceTelemetry(
+                                isEyeGazeActive = g != null,
+                                gazeAttentive = g?.isGazeAttentive ?: true,
+                                gazePitch = g?.pitch ?: 0f,
+                                gazeYaw = g?.yaw ?: 0f,
+                                depthVariance = geo.faceMap3DMM?.depthVariance ?: 0.182f,
+                                smileScore = a?.smileScore ?: 0f,
+                                eyeglassesScore = a?.rawProbabilities?.getOrNull(1) ?: 0f
+                            )
+                        }
                     )
                 }
             } finally {
@@ -955,10 +968,10 @@ fun ScannerScreen(
                     FaceDiagnosticsOverlay(
                         visualData = state.visualGeometryData,
                         isDeveloperMode = state.isDeveloperOverlayEnabled,
-                        showMeshWireframe = true,
-                        showPoseAxes = true,
+                        showMeshWireframe = false,
+                        showPoseAxes = false,
                         showGazeRays = true,
-                        show3DMMTopography = true,
+                        show3DMMTopography = false,
                         modifier = Modifier.fillMaxSize()
                     )
 

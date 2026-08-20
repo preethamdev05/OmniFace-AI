@@ -233,6 +233,7 @@ class ModelDownloadManager(private val context: Context) {
                 var bytesDownloaded = 0L
                 var lastTime = System.currentTimeMillis()
                 var lastBytes = 0L
+                @Suppress("VARIABLE_WITH_REDUNDANT_INITIALIZER")
                 var currentSpeedKbps = 0L
 
                 body.byteStream().use { input ->
@@ -286,17 +287,17 @@ class ModelDownloadManager(private val context: Context) {
                 }
 
                 // Stage 3: Atomic Promotion to Live Model File
-                val targetFile = getLocalModelFile()
-                if (targetFile.exists()) {
-                    targetFile.delete()
+                val installedModelFile = getLocalModelFile()
+                if (installedModelFile.exists()) {
+                    installedModelFile.delete()
                 }
 
-                val renamed = tmpFile.renameTo(targetFile)
+                val renamed = tmpFile.renameTo(installedModelFile)
                 if (renamed) {
-                    Log.i(TAG, "✅ Model successfully installed: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
+                    Log.i(TAG, "✅ Model successfully installed: ${installedModelFile.absolutePath} (${installedModelFile.length()} bytes)")
                     _downloadState.value = ModelDownloadState.Ready(
                         activeModelName = "AntelopeV2 Glint360K (512-D Ultra HD)",
-                        modelSizeBytes = targetFile.length()
+                        modelSizeBytes = installedModelFile.length()
                     )
                     withContext(Dispatchers.Main) {
                         onCompleted?.invoke()

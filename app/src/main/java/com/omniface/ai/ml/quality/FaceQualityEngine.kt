@@ -45,6 +45,10 @@ object FaceQualityEngine {
         val sizeScore = ((widthFraction / 0.35f).coerceIn(0f, 1f) * 100f)
         val isSizeOk = widthFraction >= MIN_FACE_WIDTH_RATIO
 
+        // Height sanity check for portrait crop validation
+        val heightFraction = box.height().toFloat() / fullFrameHeight.toFloat().coerceAtLeast(1f)
+        val isAspectOk = heightFraction >= MIN_FACE_WIDTH_RATIO * 0.8f
+
         // 2. Pose Angle Evaluation
         val yaw = abs(face.headEulerAngleY)
         val pitch = abs(face.headEulerAngleX)
@@ -71,7 +75,7 @@ object FaceQualityEngine {
         // 4. Overall Weighted Score Synthesis
         val overallScore = (sharpnessScore * 0.35f + exposureScore * 0.25f + poseScore * 0.25f + sizeScore * 0.15f)
 
-        val isPassed = isSizeOk && isPoseOk && isSharpOk && isExposureOk
+        val isPassed = isSizeOk && isAspectOk && isPoseOk && isSharpOk && isExposureOk
 
         val reason = when {
             !isSizeOk -> "Face too far — move closer to camera"
