@@ -26,9 +26,9 @@ class QualityChecker {
             return QualityCheckResult(false, 0f, 0f, headEulerAngleZ, "Face crop resolution too small.")
         }
 
-        // 1. Roll Tilt Check
-        if (abs(headEulerAngleZ) > 16.0f) {
-            return QualityCheckResult(false, 0f, 0f, headEulerAngleZ, "Head tilted sideways (>15°). Please hold level.")
+        // 1. Roll Tilt Check (Permit natural tilt up to 28°)
+        if (abs(headEulerAngleZ) > 28.0f) {
+            return QualityCheckResult(false, 0f, 0f, headEulerAngleZ, "Head tilted sideways (>28°). Please hold level.")
         }
 
         val pixels = IntArray(width * height)
@@ -50,20 +50,18 @@ class QualityChecker {
         val meanBrightness = (totalBrightness.toFloat() / pixels.size)
 
         // 2. Brightness & Michelson Contrast Gate
-        if (meanBrightness < 35.0f) {
+        if (meanBrightness < 15.0f) {
             return QualityCheckResult(false, 0f, meanBrightness, headEulerAngleZ, "Scene illumination too dark.")
         }
-        if (meanBrightness > 230.0f) {
+        if (meanBrightness > 245.0f) {
             return QualityCheckResult(false, 0f, meanBrightness, headEulerAngleZ, "Scene illumination overexposed.")
         }
         val michelsonContrast = (maxLuma - minLuma).toFloat() / (maxLuma + minLuma + 0.001f)
-        if (michelsonContrast < 0.12f) {
+        if (michelsonContrast < 0.05f) {
             return QualityCheckResult(false, 0f, meanBrightness, headEulerAngleZ, "Low scene contrast detected.")
         }
 
         // 3. Fast Discrete Approximation of Laplacian Variance
-        // Uses ITU-R BT.601 luma instead of blue-channel-only extraction —
-        // skin tones have very low blue content, making the blue-only path unreliable.
         var laplacianSum = 0L
         val innerWidth = width - 2
         val innerHeight = height - 2
@@ -92,7 +90,7 @@ class QualityChecker {
         }
         val blurScore = if (count > 0) (laplacianSum.toFloat() / count) else 0.0f
 
-        if (blurScore < 5.0f) {
+        if (blurScore < 1.5f) {
             return QualityCheckResult(false, blurScore, meanBrightness, headEulerAngleZ, "Motion blur detected.")
         }
 

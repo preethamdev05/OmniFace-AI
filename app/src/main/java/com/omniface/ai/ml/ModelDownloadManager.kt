@@ -8,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -75,15 +76,16 @@ class ModelDownloadManager(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var downloadJob: Job? = null
+    @Volatile private var activeCall: okhttp3.Call? = null
 
     private val _downloadState = MutableStateFlow<ModelDownloadState>(getInitialState())
     val downloadState: StateFlow<ModelDownloadState> = _downloadState.asStateFlow()
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -111,7 +113,8 @@ class ModelDownloadManager(private val context: Context) {
         return if (isAntelopeV2Installed()) {
             "AntelopeV2 Glint360K (512-D Ultra HD)"
         } else {
-            "MobileFaceNet NPU (Bundled Fallback)"
+            val local = getLocalModelFile()
+            if (local.exists()) "MobileFaceNet NPU (512-D INT8/FP16)" else "No Model Installed (Tap to Download)"
         }
     }
 
@@ -124,11 +127,20 @@ class ModelDownloadManager(private val context: Context) {
                 modelSizeBytes = file.length()
             )
         } else {
-            ModelDownloadState.Idle(
-                modelExistsLocally = false,
-                activeModelName = "MobileFaceNet NPU (Bundled Fallback)",
-                modelSizeBytes = 0L
-            )
+            // Check fallback storage location
+            val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
+            if (alt.exists() && verifyModelIntegrity(alt)) {
+                ModelDownloadState.Ready(
+                    activeModelName = "MobileFaceNet NPU (512-D FP16)",
+                    modelSizeBytes = alt.length()
+                )
+            } else {
+                ModelDownloadState.Idle(
+                    modelExistsLocally = false,
+                    activeModelName = "No Model Installed (Tap to Download)",
+                    modelSizeBytes = 0L
+                )
+            }
         }
     }
 
@@ -141,8 +153,31 @@ class ModelDownloadManager(private val context: Context) {
             return
         }
 
+        val targetFile = getLocalModelFile()
+        val tmpFile = File(getModelsDirectory(), "$TARGET_MODEL_FILENAME$TMP_EXTENSION")
+
         downloadJob = scope.launch {
             try {
+                // Step 0: Fast Local On-Device Discovery
+                val localDiskCandidates = listOf(
+                    File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME"),
+                    File("/storage/emulated/0/AI-HUB/FR/models/mobilefacenet_512d_int8.tflite"),
+                    File("/storage/emulated/0/AI-HUB/FR/models/glint360k_r100.tflite")
+                )
+                for (cand in localDiskCandidates) {
+                    if (cand.exists() && cand.canRead() && verifyModelIntegrity(cand)) {
+                        Log.i(TAG, "⚡ Discovered local on-device model at ${cand.absolutePath}, installing instantly...")
+                        _downloadState.value = ModelDownloadState.Downloading(0.5f, 50000L, cand.length() / (1024f * 1024f), cand.length() / (1024f * 1024f))
+                        cand.copyTo(targetFile, overwrite = true)
+                        _downloadState.value = ModelDownloadState.Ready(
+                            activeModelName = "AntelopeV2 Glint360K (512-D Ultra HD)",
+                            modelSizeBytes = targetFile.length()
+                        )
+                        withContext(Dispatchers.Main) { onCompleted?.invoke() }
+                        return@launch
+                    }
+                }
+
                 val token = HfSecureGateway.getAuthToken(context)
                 val targetUrl = HfSecureGateway.buildResolveUrl(context, TARGET_MODEL_FILENAME)
                 val repoId = HfSecureGateway.getRepoId(context)
@@ -166,7 +201,9 @@ class ModelDownloadManager(private val context: Context) {
                     totalMb = 124.3f // Approximate expected size
                 )
 
-                val response = okHttpClient.newCall(request).execute()
+                val call = okHttpClient.newCall(request)
+                activeCall = call
+                val response = call.execute()
                 if (!response.isSuccessful) {
                     val code = response.code
                     val errorMsg = when (code) {
@@ -188,7 +225,6 @@ class ModelDownloadManager(private val context: Context) {
                 val contentLength = body.contentLength()
                 val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 124.3f
 
-                val tmpFile = File(getModelsDirectory(), "$TARGET_MODEL_FILENAME$TMP_EXTENSION")
                 if (tmpFile.exists()) {
                     tmpFile.delete()
                 }
@@ -203,6 +239,9 @@ class ModelDownloadManager(private val context: Context) {
                     FileOutputStream(tmpFile).use { output ->
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
+                            if (!kotlin.coroutines.coroutineContext.isActive) {
+                                break
+                            }
                             output.write(buffer, 0, read)
                             bytesDownloaded += read
 
@@ -227,6 +266,11 @@ class ModelDownloadManager(private val context: Context) {
                         }
                         output.flush()
                     }
+                }
+
+                if (!kotlin.coroutines.coroutineContext.isActive) {
+                    tmpFile.delete()
+                    return@launch
                 }
 
                 // Stage 2: Integrity & Magic Header Verification
@@ -262,11 +306,18 @@ class ModelDownloadManager(private val context: Context) {
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "Exception during model download", e)
-                _downloadState.value = ModelDownloadState.Error(
-                    message = "Network error: ${e.localizedMessage ?: e.message ?: "Unknown error"}",
-                    canRetry = true
-                )
+                tmpFile.delete()
+                if (downloadJob?.isCancelled == true) {
+                    _downloadState.value = getInitialState()
+                } else {
+                    Log.e(TAG, "Exception during model download", e)
+                    _downloadState.value = ModelDownloadState.Error(
+                        message = "Network error: ${e.localizedMessage ?: e.message ?: "Unknown error"}",
+                        canRetry = true
+                    )
+                }
+            } finally {
+                activeCall = null
             }
         }
     }
@@ -275,6 +326,10 @@ class ModelDownloadManager(private val context: Context) {
      * Cancels active download task.
      */
     fun cancelDownload() {
+        try {
+            activeCall?.cancel()
+            activeCall = null
+        } catch (_: Throwable) {}
         downloadJob?.cancel()
         downloadJob = null
         val tmpFile = File(getModelsDirectory(), "$TARGET_MODEL_FILENAME$TMP_EXTENSION")

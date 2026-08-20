@@ -79,23 +79,23 @@ object RegistrationQualityEvaluator {
 
         val box = face.boundingBox
         val faceWidthFraction = box.width().toFloat() / frameWidth.toFloat()
-        if (faceWidthFraction < 0.18f) {
+        if (faceWidthFraction < 0.05f) {
             return RegistrationQualityScore(40f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 20f, false,
                 RegistrationRejectionReason.FACE_TOO_SMALL, RegistrationRejectionReason.FACE_TOO_SMALL.userMessage)
         }
-        if (faceWidthFraction > 0.85f) {
+        if (faceWidthFraction > 0.95f) {
             return RegistrationQualityScore(50f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 25f, false,
                 RegistrationRejectionReason.FACE_TOO_LARGE, RegistrationRejectionReason.FACE_TOO_LARGE.userMessage)
         }
 
-        val detectionScore = ((faceWidthFraction / 0.45f).coerceAtMost(1.0f) * 100f).coerceIn(0f, 100f)
+        val detectionScore = ((faceWidthFraction / 0.35f).coerceAtMost(1.0f) * 100f).coerceIn(0f, 100f)
 
         // 1. Pose Gate
         val currentYaw = face.headEulerAngleY
         val currentPitch = face.headEulerAngleX
         val currentRoll = face.headEulerAngleZ
 
-        if (abs(currentRoll) > 15f) {
+        if (abs(currentRoll) > 28f) {
             return RegistrationQualityScore(detectionScore, 0f, 0f, 0f, 0f, 20f, 0f, 0f, 30f, false,
                 RegistrationRejectionReason.EXCESSIVE_ROLL, RegistrationRejectionReason.EXCESSIVE_ROLL.userMessage)
         }
@@ -103,14 +103,14 @@ object RegistrationQualityEvaluator {
         val yawDelta = abs(currentYaw - targetYaw)
         val pitchDelta = abs(currentPitch - targetPitch)
         val poseError = sqrt(yawDelta * yawDelta + pitchDelta * pitchDelta)
-        val poseScore = ((1.0f - (poseError / 18.0f).coerceIn(0f, 1f)) * 100f)
+        val poseScore = ((1.0f - (poseError / 28.0f).coerceIn(0f, 1f)) * 100f)
 
-        if (yawDelta > 12.0f) {
+        if (yawDelta > 25.0f) {
             val dir = if (currentYaw < targetYaw) "Turn face slightly right" else "Turn face slightly left"
             return RegistrationQualityScore(detectionScore, 80f, 80f, 80f, 80f, poseScore, 100f, 90f, 50f, false,
                 RegistrationRejectionReason.EXCESSIVE_YAW, dir)
         }
-        if (pitchDelta > 10.0f) {
+        if (pitchDelta > 20.0f) {
             val dir = if (currentPitch < targetPitch) "Tilt head up slightly" else "Tilt head down slightly"
             return RegistrationQualityScore(detectionScore, 80f, 80f, 80f, 80f, poseScore, 100f, 90f, 50f, false,
                 RegistrationRejectionReason.EXCESSIVE_PITCH, dir)
@@ -118,14 +118,14 @@ object RegistrationQualityEvaluator {
 
         // 2. Sharpness & Lighting via QualityChecker
         val qualityCheck = QualityChecker().checkFaceQuality(faceCrop, currentRoll)
-        val sharpnessScore = ((qualityCheck.blurScore / 15.0f).coerceIn(0f, 1f) * 100f)
+        val sharpnessScore = ((qualityCheck.blurScore / 8.0f).coerceIn(0f, 1f) * 100f)
         val lightingScore = (1.0f - abs(qualityCheck.brightnessScore - 128f) / 128f).coerceIn(0f, 1f) * 100f
 
         if (!qualityCheck.isGoodQuality) {
             val reason = when {
-                qualityCheck.blurScore < 5.0f -> RegistrationRejectionReason.LOW_SHARPNESS
-                qualityCheck.brightnessScore < 35.0f -> RegistrationRejectionReason.BAD_LIGHTING_DARK
-                qualityCheck.brightnessScore > 230.0f -> RegistrationRejectionReason.BAD_LIGHTING_BRIGHT
+                qualityCheck.blurScore < 1.5f -> RegistrationRejectionReason.LOW_SHARPNESS
+                qualityCheck.brightnessScore < 15.0f -> RegistrationRejectionReason.BAD_LIGHTING_DARK
+                qualityCheck.brightnessScore > 245.0f -> RegistrationRejectionReason.BAD_LIGHTING_BRIGHT
                 else -> RegistrationRejectionReason.LOW_SHARPNESS
             }
             return RegistrationQualityScore(detectionScore, 80f, 70f, sharpnessScore, lightingScore, poseScore, 100f, 80f, 40f, false,
@@ -137,7 +137,7 @@ object RegistrationQualityEvaluator {
         val rightEyeOpen = face.rightEyeOpenProbability ?: 0.9f
         val eyeQualityScore = (((leftEyeOpen + rightEyeOpen) / 2f) * 100f).coerceIn(0f, 100f)
 
-        if (leftEyeOpen < 0.35f || rightEyeOpen < 0.35f) {
+        if (leftEyeOpen < 0.20f && rightEyeOpen < 0.20f) {
             return RegistrationQualityScore(detectionScore, 80f, 80f, sharpnessScore, lightingScore, poseScore, 100f, eyeQualityScore, 45f, false,
                 RegistrationRejectionReason.EYES_CLOSED, RegistrationRejectionReason.EYES_CLOSED.userMessage)
         }
@@ -149,11 +149,11 @@ object RegistrationQualityEvaluator {
             val sunglasses = qualcommAttributes.rawProbabilities.getOrNull(1) ?: 0f
             val mask = qualcommAttributes.rawProbabilities.getOrNull(2) ?: 0f
 
-            if (sunglasses > 0.70f) {
+            if (sunglasses > 0.85f) {
                 return RegistrationQualityScore(detectionScore, 70f, 70f, sharpnessScore, lightingScore, poseScore, 20f, eyeQualityScore, 35f, false,
                     RegistrationRejectionReason.SUNGLASSES_PRESENT, RegistrationRejectionReason.SUNGLASSES_PRESENT.userMessage)
             }
-            if (mask > 0.65f) {
+            if (mask > 0.80f) {
                 return RegistrationQualityScore(detectionScore, 60f, 50f, sharpnessScore, lightingScore, poseScore, 10f, eyeQualityScore, 30f, false,
                     RegistrationRejectionReason.MASK_PRESENT, RegistrationRejectionReason.MASK_PRESENT.userMessage)
             }
@@ -169,7 +169,7 @@ object RegistrationQualityEvaluator {
             face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
         )
         val hasAll5Landmarks = landmarks.all { it != null }
-        val landmarkScore = if (hasAll5Landmarks) 100f else 60f
+        val landmarkScore = if (hasAll5Landmarks) 100f else 75f
         val alignmentScore = 95f
 
         // Weighted Overall Score (Justified Normalization Scheme)
@@ -184,7 +184,7 @@ object RegistrationQualityEvaluator {
             eyeQualityScore * 0.10f
         ).coerceIn(0f, 100f)
 
-        val isPassed = overallScore >= 75.0f
+        val isPassed = overallScore >= 45.0f
 
         return RegistrationQualityScore(
             detectionScore = detectionScore,

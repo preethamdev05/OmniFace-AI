@@ -366,7 +366,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         // Priority 1: Check for verified downloaded model in private app storage
         val downloadManager = ModelDownloadManager.getInstance(context)
         val localFile = downloadManager.getLocalModelFile()
-        if (localFile.name == modelName && downloadManager.verifyModelIntegrity(localFile)) {
+        if (localFile.exists() && (localFile.name == modelName || modelName.contains("antelope", ignoreCase = true) || modelName.contains("mobilefacenet", ignoreCase = true)) && downloadManager.verifyModelIntegrity(localFile)) {
             Log.i(TAG, "📂 Loading verified private Hugging Face model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
             val inputStream = FileInputStream(localFile)
             val fileChannel = inputStream.channel
@@ -374,14 +374,35 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, localFile.length())
         }
 
-        // Priority 2: Fallback to pre-bundled APK assets
+        // Priority 2: Check for on-device disk models directory
+        val candidateFiles = listOf(
+            File(context.filesDir, "models/$modelName"),
+            File(context.getExternalFilesDir(null), "models/$modelName"),
+            File("/storage/emulated/0/AI-HUB/FR/models/$modelName")
+        )
+        for (f in candidateFiles) {
+            if (f.exists() && f.canRead() && f.length() > 1024) {
+                Log.i(TAG, "📂 Loading on-device model from: ${f.absolutePath} (${f.length()} bytes)")
+                val inputStream = FileInputStream(f)
+                val fileChannel = inputStream.channel
+                activeBackbone = NeuralBackbone.MOBILEFACENET
+                return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, f.length())
+            }
+        }
+
+        // Priority 3: Fallback to pre-bundled APK assets if present
         activeBackbone = NeuralBackbone.MOBILEFACENET
-        val fileDescriptor: AssetFileDescriptor = context.assets.openFd(modelName)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        return try {
+            val fileDescriptor: AssetFileDescriptor = context.assets.openFd(modelName)
+            val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+            val fileChannel = inputStream.channel
+            val startOffset = fileDescriptor.startOffset
+            val declaredLength = fileDescriptor.declaredLength
+            fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Model $modelName not bundled in assets and not yet downloaded on device: ${e.message}")
+            throw e
+        }
     }
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {

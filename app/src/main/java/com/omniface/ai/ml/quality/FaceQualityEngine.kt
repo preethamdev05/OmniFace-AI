@@ -26,11 +26,11 @@ data class QualityGateResult(
  */
 object FaceQualityEngine {
 
-    private const val MIN_FACE_WIDTH_RATIO = 0.16f // Face must occupy >= 16% of camera frame width
-    private const val MAX_ALLOWED_YAW = 22.0f
-    private const val MAX_ALLOWED_PITCH = 22.0f
-    private const val MAX_ALLOWED_ROLL = 18.0f
-    private const val MIN_SHARPNESS_VARIANCE = 100.0f
+    private const val MIN_FACE_WIDTH_RATIO = 0.05f // Face must occupy >= 5% of camera frame width (natural kiosk distance)
+    private const val MAX_ALLOWED_YAW = 38.0f
+    private const val MAX_ALLOWED_PITCH = 32.0f
+    private const val MAX_ALLOWED_ROLL = 28.0f
+    private const val MIN_SHARPNESS_VARIANCE = 8.0f // Realistic Laplacian threshold for mobile cameras
 
     fun evaluateFaceQuality(
         face: Face,
@@ -60,12 +60,12 @@ object FaceQualityEngine {
 
         if (faceCrop != null && !faceCrop.isRecycled) {
             val (sharpVal, meanLum) = computeImageMetrics(faceCrop)
-            sharpnessScore = (sharpVal / 3.0f).coerceIn(0f, 100f)
+            sharpnessScore = (sharpVal * 4.0f).coerceIn(0f, 100f)
             isSharpOk = sharpVal >= MIN_SHARPNESS_VARIANCE
 
             val lumDiff = abs(meanLum - 128.0f)
-            exposureScore = (100.0f - lumDiff * 0.85f).coerceIn(0f, 100f)
-            isExposureOk = meanLum in 40.0f..225.0f
+            exposureScore = (100.0f - lumDiff * 0.70f).coerceIn(0f, 100f)
+            isExposureOk = meanLum in 15.0f..245.0f
         }
 
         // 4. Overall Weighted Score Synthesis

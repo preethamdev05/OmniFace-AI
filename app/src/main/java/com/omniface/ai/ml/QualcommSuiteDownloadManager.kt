@@ -154,7 +154,8 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val jobs = mutableMapOf<String, Job>()
+    private val jobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val activeCalls = java.util.concurrent.ConcurrentHashMap<String, okhttp3.Call>()
 
     private val _states = MutableStateFlow<Map<String, QualcommModelState>>(
         SUITE_MODELS.associate { it.id to getInitialState(it) }
@@ -163,8 +164,8 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
 
     private val http: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(300, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             .followRedirects(true)
             .retryOnConnectionFailure(true)
             .build()
@@ -188,16 +189,14 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
         if (jobs[modelId]?.isActive == true) return
 
         jobs[modelId] = scope.launch {
+            val destDir = File(suiteRoot(context), entry.relativeDir).also { it.mkdirs() }
+            val destFile = File(destDir, entry.filename)
+            val tmpFile  = File(destDir, "${entry.filename}.tmp")
+
             try {
                 emit(modelId, QualcommModelState.Downloading(0f, 0f, entry.fileSizeMb, 0L))
-
-                // Build writable destination
-                val destDir = File(suiteRoot(context), entry.relativeDir).also { it.mkdirs() }
-                val destFile = File(destDir, entry.filename)
-                val tmpFile  = File(destDir, "${entry.filename}.tmp")
                 if (tmpFile.exists()) tmpFile.delete()
 
-                // Try CF R2 Worker first, then S3 fallback
                 val downloadUrl = if (cdnUrl.isNotBlank()) {
                     "$cdnUrl/download/$modelId"
                 } else {
@@ -212,11 +211,14 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                     .header("User-Agent", "OmniFace-AI-Android/1.0")
                     .header("X-App-Version", "1")
                 if (useCdn && secret.isNotBlank()) reqBuilder.header("X-OmniFace-Secret", secret)
-                val response = http.newCall(reqBuilder.build()).execute()
+
+                val call = http.newCall(reqBuilder.build())
+                activeCalls[modelId] = call
+                val response = call.execute()
 
                 if (!response.isSuccessful) {
+                    activeCalls.remove(modelId)
                     if (useCdn) {
-                        // Fallback to S3
                         Log.w(TAG, "[$modelId] CDN returned ${response.code}, falling back to S3")
                         downloadFromS3(entry, tmpFile, destFile)
                         return@launch
@@ -226,6 +228,7 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                 }
 
                 val body = response.body ?: run {
+                    activeCalls.remove(modelId)
                     emit(modelId, QualcommModelState.Error("Empty response")); return@launch
                 }
 
@@ -241,11 +244,14 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                     FileOutputStream(tmpFile).use { out ->
                         var n: Int
                         while (input.read(buf).also { n = it } != -1) {
+                            if (!coroutineContext.isActive) {
+                                break
+                            }
                             out.write(buf, 0, n)
                             bytesRead += n
                             val now = System.currentTimeMillis()
                             val elapsed = now - lastTime
-                            if (elapsed >= 500) {
+                            if (elapsed >= 400) {
                                 val speedKbps = ((bytesRead - lastBytes) * 1000L / elapsed) / 1024L
                                 lastBytes = bytesRead
                                 lastTime = now
@@ -255,6 +261,11 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                         }
                         out.flush()
                     }
+                }
+
+                if (!coroutineContext.isActive) {
+                    tmpFile.delete()
+                    return@launch
                 }
 
                 // CDN serves raw .tflite; S3 serves .zip — handle both
@@ -275,18 +286,31 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                         emit(modelId, QualcommModelState.Error("Extraction failed"))
                     }
                 }
+            } catch (e: CancellationException) {
+                tmpFile.delete()
+                emit(modelId, if (resolveModelFile(context, entry) != null) QualcommModelState.Installed else QualcommModelState.Idle)
             } catch (e: Exception) {
-                Log.e(TAG, "Download error for $modelId", e)
-                emit(modelId, QualcommModelState.Error(e.localizedMessage ?: "Unknown error"))
+                tmpFile.delete()
+                if (jobs[modelId]?.isCancelled == true) {
+                    emit(modelId, if (resolveModelFile(context, entry) != null) QualcommModelState.Installed else QualcommModelState.Idle)
+                } else {
+                    Log.e(TAG, "Download error for $modelId", e)
+                    emit(modelId, QualcommModelState.Error(e.localizedMessage ?: "Unknown error"))
+                }
+            } finally {
+                activeCalls.remove(modelId)
+                jobs.remove(modelId)
             }
         }
     }
 
     private suspend fun downloadFromS3(entry: QualcommModelEntry, tmpFile: File, destFile: File) {
         val s3Url = "$S3_BASE/${entry.id}/releases/$S3_RELEASE/${entry.id}-tflite-float.zip"
-        val response = http.newCall(
+        val call = http.newCall(
             Request.Builder().url(s3Url).header("User-Agent", "OmniFace-AI-Android/1.0").build()
-        ).execute()
+        )
+        activeCalls[entry.id] = call
+        val response = call.execute()
 
         if (!response.isSuccessful) {
             emit(entry.id, QualcommModelState.Error("S3 HTTP ${response.code}"))
@@ -301,9 +325,12 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
             FileOutputStream(tmpFile).use { out ->
                 var n: Int
                 while (input.read(buf).also { n = it } != -1) {
+                    if (!kotlin.coroutines.coroutineContext.isActive) {
+                        break
+                    }
                     out.write(buf, 0, n); bytesRead += n
                     val now = System.currentTimeMillis(); val elapsed = now - lastTime
-                    if (elapsed >= 500) {
+                    if (elapsed >= 400) {
                         val speedKbps = ((bytesRead - lastBytes) * 1000L / elapsed) / 1024L
                         lastBytes = bytesRead; lastTime = now
                         val progress = if (contentLength > 0) (bytesRead.toFloat() / contentLength).coerceIn(0f, 1f) else 0.5f
@@ -313,6 +340,10 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
                 out.flush()
             }
         }
+        if (!kotlin.coroutines.coroutineContext.isActive) {
+            tmpFile.delete()
+            return
+        }
         unzip(tmpFile, File(suiteRoot(context), entry.id))
         tmpFile.delete()
         if (resolveModelFile(context, entry) != null) emit(entry.id, QualcommModelState.Installed)
@@ -320,8 +351,15 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
     }
 
     fun cancelDownload(modelId: String) {
-        jobs[modelId]?.cancel(); jobs.remove(modelId)
+        try {
+            activeCalls[modelId]?.cancel()
+            activeCalls.remove(modelId)
+        } catch (_: Throwable) {}
+        jobs[modelId]?.cancel()
+        jobs.remove(modelId)
         val entry = SUITE_MODELS.find { it.id == modelId } ?: return
+        val tmp = File(File(suiteRoot(context), entry.relativeDir), "${entry.filename}.tmp")
+        if (tmp.exists()) tmp.delete()
         emit(modelId, if (resolveModelFile(context, entry) != null) QualcommModelState.Installed else QualcommModelState.Idle)
     }
 

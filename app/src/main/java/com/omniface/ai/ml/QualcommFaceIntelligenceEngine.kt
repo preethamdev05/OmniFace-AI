@@ -255,6 +255,10 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
         )
     }
 
+    private val outHeatmapBuffer: ByteBuffer = ByteBuffer.allocateDirect(1 * 3 * 34 * 48 * 80 * 4).apply {
+        order(ByteOrder.nativeOrder())
+    }
+
     /**
      * Estimates eye gaze pitch/yaw angles and 34-point eye landmark contour.
      */
@@ -279,13 +283,21 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
         }
 
         val outputs = HashMap<Int, Any>()
-        outputs[0] = outGazePitchYaw
+        outHeatmapBuffer.rewind()
+        outputs[0] = outHeatmapBuffer
         outputs[1] = outGazeLandmarks
+        outputs[2] = outGazePitchYaw
         try {
             interpreter.runForMultipleInputsOutputs(arrayOf(bufferEye96x160), outputs)
         } catch (_: Throwable) {
-            // Fallback for single-output variant
-            interpreter.run(bufferEye96x160, outGazePitchYaw)
+            try {
+                // Fallback for single-output or 2-output variant
+                val fallbackOut = HashMap<Int, Any>()
+                fallbackOut[0] = outGazePitchYaw
+                interpreter.runForMultipleInputsOutputs(arrayOf(bufferEye96x160), fallbackOut)
+            } catch (_: Throwable) {
+                return null
+            }
         }
 
         val t1 = System.nanoTime()

@@ -182,7 +182,8 @@ class ScannerViewModel : ViewModel() {
 
     private val lastVerifiedTimestamps = ConcurrentHashMap<String, Long>()
     private val emaBoundingBoxes = ConcurrentHashMap<Int, androidx.compose.ui.geometry.Rect>()
-    private var isProcessingFrame = false
+    @Volatile
+    var isProcessingFrame = false
     private var lastAnalysisTimestamp = 0L
 
     fun toggleHardwareSwitcher() {
@@ -419,6 +420,22 @@ class ScannerViewModel : ViewModel() {
         }
     }
 
+    fun handleEmptyFaces() {
+        val isEmpty = _uiState.value.isDatabaseEmpty
+        val count = _uiState.value.enrolledCount
+        _uiState.update {
+            if (it.scanState == ScannerScanState.ATTENDANCE_RECORDED) it else {
+                it.copy(
+                    detectedFaces = emptyList(),
+                    visualGeometryData = emptyList(),
+                    scanState = if (isEmpty) ScannerScanState.EMPTY_DATABASE else ScannerScanState.READY_TO_SCAN,
+                    matchTitle = if (isEmpty) "DATABASE EMPTY" else "READY TO SCAN",
+                    matchSubtitle = if (isEmpty) "0 students enrolled" else "$count students enrolled"
+                )
+            }
+        }
+    }
+
     fun processCameraFaces(
         faces: List<Face>,
         fullBitmap: Bitmap?,
@@ -430,35 +447,18 @@ class ScannerViewModel : ViewModel() {
             return
         }
 
+        if (isProcessingFrame || faces.isEmpty()) {
+            fullBitmap.recycle()
+            if (faces.isEmpty()) handleEmptyFaces()
+            return
+        }
+
         val nowMs = System.currentTimeMillis()
-        if (nowMs - lastAnalysisTimestamp < 66L) {
+        if (nowMs - lastAnalysisTimestamp < 100L) {
             fullBitmap.recycle()
             return
         }
         lastAnalysisTimestamp = nowMs
-
-        val engine = recognitionEngine ?: run {
-            fullBitmap.recycle()
-            return
-        }
-        if (isProcessingFrame || faces.isEmpty()) {
-            fullBitmap.recycle()
-            if (faces.isEmpty()) {
-                val isEmpty = _uiState.value.isDatabaseEmpty
-                val count = _uiState.value.enrolledCount
-                _uiState.update {
-                    if (it.scanState == ScannerScanState.ATTENDANCE_RECORDED) it else {
-                        it.copy(
-                            detectedFaces = emptyList(),
-                            scanState = if (isEmpty) ScannerScanState.EMPTY_DATABASE else ScannerScanState.READY_TO_SCAN,
-                            matchTitle = if (isEmpty) "DATABASE EMPTY" else "READY TO SCAN",
-                            matchSubtitle = if (isEmpty) "0 students enrolled" else "$count students enrolled"
-                        )
-                    }
-                }
-            }
-            return
-        }
 
         isProcessingFrame = true
         viewModelScope.launch(Dispatchers.Default) {
@@ -881,43 +881,51 @@ fun ScannerScreen(
                                             .build()
                                     )
 
+                                    val analysisSelector = ResolutionSelector.Builder()
+                                        .setResolutionStrategy(
+                                            ResolutionStrategy(
+                                                Size(640, 480),
+                                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                                            )
+                                        )
+                                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                        .build()
+
                                     val analysisBuilder = ImageAnalysis.Builder()
-                                        .setResolutionSelector(highResSelector)
+                                        .setResolutionSelector(analysisSelector)
                                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
 
                                     val ext = Camera2Interop.Extender(analysisBuilder)
                                     ext.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                                     ext.setCaptureRequestOption(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_HIGH_QUALITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_HIGH_QUALITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY)
                                     ext.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
-                                    ext.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(30, 60))
 
                                     val imageAnalysis = analysisBuilder.build()
                                     imageAnalysis.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
                                         val mediaImage = imageProxy.image
-                                        if (mediaImage != null && !state.isScanningPaused) {
+                                        if (mediaImage != null && !state.isScanningPaused && !viewModel.isProcessingFrame) {
                                             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                             val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
-                                            val fullBitmap = imageProxyToBitmap(imageProxy)
 
                                             faceDetector.process(image)
                                                 .addOnSuccessListener { faces ->
-                                                    if (fullBitmap != null) {
-                                                        viewModel.processCameraFaces(
-                                                            faces = faces,
-                                                            fullBitmap = fullBitmap,
-                                                            previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
-                                                            previewHeight = previewView.height.toFloat().coerceAtLeast(1f)
-                                                        )
+                                                    if (faces.isNotEmpty() && !viewModel.isProcessingFrame) {
+                                                        val fullBitmap = imageProxyToBitmap(imageProxy)
+                                                        if (fullBitmap != null) {
+                                                            viewModel.processCameraFaces(
+                                                                faces = faces,
+                                                                fullBitmap = fullBitmap,
+                                                                previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
+                                                                previewHeight = previewView.height.toFloat().coerceAtLeast(1f)
+                                                            )
+                                                        }
+                                                    } else if (faces.isEmpty()) {
+                                                        viewModel.handleEmptyFaces()
                                                     }
                                                 }
                                                 .addOnFailureListener {
-                                                    fullBitmap?.recycle()
+                                                    viewModel.handleEmptyFaces()
                                                 }
                                                 .addOnCompleteListener {
                                                     imageProxy.close()
