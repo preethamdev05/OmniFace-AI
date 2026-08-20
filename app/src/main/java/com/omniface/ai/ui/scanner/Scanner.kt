@@ -207,6 +207,8 @@ class ScannerViewModel : ViewModel() {
         }
     }
 
+    private var securityPipeline: com.omniface.ai.ml.pipeline.FaceSecurityPipeline? = null
+
     init {
         checkDatabaseStatus()
         observeModelDownloads()
@@ -241,6 +243,7 @@ class ScannerViewModel : ViewModel() {
                 cachedStudentMap = students.associate { it.rollNumber to it.fullName }
                 cachedTemplates = templates
                 recognitionEngine?.preloadTemplates(templates)
+                securityPipeline?.preloadTemplates(templates)
                 val isEmpty = students.isEmpty()
                 val count = students.size
                 _uiState.update {
@@ -264,6 +267,10 @@ class ScannerViewModel : ViewModel() {
                 engine.preloadTemplates(cachedTemplates)
             }
             recognitionEngine = engine
+            securityPipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline(context, engine, qualcommIntelligenceEngine)
+            if (cachedTemplates.isNotEmpty()) {
+                securityPipeline?.preloadTemplates(cachedTemplates)
+            }
             viewModelScope.launch(Dispatchers.Default) {
                 val latency = engine.benchmarkInferenceLatency()
                 val npuInfo = engine.npuHardwareInfo
@@ -471,298 +478,118 @@ class ScannerViewModel : ViewModel() {
                     return@launch
                 }
 
-                val scale = maxOf(previewWidth / fullBitmap.width, previewHeight / fullBitmap.height)
-                val dx = (previewWidth - fullBitmap.width * scale) / 2f
-                val dy = (previewHeight - fullBitmap.height * scale) / 2f
+                val pipeline = securityPipeline ?: return@launch
+                val isFront = _uiState.value.lensFacing == CameraSelector.LENS_FACING_FRONT
+                val output = pipeline.processFrame(
+                    faces = faces,
+                    fullBitmap = fullBitmap,
+                    previewWidth = previewWidth,
+                    previewHeight = previewHeight,
+                    isFrontCamera = isFront,
+                    studentMap = studentMap,
+                    securityTier = _uiState.value.activeTier
+                )
 
-                val faceBoxes = mutableListOf<FaceBoxUi>()
-                val visualGeometries = mutableListOf<FaceGeometryVisualData>()
-                var topMatchTitle = "FACE DETECTED"
-                var topMatchSubtitle = "Align face inside frame"
-                var topMatchedRoll = ""
-                var topMatchedName = ""
-                var topMatchedTime = ""
-                var topConfidence = 0f
-                var topMatchedMargin = 0f
-                var topMatchedZone = ConfidenceZone.REJECT
-                var topMatchedExplanation = ""
-                var scanState = ScannerScanState.FACE_DETECTED
-                var qcTelemetry: QualcommIntelligenceTelemetry? = null
-                var lastFrameLatencyMs = _uiState.value.benchmarkLatencyMs
+                val decision = output.topDecision
+                val currentTimestamp = System.currentTimeMillis()
+                val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(currentTimestamp))
 
-                val maxFacesToProcess = if (_uiState.value.isMultiFaceMode) faces.take(3) else faces.take(1)
+                val scanState: ScannerScanState
+                val topMatchTitle: String
+                val topMatchSubtitle: String
 
-                for (face in maxFacesToProcess) {
-                    val box = face.boundingBox
+                when (decision.gateState) {
+                    com.omniface.ai.ml.pipeline.PipelineGateState.PASS -> {
+                        if (output.isAttendanceTriggered) {
+                            lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
+                            BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
 
-                    val faceWidthFraction = box.width().toFloat() / fullBitmap.width.toFloat()
-                    if (faceWidthFraction < 0.18f) {
-                        scanState = ScannerScanState.POOR_QUALITY
-                        topMatchTitle = "MOVE CLOSER"
-                        topMatchSubtitle = "Improve lighting and face alignment"
+                            val sha256 = AndroidSecurityUtils.computeSha256("${decision.matchedStudentRoll}_$currentTimestamp")
+                            TurnstileRelayController.triggerDoorUnlock(
+                                durationMs = 2000L,
+                                studentRoll = decision.matchedStudentRoll,
+                                studentName = decision.matchedStudentName,
+                                confidencePct = decision.matchConfidence,
+                                sha256Proof = sha256
+                            )
+
+                            val record = AttendanceRecordEntity(
+                                recordId = UUID.randomUUID().toString(),
+                                studentRoll = decision.matchedStudentRoll,
+                                studentName = decision.matchedStudentName,
+                                timestamp = currentTimestamp,
+                                sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp)),
+                                confidencePct = decision.matchConfidence,
+                                securityTier = _uiState.value.activeTier.name,
+                                sha256Hash = sha256,
+                                isSynced = false
+                            )
+                            db.attendanceDao().recordAttendanceIfNotExists(record)
+
+                            scanState = ScannerScanState.ATTENDANCE_RECORDED
+                            topMatchTitle = "✓ ATTENDANCE RECORDED"
+                            topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (Δ: ${"%.3f".format(decision.decisionMargin)})"
+                        } else {
+                            scanState = ScannerScanState.RECOGNIZED
+                            topMatchTitle = decision.matchedStudentName.uppercase()
+                            topMatchSubtitle = "${decision.matchConfidence.toInt()}% Match • Live 3D Face Verified"
+                        }
                     }
-
-                    val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f) ?: continue
-                    val liveness = livenessDetector.evaluateLiveness(face, faceCrop, qualcommIntelligenceEngine)
-
-                    val isFront = _uiState.value.lensFacing == CameraSelector.LENS_FACING_FRONT
-                    val rawRect = if (isFront) {
-                        androidx.compose.ui.geometry.Rect(
-                            left = (fullBitmap.width - box.right) * scale + dx,
-                            top = box.top * scale + dy,
-                            right = (fullBitmap.width - box.left) * scale + dx,
-                            bottom = box.bottom * scale + dy
-                        )
-                    } else {
-                        androidx.compose.ui.geometry.Rect(
-                            left = box.left * scale + dx,
-                            top = box.top * scale + dy,
-                            right = box.right * scale + dx,
-                            bottom = box.bottom * scale + dy
-                        )
-                    }
-                    val trackId = face.trackingId ?: 0
-                    val prevRect = emaBoundingBoxes[trackId]
-                    val normRect = if (prevRect != null) {
-                        val alpha = 0.65f
-                        androidx.compose.ui.geometry.Rect(
-                            left = prevRect.left * (1f - alpha) + rawRect.left * alpha,
-                            top = prevRect.top * (1f - alpha) + rawRect.top * alpha,
-                            right = prevRect.right * (1f - alpha) + rawRect.right * alpha,
-                            bottom = prevRect.bottom * (1f - alpha) + rawRect.bottom * alpha
-                        )
-                    } else {
-                        rawRect
-                    }
-                    emaBoundingBoxes[trackId] = normRect
-
-                    if (liveness == LivenessState.SPOOF_SUSPECTED) {
+                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK -> {
                         BiometricSoundboard.playSpoofAlert()
-                        val diag = livenessDetector.getDiagnostic()
-                        topMatchTitle = "SPOOF ATTACK DETECTED"
-                        topMatchSubtitle = diag.spoofReason
                         scanState = ScannerScanState.SPOOF_ALERT
-                        faceBoxes.add(
-                            FaceBoxUi(
-                                rect = normRect,
-                                name = "Spoof Rejected",
-                                roll = diag.spoofReason,
-                                isVerified = false,
-                                isGuest = true,
-                                isSpoof = true,
-                                similarity = 0f
-                            )
-                        )
-                        faceCrop.recycle()
-                        continue
+                        topMatchTitle = decision.title
+                        topMatchSubtitle = decision.subtitle
                     }
-
-                    if (liveness != LivenessState.PASS) {
-                        scanState = ScannerScanState.VERIFYING
-                        topMatchTitle = "VERIFYING..."
-                        topMatchSubtitle = "Analyzing biometric liveness"
-                        faceBoxes.add(
-                            FaceBoxUi(
-                                rect = normRect,
-                                name = "Verifying...",
-                                roll = "Liveness Check",
-                                isVerified = false,
-                                isGuest = true,
-                                similarity = 0f
-                            )
-                        )
-                        faceCrop.recycle()
-                        continue
+                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_QUALITY -> {
+                        scanState = ScannerScanState.POOR_QUALITY
+                        topMatchTitle = decision.title
+                        topMatchSubtitle = decision.subtitle
                     }
-
-                    var map3dResult: FaceMap3DMMResult? = null
-                    var gazeResult: EyeGazeResult? = null
-                    var attrResult: FaceAttributesResult? = null
-                    var meshResult: MediaPipeMeshResult? = null
-
-                    // Qualcomm AI Hub Face Intelligence Multi-Model Suite Telemetry
-                    if (qualcommIntelligenceEngine != null && qualcommIntelligenceEngine.isSuiteLoaded) {
-                        try {
-                            map3dResult = qualcommIntelligenceEngine.estimate3dFaceMap(faceCrop)
-                            gazeResult = qualcommIntelligenceEngine.estimateEyeGaze(faceCrop)
-                            attrResult = qualcommIntelligenceEngine.detectFaceAttributes(faceCrop)
-                            meshResult = qualcommIntelligenceEngine.estimateMediaPipeFaceMesh(faceCrop)
-                            qcTelemetry = QualcommIntelligenceTelemetry(
-                                isSnapdragonDevice = true,
-                                isCavafaceActive = engine.activeBackbone == NeuralBackbone.QUALCOMM_CAVAFACE,
-                                is3DMMActive = map3dResult != null,
-                                depthVariance = map3dResult?.depthVariance ?: 0f,
-                                isEyeGazeActive = gazeResult != null,
-                                gazeAttentive = gazeResult?.isGazeAttentive ?: true,
-                                gazePitch = gazeResult?.pitch ?: 0f,
-                                gazeYaw = gazeResult?.yaw ?: 0f,
-                                isFaceAttribActive = attrResult != null,
-                                smileScore = attrResult?.smileScore ?: 0f,
-                                eyeglassesScore = attrResult?.eyeglassesScore ?: 0f,
-                                isMeshActive = meshResult != null,
-                                meshPointsCount = if (meshResult != null) 468 else 0
-                            )
-                        } catch (_: Throwable) {}
+                    com.omniface.ai.ml.pipeline.PipelineGateState.REVIEW_AMBIGUOUS_MATCH -> {
+                        scanState = ScannerScanState.REVIEW_REQUIRED
+                        topMatchTitle = decision.title
+                        topMatchSubtitle = decision.subtitle
                     }
+                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_UNKNOWN_IDENTITY -> {
+                        scanState = ScannerScanState.UNKNOWN_IDENTITY
+                        topMatchTitle = decision.title
+                        topMatchSubtitle = decision.subtitle
+                    }
+                }
 
-                    val t0 = System.nanoTime()
-                    val rawEmbedding = engine.extractEmbedding(faceCrop)
-                    faceCrop.recycle()
-
-                    val matchResult = engine.matchFace(
-                        queryEmbedding = rawEmbedding,
-                        knownTemplates = templates,
-                        studentMap = studentMap,
-                        securityTier = _uiState.value.activeTier
+                val faceBoxes = output.visualGeometries.map { geo ->
+                    FaceBoxUi(
+                        rect = geo.bounds,
+                        name = if (decision.isAttendanceAuthorized) decision.matchedStudentName else if (decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK) "Spoof Rejected" else "Visitor",
+                        roll = if (decision.isAttendanceAuthorized) decision.matchedStudentRoll else if (decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK) decision.subtitle else "Unregistered",
+                        isVerified = decision.isAttendanceAuthorized,
+                        isGuest = !decision.isAttendanceAuthorized,
+                        isSpoof = decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK,
+                        isReview = decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
+                        similarity = decision.matchSimilarity,
+                        decisionMargin = decision.decisionMargin,
+                        confidenceZone = geo.confidenceZone,
+                        explanation = decision.technicalExplanation
                     )
-                    val frameLatencyMs = ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
-                    lastFrameLatencyMs = frameLatencyMs
-
-                    topMatchedMargin = matchResult.decisionMargin
-                    topMatchedZone = matchResult.confidenceZone
-                    topMatchedExplanation = matchResult.explanation
-
-                    val visualItem = FaceGeometryVisualData(
-                        bounds = normRect,
-                        yaw = face.headEulerAngleY,
-                        pitch = face.headEulerAngleX,
-                        roll = face.headEulerAngleZ,
-                        gazeResult = gazeResult,
-                        faceMap3DMM = map3dResult,
-                        attributes = attrResult,
-                        meshResult = meshResult,
-                        confidenceZone = matchResult.confidenceZone,
-                        decisionMargin = matchResult.decisionMargin,
-                        similarityScore = matchResult.similarity,
-                        studentName = matchResult.studentName,
-                        isLive = (liveness != LivenessState.SPOOF_SUSPECTED),
-                        activeHardwareNpu = _uiState.value.hardwareTierLabel
-                    )
-                    visualGeometries.add(visualItem)
-
-                    when (matchResult.confidenceZone) {
-                        ConfidenceZone.ACCEPT -> {
-                            topConfidence = matchResult.confidence
-                            topMatchedRoll = matchResult.studentRoll
-                            topMatchedName = matchResult.studentName
-                            val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(nowMs))
-                            topMatchedTime = timeStr
-
-                            val lastLog = lastVerifiedTimestamps[matchResult.studentRoll] ?: 0L
-                            if (nowMs - lastLog > 60_000L) {
-                                lastVerifiedTimestamps[matchResult.studentRoll] = nowMs
-                                BiometricSoundboard.playMatchSuccess(matchResult.studentName)
-
-                                val sha256 = AndroidSecurityUtils.computeSha256("${matchResult.studentRoll}_$nowMs")
-                                TurnstileRelayController.triggerDoorUnlock(
-                                    durationMs = 2000L,
-                                    studentRoll = matchResult.studentRoll,
-                                    studentName = matchResult.studentName,
-                                    confidencePct = matchResult.confidence,
-                                    sha256Proof = sha256
-                                )
-
-                                val record = AttendanceRecordEntity(
-                                    recordId = UUID.randomUUID().toString(),
-                                    studentRoll = matchResult.studentRoll,
-                                    studentName = matchResult.studentName,
-                                    timestamp = nowMs,
-                                    sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(nowMs)),
-                                    confidencePct = matchResult.confidence,
-                                    securityTier = _uiState.value.activeTier.name,
-                                    sha256Hash = sha256,
-                                    isSynced = false
-                                )
-                                db.attendanceDao().recordAttendanceIfNotExists(record)
-
-                                scanState = ScannerScanState.ATTENDANCE_RECORDED
-                                topMatchTitle = "✓ ATTENDANCE RECORDED"
-                                topMatchSubtitle = "${matchResult.studentName} • $timeStr (Δ: ${"%.3f".format(matchResult.decisionMargin)})"
-                            } else {
-                                scanState = ScannerScanState.RECOGNIZED
-                                topMatchTitle = matchResult.studentName.uppercase()
-                                topMatchSubtitle = "${matchResult.confidence.toInt()}% Match • Attendance Ready (Δ: ${"%.3f".format(matchResult.decisionMargin)})"
-                            }
-
-                            faceBoxes.add(
-                                FaceBoxUi(
-                                    rect = normRect,
-                                    name = matchResult.studentName,
-                                    roll = matchResult.studentRoll,
-                                    isVerified = true,
-                                    isGuest = false,
-                                    isReview = false,
-                                    similarity = matchResult.similarity,
-                                    decisionMargin = matchResult.decisionMargin,
-                                    confidenceZone = ConfidenceZone.ACCEPT,
-                                    explanation = matchResult.explanation
-                                )
-                            )
-                        }
-                        ConfidenceZone.REVIEW -> {
-                            scanState = ScannerScanState.REVIEW_REQUIRED
-                            topMatchTitle = "REVIEW REQUIRED"
-                            topMatchSubtitle = matchResult.explanation
-                            topConfidence = matchResult.confidence
-                            topMatchedRoll = matchResult.studentRoll
-                            topMatchedName = matchResult.studentName
-
-                            faceBoxes.add(
-                                FaceBoxUi(
-                                    rect = normRect,
-                                    name = "${matchResult.studentName} (?)",
-                                    roll = "Review: Δ=${"%.3f".format(matchResult.decisionMargin)}",
-                                    isVerified = false,
-                                    isGuest = false,
-                                    isReview = true,
-                                    similarity = matchResult.similarity,
-                                    decisionMargin = matchResult.decisionMargin,
-                                    confidenceZone = ConfidenceZone.REVIEW,
-                                    explanation = matchResult.explanation
-                                )
-                            )
-                        }
-                        ConfidenceZone.REJECT -> {
-                            scanState = ScannerScanState.UNKNOWN_IDENTITY
-                            topMatchTitle = "UNKNOWN IDENTITY"
-                            val simStr = "%.3f".format(matchResult.similarity)
-                            val reqStr = "%.3f".format(_uiState.value.activeTier.threshold)
-                            topMatchSubtitle = "Score: $simStr • Need >= $reqStr"
-                            faceBoxes.add(
-                                FaceBoxUi(
-                                    rect = normRect,
-                                    name = "Unknown",
-                                    roll = "Unregistered",
-                                    isVerified = false,
-                                    isGuest = true,
-                                    isReview = false,
-                                    similarity = matchResult.similarity,
-                                    decisionMargin = matchResult.decisionMargin,
-                                    confidenceZone = ConfidenceZone.REJECT,
-                                    explanation = matchResult.explanation
-                                )
-                            )
-                        }
-                    }
                 }
 
                 _uiState.update {
                     it.copy(
                         detectedFaces = faceBoxes,
-                        visualGeometryData = visualGeometries,
+                        visualGeometryData = output.visualGeometries,
                         scanState = scanState,
-                        matchedRoll = topMatchedRoll,
-                        matchedName = topMatchedName,
-                        matchedTimeFormatted = topMatchedTime,
+                        matchedRoll = decision.matchedStudentRoll,
+                        matchedName = decision.matchedStudentName,
+                        matchedTimeFormatted = timeStr,
                         matchTitle = topMatchTitle,
                         matchSubtitle = topMatchSubtitle,
-                        lastConfidence = topConfidence,
-                        matchedMargin = topMatchedMargin,
-                        matchedZone = topMatchedZone,
-                        matchedExplanation = topMatchedExplanation,
-                        benchmarkLatencyMs = if (faceBoxes.isNotEmpty()) lastFrameLatencyMs else it.benchmarkLatencyMs,
-                        hardwareTierLabel = engine.activeHardwareTier.getResolvedLabel(engine.npuHardwareInfo),
-                        qualcommTelemetry = qcTelemetry ?: it.qualcommTelemetry
+                        lastConfidence = decision.matchConfidence,
+                        matchedMargin = decision.decisionMargin,
+                        matchedZone = if (decision.isAttendanceAuthorized) ConfidenceZone.ACCEPT else ConfidenceZone.REJECT,
+                        matchedExplanation = decision.technicalExplanation,
+                        benchmarkLatencyMs = output.executionLatencyMs,
+                        hardwareTierLabel = output.activeHardwareTier
                     )
                 }
             } finally {
@@ -775,6 +602,7 @@ class ScannerViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         cameraExecutor.shutdown()
+        securityPipeline?.close()
         recognitionEngine?.close()
         qualcommIntelligenceEngine?.close()
     }
