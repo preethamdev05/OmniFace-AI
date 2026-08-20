@@ -125,19 +125,29 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
 
         /**
          * Resolves the .tflite file for a given model entry, checking:
-         * 1. App-owned external files dir  (downloaded via this manager)
-         * 2. Legacy /storage/emulated/0/AI-HUB/FR path  (pre-placed via ADB)
+         * 1. App-owned external files dir (downloaded via this manager)
+         * 2. Canonical /storage/emulated/0/AI-HUB/FR/models paths
+         * 3. S3 unpacked nested dirs
          */
         fun resolveModelFile(context: Context, entry: QualcommModelEntry): File? {
-            // 1. App-writable location
-            val appFile = File(suiteRoot(context), "${entry.relativeDir}/${entry.filename}")
-            if (appFile.exists() && appFile.canRead()) return appFile
-
-            // 2. Legacy pre-placed location
-            val legacyFile = File(
-                "/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/${entry.relativeDir}/${entry.filename}"
+            val candidates = listOf(
+                File(suiteRoot(context), "${entry.relativeDir}/${entry.filename}"),
+                File(suiteRoot(context), "${entry.id}/${entry.id}-tflite-float/${entry.filename}"),
+                File(suiteRoot(context), "${entry.id}/${entry.filename}"),
+                File(suiteRoot(context), entry.filename),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/${entry.relativeDir}/${entry.filename}"),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/${entry.id}/${entry.id}-tflite-float/${entry.filename}"),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/${entry.id}/${entry.filename}"),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/${entry.filename}"),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_${entry.id}/${entry.id}-tflite-float/${entry.filename}"),
+                File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_${entry.id}/${entry.filename}")
             )
-            if (legacyFile.exists() && legacyFile.canRead()) return legacyFile
+
+            for (candidate in candidates) {
+                if (candidate.exists() && candidate.canRead() && candidate.length() > 1024L) {
+                    return candidate
+                }
+            }
 
             return null
         }

@@ -488,6 +488,7 @@ class ScannerViewModel : ViewModel() {
                 var topMatchedExplanation = ""
                 var scanState = ScannerScanState.FACE_DETECTED
                 var qcTelemetry: QualcommIntelligenceTelemetry? = null
+                var lastFrameLatencyMs = _uiState.value.benchmarkLatencyMs
 
                 val maxFacesToProcess = if (_uiState.value.isMultiFaceMode) faces.take(3) else faces.take(1)
 
@@ -501,7 +502,7 @@ class ScannerViewModel : ViewModel() {
                         topMatchSubtitle = "Improve lighting and face alignment"
                     }
 
-                    val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.30f) ?: continue
+                    val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f) ?: continue
                     val liveness = livenessDetector.evaluateLiveness(face, faceCrop, qualcommIntelligenceEngine)
 
                     val isFront = _uiState.value.lensFacing == CameraSelector.LENS_FACING_FRONT
@@ -604,6 +605,7 @@ class ScannerViewModel : ViewModel() {
                         } catch (_: Throwable) {}
                     }
 
+                    val t0 = System.nanoTime()
                     val rawEmbedding = engine.extractEmbedding(faceCrop)
                     faceCrop.recycle()
 
@@ -613,6 +615,8 @@ class ScannerViewModel : ViewModel() {
                         studentMap = studentMap,
                         securityTier = _uiState.value.activeTier
                     )
+                    val frameLatencyMs = ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                    lastFrameLatencyMs = frameLatencyMs
 
                     topMatchedMargin = matchResult.decisionMargin
                     topMatchedZone = matchResult.confidenceZone
@@ -756,6 +760,8 @@ class ScannerViewModel : ViewModel() {
                         matchedMargin = topMatchedMargin,
                         matchedZone = topMatchedZone,
                         matchedExplanation = topMatchedExplanation,
+                        benchmarkLatencyMs = if (faceBoxes.isNotEmpty()) lastFrameLatencyMs else it.benchmarkLatencyMs,
+                        hardwareTierLabel = engine.activeHardwareTier.getResolvedLabel(engine.npuHardwareInfo),
                         qualcommTelemetry = qcTelemetry ?: it.qualcommTelemetry
                     )
                 }

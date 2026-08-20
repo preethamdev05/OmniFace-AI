@@ -28,9 +28,9 @@ import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.NpuHardwareInfo
 
 enum class SecurityTier(val threshold: Float, val label: String, val farDesc: String) {
-    STANDARD(0.120f, "STANDARD", "Doorway Kiosk (FAR 1:10 • τ ≥ 0.120)"),
-    HIGH(0.158f, "HIGH", "ISO/IEC Standard (FAR 1:100 • τ ≥ 0.158)"),
-    STRICT(0.220f, "STRICT", "Bank Grade (FAR 1:1,000 • τ ≥ 0.220)")
+    STANDARD(0.420f, "STANDARD", "Doorway Kiosk (FAR 1:100 • τ ≥ 0.420)"),
+    HIGH(0.500f, "HIGH", "ISO/IEC Standard (FAR 1:1,000 • τ ≥ 0.500)"),
+    STRICT(0.600f, "STRICT", "Bank Grade (FAR 1:10,000 • τ ≥ 0.600)")
 }
 
 enum class NeuralBackbone(val label: String, val params: String, val isQualcommOptimized: Boolean) {
@@ -584,26 +584,25 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             )
         }
 
-        // ── Two-pass per-student aggregation with Decision Margin Analysis ────
-        // Pass 1: compute similarity of query against every cached template
-        // Pass 2: group by studentRoll and take the AVERAGE score (not global max)
-        // This prevents an imposter from matching against one noisy angle template.
+        // ── High-Precision Multi-Angle Candidate Scoring ────
+        // Step 1: For each student, find their MAXIMUM similarity across their multi-angle templates
+        // (frontal, left 22°, right 22°, up 16°, down 16°).
+        // Since a person presents one pose at a time, the best-matching angle represents their true biometric likeness.
+        val perStudentBestScores = HashMap<String, Float>()
+        val perStudentBestAngles = HashMap<String, String>()
 
-        // studentRoll → (sumSimilarity, count)
-        val perStudentScores = HashMap<String, Pair<Float, Int>>()
         for (cached in biometricCache) {
             val sim = fastVectorDotProduct(queryEmbedding, cached.embedding)
-            val prev = perStudentScores[cached.studentRoll]
-            if (prev == null) {
-                perStudentScores[cached.studentRoll] = Pair(sim, 1)
-            } else {
-                perStudentScores[cached.studentRoll] = Pair(prev.first + sim, prev.second + 1)
+            val currentBest = perStudentBestScores[cached.studentRoll] ?: -1.0f
+            if (sim > currentBest) {
+                perStudentBestScores[cached.studentRoll] = sim
+                perStudentBestAngles[cached.studentRoll] = cached.angleType
             }
         }
 
-        // Rank all candidate matches by mean similarity descending
-        val rankedCandidates = perStudentScores.map { (roll, pair) ->
-            roll to (pair.first / pair.second)
+        // Step 2: Rank all candidate students by best similarity descending
+        val rankedCandidates = perStudentBestScores.map { (roll, sim) ->
+            roll to sim
         }.sortedByDescending { it.second }
 
         val top1 = rankedCandidates.getOrNull(0)
@@ -611,12 +610,13 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
         val maxSimilarity = top1?.second ?: 0.0f
         val bestMatchRoll = top1?.first ?: "GUEST"
+        val matchedAngle = perStudentBestAngles[bestMatchRoll] ?: "FRONTAL"
         val top2Similarity = top2?.second ?: 0.0f
         val top2Roll = top2?.first
 
         val margin = if (rankedCandidates.size > 1) (maxSimilarity - top2Similarity) else maxSimilarity
         val threshold = securityTier.threshold
-        val marginThreshold = 0.035f // Minimum margin required to avoid ambiguous / twin-like confusion
+        val marginThreshold = 0.070f // Strict margin guard against lookalike / twin confusion
 
         val confidenceZone: ConfidenceZone
         val isMatch: Boolean
@@ -626,31 +626,31 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             confidenceZone = ConfidenceZone.ACCEPT
             isMatch = true
             val top2Text = if (top2Roll != null) " (Top-2: $top2Roll @ ${"%.3f".format(top2Similarity)})" else ""
-            explanation = "Verified: Cosine sim ${"%.3f".format(maxSimilarity)} >= ${"%.3f".format(threshold)}, Decision margin Δ=${"%.3f".format(margin)}$top2Text"
+            explanation = "Verified: $bestMatchRoll (sim ${"%.3f".format(maxSimilarity)} >= ${"%.3f".format(threshold)} [$matchedAngle], Δ=${"%.3f".format(margin)}$top2Text)"
         } else if (maxSimilarity >= threshold && margin < marginThreshold) {
             // Sibling / Twin / Ambiguous match safeguard
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
-            explanation = "Ambiguous Match: Top-1 $bestMatchRoll (${"%.3f".format(maxSimilarity)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Similarity)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
-        } else if (maxSimilarity >= (threshold - 0.025f)) {
+            explanation = "Ambiguous Identity: Top-1 $bestMatchRoll (${"%.3f".format(maxSimilarity)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Similarity)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
+        } else if (maxSimilarity >= (threshold - 0.060f)) {
             // Borderline score
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
-            explanation = "Borderline Match: Cosine sim ${"%.3f".format(maxSimilarity)} is near threshold ${"%.3f".format(threshold)} (Δ=${"%.3f".format(margin)})"
+            explanation = "Borderline Likeness: Cosine sim ${"%.3f".format(maxSimilarity)} near threshold ${"%.3f".format(threshold)} (Δ=${"%.3f".format(margin)})"
         } else {
             confidenceZone = ConfidenceZone.REJECT
             isMatch = false
-            explanation = "Unrecognized / Low Similarity: Cosine sim ${"%.3f".format(maxSimilarity)} < threshold ${"%.3f".format(threshold)}"
+            explanation = "Unregistered / Visitor: Cosine sim ${"%.3f".format(maxSimilarity)} < threshold ${"%.3f".format(threshold)}"
         }
 
         val name = if (isMatch) studentMap[bestMatchRoll] ?: bestMatchRoll else "Visitor / Unregistered"
 
-        // Normalized 0-100% confidence for UI presentation
+        // Calibrated 0-100% confidence for UI presentation
         val normalizedConfidence = if (isMatch) {
-            val progress = ((maxSimilarity - threshold) / (0.80f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
-            (75.0f + progress * 24.9f).coerceIn(75.0f, 99.9f)
+            val progress = ((maxSimilarity - threshold) / (0.85f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
+            (82.0f + progress * 17.9f).coerceIn(82.0f, 99.9f)
         } else {
-            (maxSimilarity.coerceAtLeast(0f) * 70f).coerceIn(0f, 70f)
+            ((maxSimilarity.coerceAtLeast(0f) / threshold) * 69.0f).coerceIn(0.0f, 69.0f)
         }
 
         MatchResult(
@@ -669,30 +669,24 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     private fun fastVectorDotProduct(a: FloatArray, b: FloatArray): Float {
-        var dot0 = 0.0f; var dot1 = 0.0f; var dot2 = 0.0f; var dot3 = 0.0f
-        var dot4 = 0.0f; var dot5 = 0.0f; var dot6 = 0.0f; var dot7 = 0.0f
-        val limit = minOf(a.size, b.size) and 0x7FFFFFF8
-
-        var i = 0
-        while (i < limit) {
-            dot0 += a[i] * b[i]
-            dot1 += a[i + 1] * b[i + 1]
-            dot2 += a[i + 2] * b[i + 2]
-            dot3 += a[i + 3] * b[i + 3]
-            dot4 += a[i + 4] * b[i + 4]
-            dot5 += a[i + 5] * b[i + 5]
-            dot6 += a[i + 6] * b[i + 6]
-            dot7 += a[i + 7] * b[i + 7]
-            i += 8
+        val size = minOf(a.size, b.size)
+        if (size == 0) return 0.0f
+        var sum = 0.0f
+        var normA = 0.0f
+        var normB = 0.0f
+        for (i in 0 until size) {
+            val va = a[i]
+            val vb = b[i]
+            sum += va * vb
+            normA += va * va
+            normB += vb * vb
         }
-
-        var tail = 0.0f
-        while (i < minOf(a.size, b.size)) {
-            tail += a[i] * b[i]
-            i++
+        val denom = kotlin.math.sqrt(normA * normB)
+        return if (denom > 1e-7f) {
+            (sum / denom).coerceIn(-1.0f, 1.0f)
+        } else {
+            0.0f
         }
-
-        return (dot0 + dot1 + dot2 + dot3 + dot4 + dot5 + dot6 + dot7 + tail).coerceIn(-1.0f, 1.0f)
     }
 
     private fun parseEmbeddingCsv(csv: String): FloatArray {

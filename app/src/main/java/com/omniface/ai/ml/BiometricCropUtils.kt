@@ -10,7 +10,7 @@ object BiometricCropUtils {
      * Extracts an undistorted, 1:1 aspect ratio square face bounding box
      * centered on the detected face centroid, including optimal margin for ArcFace.
      */
-    fun extractSquareFaceCrop(fullBitmap: Bitmap, box: Rect, marginMultiplier: Float = 1.30f): Bitmap? {
+    fun extractSquareFaceCrop(fullBitmap: Bitmap, box: Rect, marginMultiplier: Float = 1.25f): Bitmap? {
         if (fullBitmap.isRecycled || box.width() <= 0 || box.height() <= 0) return null
 
         val cx = box.centerX()

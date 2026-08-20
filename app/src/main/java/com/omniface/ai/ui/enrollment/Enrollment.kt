@@ -308,7 +308,7 @@ class EnrollmentViewModel : ViewModel() {
             val isAligned = isPoseInTargetEnvelope(latestFaceYaw, latestFacePitch, step)
 
             val box = face.boundingBox
-            val newCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.30f)
+            val newCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
             if (newCrop != null) {
                 synchronized(this) {
                     val oldCrop = latestFaceCrop
