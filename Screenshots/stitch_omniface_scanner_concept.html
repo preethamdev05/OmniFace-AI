@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>OmniFace AI - Biometric Scanner</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#353436",
+                        "on-tertiary-fixed-variant": "#930005",
+                        "outline-variant": "#3a494b",
+                        "on-primary-fixed": "#002022",
+                        "secondary-container": "#36ff8b",
+                        "primary-fixed": "#74f5ff",
+                        "on-secondary-fixed-variant": "#005227",
+                        "error": "#ffb4ab",
+                        "surface-container": "#201f20",
+                        "outline": "#849495",
+                        "secondary": "#f5fff2",
+                        "surface-variant": "#353436",
+                        "inverse-surface": "#e5e2e3",
+                        "on-background": "#e5e2e3",
+                        "on-surface-variant": "#b9cacb",
+                        "on-secondary-container": "#007238",
+                        "surface-bright": "#3a393a",
+                        "error-container": "#93000a",
+                        "tertiary-container": "#ffd0ca",
+                        "on-secondary": "#003919",
+                        "on-primary-container": "#006a71",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#410001",
+                        "tertiary": "#fff5f4",
+                        "surface-dim": "#131314",
+                        "inverse-on-surface": "#313031",
+                        "on-primary-fixed-variant": "#004f54",
+                        "on-secondary-fixed": "#00210c",
+                        "primary": "#e1fdff",
+                        "background": "#131314",
+                        "on-tertiary-container": "#c3000a",
+                        "primary-container": "#00f2ff",
+                        "primary-fixed-dim": "#00dbe7",
+                        "on-tertiary": "#690003",
+                        "surface-container-low": "#1c1b1c",
+                        "surface-container-lowest": "#0e0e0f",
+                        "on-primary": "#00363a",
+                        "inverse-primary": "#00696f",
+                        "secondary-fixed-dim": "#00e476",
+                        "secondary-fixed": "#61ff97",
+                        "on-surface": "#e5e2e3",
+                        "on-error": "#690005",
+                        "surface-tint": "#00dbe7",
+                        "surface-container-high": "#2a2a2b",
+                        "tertiary-fixed": "#ffdad5",
+                        "surface": "#131314",
+                        "tertiary-fixed-dim": "#ffb4aa"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "glass": "2rem"
+                    },
+                    "spacing": {
+                        "base": "8px",
+                        "gutter": "16px",
+                        "stack-sm": "12px",
+                        "container-padding": "24px",
+                        "stack-lg": "32px"
+                    },
+                    "fontFamily": {
+                        "display-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "data-mono": ["JetBrains Mono"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "data-mono": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .emerald-glow {
+            box-shadow: 0 0 40px rgba(0, 228, 118, 0.15);
+        }
+        .emerald-flash {
+            animation: flash 2s ease-out forwards;
+        }
+        @keyframes flash {
+            0% { box-shadow: inset 0 0 0 2px rgba(0, 228, 118, 0.8), 0 0 60px rgba(0, 228, 118, 0.4); }
+            100% { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 0 40px rgba(0, 228, 118, 0.15); }
+        }
+        .scanner-line {
+            animation: scan 3s linear infinite;
+        }
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen overflow-hidden flex flex-col items-center relative font-body-md select-none">
+<!-- Top Navigation Anchor (Shared Component) -->
+<header class="flex items-center justify-between h-16 w-full fixed z-50 w-full top-0 px-gutter pt-base backdrop-blur-xl bg-surface/5 border-b border-white/20 shadow-[0_0_40px_rgba(0,219,231,0.15)]">
+<div class="flex items-center gap-2 text-primary-fixed-dim">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">animated_images</span>
+</div>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg font-display-lg text-display-lg bg-gradient-to-r from-primary-fixed to-secondary-fixed bg-clip-text text-transparent">OmniFace AI</h1>
+<div class="flex items-center gap-2 text-primary-fixed-dim">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings_input_component</span>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="w-full max-w-[400px] h-screen pt-24 pb-28 px-gutter flex flex-col relative z-10">
+<!-- Hardware Telemetry Bar -->
+<div class="flex justify-center mb-stack-lg">
+<div class="glass-card rounded-full px-4 py-1.5 flex items-center gap-2 border border-white/10 text-on-surface-variant text-[10px] uppercase tracking-widest font-data-mono">
+<span class="text-secondary-fixed">⚡</span> QUALCOMM HEXAGON NPU • 45 TOPS (INT8) • 5.8ms
+            </div>
+</div>
+<!-- Viewfinder Area -->
+<div class="relative flex-grow flex flex-col items-center justify-center w-full max-w-sm mx-auto mb-stack-lg">
+<!-- Camera Preview Container (Simulated) -->
+<div class="relative w-full aspect-[3/4] rounded-glass overflow-hidden shadow-[0_0_60px_rgba(0,219,231,0.1)] border border-white/10 group">
+<!-- Background Image (Simulated Camera Feed) -->
+<div class="absolute inset-0 bg-cover bg-center opacity-40" data-alt="A highly detailed close-up of an individual looking directly at a camera lens, styled with a clinical, high-tech aesthetic. Soft, diffuse studio lighting highlights subtle facial features. The overall tone is cool, utilizing dark moody shadows with sharp specular highlights in the eyes, mimicking a cutting-edge biometric scanning scenario." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuC3F9GQ_pQqgCsDXgpsd1YabmY4mGsjsmnJ3wnerF_bT3z1k-2Iva9TDHW5CMtriIvrGDTiNYiRqUZshrvM104CUgD4OfsmvGeVLzstsWtiJLKJnEbyAl9UvjtnqRzZmyw6MDcKtxN5L-EOE1mXGzlKkpo0xZpBBZ9679lIwD4k7koe_43pwlgWB_RRtRh04lVsv4013Q2IjZO44TrnvXcPFJyxyn4BEGH-jcHuPTqRg9D2zBRWBSS7hNygJyDcP5JRN3Yddeqqk0g')"></div>
+<!-- Wireframe Mesh Overlay (Simulated via shader/svg if available, using placeholder here) -->
+<div class="absolute inset-0 w-full h-full border-2 border-primary-fixed/20 rounded-glass">
+<div class="absolute inset-0 bg-[linear-gradient(rgba(116,245,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(116,245,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px]"></div>
+<!-- Facial Tracking Nodes -->
+<div class="absolute top-[40%] left-[30%] w-2 h-2 rounded-full bg-primary-fixed shadow-[0_0_10px_#74f5ff]"></div>
+<div class="absolute top-[40%] right-[30%] w-2 h-2 rounded-full bg-primary-fixed shadow-[0_0_10px_#74f5ff]"></div>
+<div class="absolute top-[55%] left-[50%] w-1.5 h-1.5 -translate-x-1/2 rounded-full bg-primary-fixed/50"></div>
+<div class="absolute top-[65%] left-[50%] w-8 h-1 -translate-x-1/2 bg-primary-fixed/30 rounded-full"></div>
+<!-- Euler Axes (Pitch, Yaw, Roll) -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+<div class="absolute w-[100px] h-px bg-red-500/50 -rotate-12 origin-left left-0"></div> <!-- X -->
+<div class="absolute w-px h-[100px] bg-green-500/50 -translate-y-1/2 origin-bottom top-0"></div> <!-- Y -->
+<div class="absolute w-[80px] h-px bg-blue-500/50 rotate-45 origin-left left-0"></div> <!-- Z -->
+</div>
+<!-- Scanning Line -->
+<div class="scanner-line absolute left-0 w-full h-px bg-primary-fixed shadow-[0_0_15px_#74f5ff] z-20"></div>
+</div>
+</div>
+<!-- Dynamic Telemetry Capsule -->
+<div class="absolute bottom-4 left-1/2 -translate-x-1/2 glass-card rounded-full px-4 py-2 flex items-center gap-4 whitespace-nowrap z-30 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-primary-fixed animate-pulse"></div>
+<span class="font-data-mono text-data-mono text-on-surface-variant">3DMM Depth: 0.182 Var</span>
+</div>
+<div class="w-px h-3 bg-white/20"></div>
+<div class="flex items-center gap-1.5 text-secondary-fixed">
+<span class="material-symbols-outlined text-[14px]">visibility</span>
+<span class="font-data-mono text-data-mono">Gaze: ✓</span>
+</div>
+<div class="w-px h-3 bg-white/20"></div>
+<div class="font-data-mono text-data-mono text-primary-fixed">Liv: 99.4%</div>
+</div>
+</div>
+<!-- Verification Success Card -->
+<div class="glass-card rounded-3xl p-container-padding w-full max-w-sm mx-auto mb-stack-sm relative overflow-hidden emerald-flash emerald-glow z-20">
+<!-- Decorative Background Glow -->
+<div class="absolute -top-10 -right-10 w-32 h-32 bg-secondary-fixed/10 rounded-full blur-2xl"></div>
+<div class="flex items-start justify-between mb-4 relative z-10">
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-white mb-1">Dr. Jane Doe</h2>
+<p class="font-data-mono text-data-mono text-on-surface-variant">Dept: AI & Biometrics</p>
+<p class="font-data-mono text-data-mono text-on-surface-variant">Roll: CS-2026-08</p>
+</div>
+<div class="flex flex-col items-end">
+<div class="bg-secondary-fixed/20 text-secondary-fixed px-3 py-1 rounded-full flex items-center gap-1 border border-secondary-fixed/30 shadow-[0_0_15px_rgba(97,255,151,0.2)]">
+<span class="material-symbols-outlined text-[16px]">verified_user</span>
+<span class="font-label-caps text-label-caps tracking-wider">ACCEPT (99.8%)</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2 mt-4 pt-4 border-t border-white/10 relative z-10 text-secondary-fixed">
+<span class="material-symbols-outlined">check_circle</span>
+<span class="font-body-md text-body-md font-medium">Attendance Recorded</span>
+</div>
+</div>
+<!-- Quick Actions Row -->
+<div class="flex justify-center items-center gap-stack-sm w-full max-w-sm mx-auto z-20">
+<button class="glass-card w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant hover:text-white transition-colors active:scale-95">
+<span class="material-symbols-outlined">cameraswitch</span>
+</button>
+<button class="glass-card h-12 px-6 rounded-full flex items-center justify-center gap-2 text-primary-fixed hover:bg-white/5 transition-colors active:scale-95 border-primary-fixed/30 shadow-[0_0_20px_rgba(116,245,255,0.1)]">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-caps text-label-caps">MULTI-FACE</span>
+</button>
+<button class="glass-card w-12 h-12 rounded-full flex items-center justify-center text-on-surface-variant hover:text-white transition-colors active:scale-95">
+<span class="material-symbols-outlined">security</span>
+</button>
+</div>
+</main>
+<!-- Bottom Navigation Shell (Suppressed as per rules: linear/transactional scanner screen) -->
+<!-- Navigation intentionally omitted to prioritize scanner canvas -->
+</body></html>

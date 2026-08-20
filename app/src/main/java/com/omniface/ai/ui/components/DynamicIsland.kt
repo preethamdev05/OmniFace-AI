@@ -175,3 +175,79 @@ fun DynamicIslandCapsule(
         }
     }
 }
+
+/**
+ * Stitch Aetheric Biometrics Dynamic Island Live Telemetry Capsule.
+ */
+@Composable
+fun BiometricLiveTelemetryCapsule(
+    depthVariance: Float,
+    isGazeAttentive: Boolean,
+    livenessProbability: Float,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .shadow(
+                elevation = if (isDark) 8.dp else 4.dp,
+                shape = RoundedCornerShape(999.dp)
+            )
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (isDark) Color(0xD90F172A) else Color(0xF2FFFFFF))
+            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 3DMM Depth Variance
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(omniCyan(isDark))
+            )
+            Text(
+                text = "3DMM: %.3f Var".format(depthVariance),
+                color = omniTextSecondary(isDark),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        // Thin Specular Separator
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(10.dp)
+                .background(if (isDark) Color(0x33FFFFFF) else Color(0x33000000))
+        )
+
+        // Eye Gaze Attentiveness
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = if (isGazeAttentive) "Gaze: ✓" else "Gaze: Off-Axis",
+                color = if (isGazeAttentive) omniEmerald(isDark) else Color(0xFFFF9500),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // Thin Specular Separator
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(10.dp)
+                .background(if (isDark) Color(0x33FFFFFF) else Color(0x33000000))
+        )
+
+        // Liveness Probability
+        Text(
+            text = "Liv: ${(livenessProbability * 100).toInt()}%",
+            color = omniCyan(isDark),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}

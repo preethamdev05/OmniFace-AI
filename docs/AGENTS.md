@@ -19,6 +19,39 @@ This directory (`/storage/emulated/0/AI-HUB/FR`) hosts the sovereign **OmniFace 
 ### 3. `jules-orchestrator`
 - **Role**: Multi-Task Orchestration Agent
 - **Capabilities**: Project orchestration, work item tracking, and automated workflow execution across AI-HUB.
+- **Integration Workflow**:
+When adding a new Qualcomm AI Hub model, use the `qualcomm-aihub-model-integration` skill.
+The S3 URL pattern is:
+```
+https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/<model_id>/releases/v0.60.0/<model_id>-tflite-float.zip
+```
+
+---
+
+## 🎨 Google Labs Stitch Skills Registry (`google-labs-code/stitch-skills`)
+
+The workspace is equipped with the complete Google Labs Stitch AI UI/UX Toolchain:
+
+### 1. `stitch-design` Suite
+- `stitch-generate-design`: Generate multi-viewport UI designs and high-fidelity screens from natural language prompts.
+- `stitch-code-to-design`: Ingest HTML, Tailwind, or React components and generate design systems and Stitch screens.
+- `stitch-extract-design-md`: Extract unified design tokens, typography, and color schemes into `DESIGN.md`.
+- `stitch-extract-static-html`: Extract and package interactive HTML/CSS prototypes from Stitch screens.
+- `stitch-manage-design-system`: Manage, update, and apply custom design systems (`Aetheric Biometrics`).
+- `stitch-upload-to-stitch`: Upload design blueprints and screenshots to Stitch canvas.
+
+### 2. `stitch-utilities` Suite
+- `stitch-design-md`: Parse, validate, and convert design system markdown tokens.
+- `stitch-enhance-prompt`: Enhance UI prompts with design keywords, component patterns, and visual themes.
+- `stitch-site-md`: Multi-page site graph and screen relationship specification.
+- `stitch-loop`: Iterative design refinement loop for high-fidelity interactive prototyping.
+- `stitch-taste-design`: Apply professional design taste principles and aesthetic guidelines.
+
+### 3. `stitch-build` Suite
+- `stitch-react-components`: Convert Stitch screens to modular React/Tailwind components.
+- `stitch-react-native`: Convert Stitch designs to mobile React Native / Expo components.
+- `stitch-react-vite-dashboard`: Scaffold full-stack Vite dashboards from Stitch designs.
+- `stitch-shadcn-ui`: Generate Shadcn/UI component trees from Stitch screens.
 
 ### 4. `caveman`
 - **Role**: Token-Efficient Codebase Assistant
