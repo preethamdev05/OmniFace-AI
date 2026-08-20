@@ -224,6 +224,31 @@ private fun DrawScope.drawMediaPipeMeshTessellation(
     }
 }
 
+private val sharedTagTextPaint by lazy {
+    android.graphics.Paint().apply {
+        isAntiAlias = true
+        textSize = 24f
+        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+    }
+}
+
+private val sharedTagBgPaint by lazy {
+    android.graphics.Paint().apply {
+        isAntiAlias = true
+        style = android.graphics.Paint.Style.FILL
+        color = android.graphics.Color.argb(220, 11, 15, 25) // Frosted Obsidian Slate
+    }
+}
+
+private val sharedTagBorderPaint by lazy {
+    android.graphics.Paint().apply {
+        isAntiAlias = true
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 2.0f
+        color = android.graphics.Color.argb(160, 255, 255, 255) // Crisp white hairline
+    }
+}
+
 /** Draws Qualcomm AI Hub Cybernetic Attribute Floating HUD Tags (Screenshot 3 style). */
 private fun DrawScope.drawQualcommAttributeTags(
     bounds: androidx.compose.ui.geometry.Rect,
@@ -231,24 +256,9 @@ private fun DrawScope.drawQualcommAttributeTags(
 ) {
     val nativeCanvas = drawContext.canvas.nativeCanvas
 
-    val tagTextPaint = android.graphics.Paint().apply {
-        isAntiAlias = true
-        textSize = 24f
-        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
-    }
-
-    val tagBgPaint = android.graphics.Paint().apply {
-        isAntiAlias = true
-        style = android.graphics.Paint.Style.FILL
-        color = android.graphics.Color.argb(220, 11, 15, 25) // Frosted Obsidian Slate
-    }
-
-    val tagBorderPaint = android.graphics.Paint().apply {
-        isAntiAlias = true
-        style = android.graphics.Paint.Style.STROKE
-        strokeWidth = 2.0f
-        color = android.graphics.Color.argb(160, 255, 255, 255) // Crisp white hairline
-    }
+    val tagTextPaint = sharedTagTextPaint
+    val tagBgPaint = sharedTagBgPaint
+    val tagBorderPaint = sharedTagBorderPaint
 
     val attr = face.attributes
     val tags = mutableListOf<Pair<String, Int>>()
