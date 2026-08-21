@@ -3,6 +3,7 @@ package com.omniface.ai.ml.pipeline
 import com.omniface.ai.ml.ConfidenceZone
 import com.omniface.ai.ml.MatchResult
 import com.omniface.ai.ml.SecurityTier
+import com.omniface.ai.ml.antispoof.MultiStageLivenessResult
 import com.omniface.ai.ml.antispoof.PassivePadResult
 import com.omniface.ai.ml.antispoof.TemporalLivenessResult
 import com.omniface.ai.ml.quality.QualityGateResult
@@ -46,7 +47,8 @@ object BiometricDecisionEngine {
         passivePad: PassivePadResult?,
         temporalLiveness: TemporalLivenessResult,
         matchResult: MatchResult?,
-        securityTier: SecurityTier
+        securityTier: SecurityTier,
+        multiStageLiveness: MultiStageLivenessResult? = null
     ): BiometricSynthesisDecision {
 
         // ── GATE 1: QUALITY EVALUATION ──
@@ -68,11 +70,13 @@ object BiometricDecisionEngine {
         }
 
         // ── GATE 2: ANTI-SPOOFING / PAD EVALUATION ──
+        val isMultiStageLive = multiStageLiveness?.isLive ?: true
         val isPassiveLive = passivePad?.isLive ?: true
         val isTemporalLive = temporalLiveness.isLive
-        val livenessScore = (passivePad?.livenessScore ?: 0.90f) * 0.6f + temporalLiveness.temporalConfidence * 0.4f
+        val multiStageScore = multiStageLiveness?.overallLivenessScore ?: (passivePad?.livenessScore ?: 0.90f)
+        val livenessScore = multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
-        if (!isPassiveLive || !isTemporalLive) {
+        if (!isMultiStageLive || !isPassiveLive || !isTemporalLive) {
             val titleText = when (temporalLiveness.requiredAction) {
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.BLINK -> "PLEASE BLINK YOUR EYES"
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.TURN_LEFT,
@@ -80,9 +84,11 @@ object BiometricDecisionEngine {
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.TILT_UP,
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.TILT_DOWN -> "TURN HEAD SLIGHTLY"
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.SMILE -> "PLEASE SMILE"
-                null -> "LIVENESS CHECK FAILED"
+                null -> if (multiStageLiveness?.primaryAttackVector != null) "SPOOF ATTACK DETECTED" else "LIVENESS CHECK FAILED"
             }
-            val attackDesc = passivePad?.attackTypeDescription ?: temporalLiveness.explanation
+            val attackDesc = multiStageLiveness?.primaryAttackVector
+                ?: passivePad?.attackTypeDescription
+                ?: temporalLiveness.explanation
             return BiometricSynthesisDecision(
                 gateState = PipelineGateState.REJECT_SPOOF_ATTACK,
                 isAttendanceAuthorized = false,

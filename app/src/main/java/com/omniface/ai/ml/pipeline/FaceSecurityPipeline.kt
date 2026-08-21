@@ -10,6 +10,8 @@ import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.ml.*
+import com.omniface.ai.ml.antispoof.MultiStageLivenessEngine
+import com.omniface.ai.ml.antispoof.MultiStageLivenessResult
 import com.omniface.ai.ml.antispoof.PassivePadEngine
 import com.omniface.ai.ml.antispoof.PassivePadResult
 import com.omniface.ai.ml.antispoof.TemporalLivenessEngine
@@ -29,6 +31,7 @@ data class ProcessedFaceData(
     val smoothedRect: Rect,
     val qualityResult: QualityGateResult,
     val passivePadResult: PassivePadResult?,
+    val multiStageLivenessResult: MultiStageLivenessResult?,
     val gazeResult: EyeGazeResult?,
     val map3dResult: FaceMap3DMMResult?,
     val attrResult: FaceAttributesResult?,
@@ -70,6 +73,7 @@ class FaceSecurityPipeline(
 
     private val tracker = FaceTracker()
     val passivePadEngine = PassivePadEngine(context)
+    val multiStageLivenessEngine = MultiStageLivenessEngine(context, passivePadEngine)
     val temporalLivenessEngine = TemporalLivenessEngine()
     val matcher = FaceMatcher()
 
@@ -180,20 +184,21 @@ class FaceSecurityPipeline(
                 faceCrop = faceCrop
             )
 
-            // ── Neural Feature Extraction (Qualcomm Suite & Passive PAD) ──
+            // ── Multi-Stage Liveness Pre-Processing (Screen Reflections, Texture, Moiré & Neural PAD) ──
+            var multiStageResult: MultiStageLivenessResult? = null
+            var passivePadResult: PassivePadResult? = null
             var map3dResult: FaceMap3DMMResult? = null
             var gazeResult: EyeGazeResult? = null
             var attrResult: FaceAttributesResult? = null
             var meshResult: MediaPipeMeshResult? = null
-            var passivePadResult: PassivePadResult? = null
 
             if (faceCrop != null && !faceCrop.isRecycled) {
-                // 1. Passive RGB PAD
-                if (passivePadEngine.isReady) {
-                    try {
-                        passivePadResult = passivePadEngine.run(faceCrop)
-                    } catch (_: Throwable) {}
-                }
+                // 1. Multi-Stage Liveness Assessment (Specular glare, LBP texture entropy, Moiré grid & Neural PAD)
+                try {
+                    val msResult = multiStageLivenessEngine.evaluate(faceCrop)
+                    multiStageResult = msResult
+                    passivePadResult = msResult.passivePadResult
+                } catch (_: Throwable) {}
 
                 // 2. Qualcomm AI Hub Suite
                 if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
@@ -224,10 +229,12 @@ class FaceSecurityPipeline(
             val temporalResult = temporalLivenessEngine.evaluateTemporalLiveness(trackId)
 
             // ── GATE 3: 512-D Identity Embedding Extraction & Matching ──
+            // Gated by Quality, Multi-Stage Reflection/Texture Liveness, and Temporal Analysis
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null
+            val isMultiStageLive = multiStageResult?.isLive ?: true
 
-            if (qualityResult.isPassed && temporalResult.isLive && faceCrop != null && !faceCrop.isRecycled) {
+            if (qualityResult.isPassed && isMultiStageLive && temporalResult.isLive && faceCrop != null && !faceCrop.isRecycled) {
                 try {
                     // Refined Biometric Alignment: Prefer 5-point Umeyama Canonical Alignment if all 5 fiducials are available
                     val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
@@ -269,13 +276,14 @@ class FaceSecurityPipeline(
 
             faceCrop?.recycle()
 
-            // ── Synthesize 3-Gate Decision ──
+            // ── Synthesize Multi-Gate Decision ──
             val decision = BiometricDecisionEngine.evaluate(
                 quality = qualityResult,
                 passivePad = passivePadResult,
                 temporalLiveness = temporalResult,
                 matchResult = matchResult,
-                securityTier = securityTier
+                securityTier = securityTier,
+                multiStageLiveness = multiStageResult
             )
 
             fun mapPoint(pt: PointF?): PointF? {
@@ -299,6 +307,7 @@ class FaceSecurityPipeline(
                     smoothedRect = smoothedRect,
                     qualityResult = qualityResult,
                     passivePadResult = passivePadResult,
+                    multiStageLivenessResult = multiStageResult,
                     gazeResult = gazeResult,
                     map3dResult = map3dResult,
                     attrResult = attrResult,
