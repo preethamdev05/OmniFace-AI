@@ -45,6 +45,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -126,7 +128,7 @@ class EnrollmentViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(EnrollmentUiState())
     val uiState: StateFlow<EnrollmentUiState> = _uiState.asStateFlow()
 
-    private var recognitionEngine: FaceRecognitionEngine? = null
+    private var recognitionEngine: FaceRecognitionEngine = FaceRecognitionEngine(OmniFaceApplication.instance)
     private val qualcommIntelligenceEngine = try {
         QualcommFaceIntelligenceEngine(OmniFaceApplication.instance)
     } catch (_: Throwable) {
@@ -419,11 +421,11 @@ class EnrollmentViewModel : ViewModel() {
 
     private fun isPoseInTargetEnvelope(yaw: Float, pitch: Float, step: Int): Boolean {
         return when (step) {
-            1 -> kotlin.math.abs(yaw) <= 15.0f && kotlin.math.abs(pitch) <= 15.0f // Frontal
-            2 -> yaw <= -10.0f && kotlin.math.abs(pitch) <= 22.0f                 // Left ~15-30°
-            3 -> yaw >= 10.0f && kotlin.math.abs(pitch) <= 22.0f                  // Right ~15-30°
-            4 -> pitch >= 8.0f && kotlin.math.abs(yaw) <= 22.0f                   // Up ~10-25°
-            5 -> pitch <= -8.0f && kotlin.math.abs(yaw) <= 22.0f                  // Down ~10-25°
+            1 -> kotlin.math.abs(yaw) <= 18.0f && kotlin.math.abs(pitch) <= 18.0f // Frontal
+            2 -> yaw <= -6.0f && kotlin.math.abs(pitch) <= 25.0f                  // Left ~10-30°
+            3 -> yaw >= 6.0f && kotlin.math.abs(pitch) <= 25.0f                   // Right ~10-30°
+            4 -> pitch >= 5.0f && kotlin.math.abs(yaw) <= 25.0f                   // Up ~8-25°
+            5 -> pitch <= -5.0f && kotlin.math.abs(yaw) <= 25.0f                  // Down ~8-25°
             else -> false
         }
     }
@@ -454,7 +456,7 @@ class EnrollmentViewModel : ViewModel() {
                 synchronized(this) {
                     val oldCrop = latestFaceCrop
                     latestFaceCrop = newCrop
-                    if (oldCrop != null && !oldCrop.isRecycled) {
+                    if (oldCrop != null && oldCrop != newCrop && !oldCrop.isRecycled) {
                         oldCrop.recycle()
                     }
                 }
@@ -506,7 +508,7 @@ class EnrollmentViewModel : ViewModel() {
                     alignmentStartTime = now
                 }
                 val elapsed = now - alignmentStartTime
-                val remaining = (350L - elapsed).coerceAtLeast(0L)
+                val remaining = (300L - elapsed).coerceAtLeast(0L)
 
                 _uiState.update {
                     it.copy(
@@ -517,7 +519,7 @@ class EnrollmentViewModel : ViewModel() {
                     )
                 }
 
-                if (elapsed >= 350L && !isCapturing) {
+                if (elapsed >= 300L && !isCapturing) {
                     captureCurrentAngle()
                 }
             } else {
@@ -535,7 +537,7 @@ class EnrollmentViewModel : ViewModel() {
                         visualGeometryData = listOf(visualItem),
                         isPoseAligned = false,
                         yawGaugeText = "Yaw: ${yawStr}° • Pitch: ${pitchStr}° • $hint",
-                        autoCaptureCountdownMs = 350L
+                        autoCaptureCountdownMs = 300L
                     )
                 }
             }
@@ -546,7 +548,7 @@ class EnrollmentViewModel : ViewModel() {
         }
     }
 
-    fun captureCurrentAngle() {
+    fun captureCurrentAngle(context: Context? = null) {
         if (isCapturing) return
         val roll = _uiState.value.rollNumber.trim()
         val step = _uiState.value.currentStep
@@ -561,7 +563,14 @@ class EnrollmentViewModel : ViewModel() {
                     null
                 }
             } else null
-        } ?: return
+        }
+
+        if (cropSnapshot == null) {
+            if (context != null) {
+                Toast.makeText(context, "No face detected in camera frame. Please center your face inside the circle.", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
 
         isCapturing = true
         alignmentStartTime = 0L
@@ -569,7 +578,7 @@ class EnrollmentViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val engine = recognitionEngine ?: return@launch
+                val engine = recognitionEngine
                 // Use flip-augmented embedding at enrollment for richer templates.
                 // This averages original + horizontally flipped inference — enrollment
                 // runs only once per angle so the 2x inference cost is acceptable.
@@ -614,25 +623,25 @@ class EnrollmentViewModel : ViewModel() {
                         1 -> it.copy(
                             capturedThumbnails = updatedThumbnails,
                             currentStep = 2,
-                            angleGuideText = "Step 2 of 5: Turn head Left (~22.5° angle)",
+                            angleGuideText = "Step 2 of 5: Turn head Left (~15° angle)",
                             isPoseAligned = false
                         )
                         2 -> it.copy(
                             capturedThumbnails = updatedThumbnails,
                             currentStep = 3,
-                            angleGuideText = "Step 3 of 5: Turn head Right (~22.5° angle)",
+                            angleGuideText = "Step 3 of 5: Turn head Right (~15° angle)",
                             isPoseAligned = false
                         )
                         3 -> it.copy(
                             capturedThumbnails = updatedThumbnails,
                             currentStep = 4,
-                            angleGuideText = "Step 4 of 5: Tilt head Up (~16° angle)",
+                            angleGuideText = "Step 4 of 5: Tilt head Up (~10° angle)",
                             isPoseAligned = false
                         )
                         4 -> it.copy(
                             capturedThumbnails = updatedThumbnails,
                             currentStep = 5,
-                            angleGuideText = "Step 5 of 5: Tilt head Down (~16° angle)",
+                            angleGuideText = "Step 5 of 5: Tilt head Down (~10° angle)",
                             isPoseAligned = false
                         )
                         else -> it.copy(
@@ -1366,6 +1375,7 @@ private fun BiometricStudioView(
     state: EnrollmentUiState,
     isDark: Boolean
 ) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptic = LocalHapticFeedback.current
 
@@ -1396,11 +1406,11 @@ private fun BiometricStudioView(
                         val highResSelector = ResolutionSelector.Builder()
                             .setResolutionStrategy(
                                 ResolutionStrategy(
-                                    Size(1920, 1080),
+                                    Size(640, 480),
                                     ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                                 )
                             )
-                            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
                             .build()
 
                         val previewBuilder = Preview.Builder()
@@ -1491,13 +1501,13 @@ private fun BiometricStudioView(
             )
         }
 
-        // 60 FPS Real-Time 3D Face Mesh Wireframe & Explainable Diagnostics
+        // Clean Biometric Reticle & Identity Overlay
         FaceDiagnosticsOverlay(
             visualData = state.visualGeometryData,
-            showMeshWireframe = true,
-            showPoseAxes = true,
-            showGazeRays = true,
-            show3DMMTopography = true,
+            showMeshWireframe = false,
+            showPoseAxes = false,
+            showGazeRays = false,
+            show3DMMTopography = false,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -1556,29 +1566,31 @@ private fun BiometricStudioView(
         ) {
             Box(
                 modifier = Modifier
+                    .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x66000000))
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color(0xCC0F172A))
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(999.dp))
+                    .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                    .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
                     .clickable { viewModel.cancelBiometricStudio() }
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                Text("✕ Cancel", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("✕ Cancel", color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (state.isQualcommDevice) {
                     Box(
                         modifier = Modifier
+                            .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x3300E5FF))
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xCC0F172A))
-                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(999.dp))
+                            .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                            .border(0.75.dp, omniEmerald(isDark).copy(alpha = 0.5f), RoundedCornerShape(999.dp))
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         Text(
                             text = "⚡ HEXAGON NPU • 45 TOPS",
-                            color = Color(0xFF00E5FF),
+                            color = omniCyan(isDark),
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
@@ -1586,16 +1598,17 @@ private fun BiometricStudioView(
                 // Step Indicator Pill
                 Box(
                     modifier = Modifier
+                        .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x66000000))
                         .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xCC0F172A))
-                        .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(999.dp))
+                        .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = "Angle ${state.currentStep.coerceAtMost(5)} of 5",
-                        color = Color(0xFF38BDF8),
+                        color = omniCyan(isDark),
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
 
@@ -1603,17 +1616,18 @@ private fun BiometricStudioView(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
+                        .shadow(6.dp, CircleShape, ambientColor = Color(0x66000000))
                         .clip(CircleShape)
-                        .background(Color(0xCC0F172A))
-                        .border(1.dp, Color(0x33FFFFFF), CircleShape)
+                        .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
                         .clickable { viewModel.toggleLensFacing() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.FlipCameraAndroid,
                         contentDescription = "Flip Camera Lens",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        tint = omniTextPrimary(isDark),
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
@@ -1627,20 +1641,30 @@ private fun BiometricStudioView(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Directional Guidance Pill
-            FrostedGlassCard(modifier = Modifier.fillMaxWidth()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Directional Guidance Pill (Ultra-Glassmorphic)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(12.dp, RoundedCornerShape(20.dp), ambientColor = Color(0x80000000), spotColor = Color(0x330A84FF))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isDark) Color(0xEB0C1018) else Color(0xF2FFFFFF))
+                    .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = state.angleGuideText,
                         color = omniTextPrimary(isDark),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.2).sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = state.yawGaugeText,
-                        color = if (state.isPoseAligned) omniEmerald(isDark) else omniTextMuted(isDark),
-                        fontSize = 11.sp
+                        color = if (state.isPoseAligned) omniEmerald(isDark) else omniTextSecondary(isDark),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -1650,16 +1674,18 @@ private fun BiometricStudioView(
             // Captured Thumbnails Row
             if (state.capturedThumbnails.isNotEmpty()) {
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.padding(bottom = 10.dp)
                 ) {
                     items(state.capturedThumbnails) { (label, thumb) ->
                         if (!thumb.isRecycled) {
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .border(2.dp, Color(0xFF10B981), RoundedCornerShape(10.dp))
+                                    .size(48.dp)
+                                    .shadow(4.dp, RoundedCornerShape(12.dp), ambientColor = Color(0x4D30D158))
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF131823))
+                                    .border(1.5.dp, omniEmerald(isDark), RoundedCornerShape(12.dp))
                             ) {
                                 Image(
                                     bitmap = thumb.asImageBitmap(),
@@ -1678,38 +1704,19 @@ private fun BiometricStudioView(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (state.currentStep > 1) {
-                    Button(
+                    CupertinoButton(
+                        text = "🔄 Retake",
+                        isSecondary = true,
                         onClick = { viewModel.retakeCurrentAngle() },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF334155),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Text("🔄 Retake", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
-                Button(
-                    onClick = { viewModel.captureCurrentAngle() },
-                    modifier = Modifier
-                        .weight(2f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (state.isPoseAligned) Color(0xFF10B981) else Color(0xFF0284C7)
-                    )
-                ) {
-                    Text(
-                        text = if (state.isPoseAligned) "📸 Capture (Aligned)" else "📸 Capture Angle",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
+                CupertinoButton(
+                    text = if (state.isPoseAligned) "📸 Capture (Aligned)" else "📸 Capture Angle",
+                    onClick = { viewModel.captureCurrentAngle(context) },
+                    modifier = Modifier.weight(if (state.currentStep > 1) 2f else 1f)
+                )
             }
         }
     }
@@ -1732,7 +1739,8 @@ private fun EnrollmentSuccessView(
     ) {
         Box(
             modifier = Modifier
-                .size(90.dp)
+                .size(92.dp)
+                .shadow(12.dp, CircleShape, ambientColor = Color(0x4D30D158), spotColor = Color(0x3330D158))
                 .clip(CircleShape)
                 .background(omniEmerald(isDark).copy(alpha = 0.18f))
                 .border(2.dp, omniEmerald(isDark), CircleShape),
@@ -1751,8 +1759,9 @@ private fun EnrollmentSuccessView(
         Text(
             text = "Face ID Enrolled Successfully",
             color = omniTextPrimary(isDark),
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.5).sp
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -1761,14 +1770,16 @@ private fun EnrollmentSuccessView(
             text = "${state.fullName} (${state.rollNumber})",
             color = omniCyan(isDark),
             fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold
         )
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
             text = "5-Angle Biometric Templates encrypted with Hardware KeyStore AES-256-GCM.",
-            color = omniTextMuted(isDark),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            color = omniTextSecondary(isDark),
+            fontSize = 12.5.sp,
+            modifier = Modifier.padding(horizontal = 20.dp)
         )
 
         Spacer(modifier = Modifier.height(28.dp))

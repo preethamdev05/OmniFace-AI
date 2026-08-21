@@ -181,14 +181,14 @@ class FaceRegistrationState(
 
     private fun checkPoseEnvelope(yaw: Float, pitch: Float, step: Int): Boolean {
         if (captureMode == RegistrationCaptureMode.RAPID_MULTI_SHOT) {
-            return kotlin.math.abs(yaw) <= 25.0f && kotlin.math.abs(pitch) <= 25.0f
+            return kotlin.math.abs(yaw) <= 30.0f && kotlin.math.abs(pitch) <= 30.0f
         }
         return when (step) {
-            0 -> kotlin.math.abs(yaw) <= 15.0f && kotlin.math.abs(pitch) <= 15.0f
-            1 -> yaw <= -10.0f && kotlin.math.abs(pitch) <= 22.0f
-            2 -> yaw >= 10.0f && kotlin.math.abs(pitch) <= 22.0f
-            3 -> pitch >= 8.0f && kotlin.math.abs(yaw) <= 22.0f
-            4 -> pitch <= -8.0f && kotlin.math.abs(yaw) <= 22.0f
+            0 -> kotlin.math.abs(yaw) <= 18.0f && kotlin.math.abs(pitch) <= 18.0f // Frontal
+            1 -> yaw <= -6.0f && kotlin.math.abs(pitch) <= 25.0f                  // Left ~10-30°
+            2 -> yaw >= 6.0f && kotlin.math.abs(pitch) <= 25.0f                   // Right ~10-30°
+            3 -> pitch >= 5.0f && kotlin.math.abs(yaw) <= 25.0f                   // Up ~8-25°
+            4 -> pitch <= -5.0f && kotlin.math.abs(yaw) <= 25.0f                  // Down ~8-25°
             else -> false
         }
     }
@@ -286,7 +286,12 @@ class FaceRegistrationState(
                     Bitmap.createScaledBitmap(src, 112, 112, true)
                 } catch (_: Exception) { null }
             } else null
-        } ?: return
+        }
+
+        if (cropSnapshot == null) {
+            Toast.makeText(context, "No face detected in camera frame. Please position face within reticle.", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         isCapturing = true
         alignmentStartTime = 0L
@@ -295,7 +300,7 @@ class FaceRegistrationState(
 
         kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch {
             try {
-                val engine = recognitionEngine ?: return@launch
+                val engine = recognitionEngine ?: FaceRecognitionEngine(context)
                 // Extract 512-D L2 normalized embedding using TFLite engine
                 val embedding = engine.extractEmbeddingWithFlipAugmentation(cropSnapshot)
 
@@ -548,11 +553,11 @@ fun FaceRegistrationComponent(
                             val resSelector = ResolutionSelector.Builder()
                                 .setResolutionStrategy(
                                     ResolutionStrategy(
-                                        Size(1920, 1080),
+                                        Size(640, 480),
                                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                                     )
                                 )
-                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
                                 .build()
 
                             val previewBuilder = Preview.Builder().setResolutionSelector(resSelector)
@@ -626,11 +631,13 @@ fun FaceRegistrationComponent(
                 )
             }
 
-            // Face Diagnostics Wireframe Overlay
+            // Clean Face ID Overlay
             FaceDiagnosticsOverlay(
                 visualData = state.visualGeometryData,
-                showMeshWireframe = true,
-                showPoseAxes = true,
+                showMeshWireframe = false,
+                showPoseAxes = false,
+                showGazeRays = false,
+                show3DMMTopography = false,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -743,34 +750,37 @@ fun FaceRegistrationComponent(
                     // Shot Progress Pill
                     Box(
                         modifier = Modifier
+                            .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x66000000), spotColor = Color(0x330071E3))
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xCC0F172A))
-                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(999.dp))
-                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                            .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = "Shot ${state.currentShotIndex + 1}/${state.totalTargetShots}",
-                            color = Color(0xFF38BDF8),
+                            color = omniCyan(isDark),
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.3.sp
                         )
                     }
 
                     // Flip Camera Button
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
+                            .shadow(6.dp, CircleShape, ambientColor = Color(0x66000000))
                             .clip(CircleShape)
-                            .background(Color(0xCC0F172A))
-                            .border(1.dp, Color(0x33FFFFFF), CircleShape)
+                            .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
+                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
                             .clickable { state.toggleCamera() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.FlipCameraAndroid,
                             contentDescription = "Flip Camera",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            tint = omniTextPrimary(isDark),
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -784,30 +794,41 @@ fun FaceRegistrationComponent(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Live Biometric Guide Card
+                // Live Biometric Guide Card (Ultra-Glassmorphic)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(12.dp, RoundedCornerShape(18.dp))
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xEE0F172A))
-                        .border(0.75.dp, omniLiquidSpecularBorder(true), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .shadow(12.dp, RoundedCornerShape(20.dp), ambientColor = Color(0x80000000), spotColor = Color(0x330A84FF))
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isDark) Color(0xEB0C1018) else Color(0xF2FFFFFF))
+                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = state.guideMessage,
-                            color = if (state.isPoseAligned) Color(0xFF10B981) else Color(0xFFF1F5F9),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (state.isPoseAligned) omniEmerald(isDark) else Color(0xFFF59E0B))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = state.guideMessage,
+                                color = if (state.isPoseAligned) omniEmerald(isDark) else omniTextPrimary(isDark),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.2).sp
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = "Identity: ${state.fullName.ifBlank { "Unknown" }} (${state.rollNumber.ifBlank { "No Roll" }}) • TFLite 512-D L2 Engine",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp
+                            text = "Identity: ${state.fullName.ifBlank { "Candidate" }} (${state.rollNumber.ifBlank { "Unassigned" }}) • ArcFace 512-D INT8",
+                            color = omniTextSecondary(isDark),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -817,15 +838,17 @@ fun FaceRegistrationComponent(
                 // Captured Series Thumbnails Strip
                 if (state.capturedSamples.isNotEmpty()) {
                     LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.padding(bottom = 8.dp)
                     ) {
                         itemsIndexed(state.capturedSamples) { index, sample ->
                             Box(
                                 modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(1.5.dp, Color(0xFF10B981), RoundedCornerShape(12.dp))
+                                    .size(56.dp)
+                                    .shadow(4.dp, RoundedCornerShape(14.dp), ambientColor = Color(0x4D30D158))
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF131823))
+                                    .border(1.5.dp, omniEmerald(isDark), RoundedCornerShape(14.dp))
                             ) {
                                 Image(
                                     bitmap = sample.thumbnail.asImageBitmap(),
@@ -838,15 +861,16 @@ fun FaceRegistrationComponent(
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
-                                        .background(Color(0xCC000000))
-                                        .padding(vertical = 1.dp),
+                                        .background(Color(0xD907090E))
+                                        .border(0.5.dp, Color(0x33FFFFFF), RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp))
+                                        .padding(vertical = 1.5.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = "${sample.qualityScore.toInt()}%",
-                                        color = Color(0xFF00E5FF),
+                                        color = omniCyan(isDark),
                                         fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.ExtraBold
                                     )
                                 }
                             }
@@ -860,38 +884,19 @@ fun FaceRegistrationComponent(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (state.currentShotIndex > 0) {
-                        Button(
+                        CupertinoButton(
+                            text = "🔄 Retake",
+                            isSecondary = true,
                             onClick = { state.retakeLastShot() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF334155),
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Text("🔄 Retake", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
+                            modifier = Modifier.weight(1f)
+                        )
                     }
 
-                    Button(
+                    CupertinoButton(
+                        text = if (state.isSaving) "Generating 512-D..." else if (state.isPoseAligned) "Capture (Aligned)" else "Capture Shot",
                         onClick = { state.triggerCapture() },
-                        modifier = Modifier
-                            .weight(2f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (state.isPoseAligned) Color(0xFF10B981) else Color(0xFF0284C7)
-                        )
-                    ) {
-                        Text(
-                            text = if (state.isSaving) "⏳ Generating 512-D..." else if (state.isPoseAligned) "📸 Capture (Aligned)" else "📸 Capture Shot",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
+                        modifier = Modifier.weight(if (state.currentShotIndex > 0) 2f else 1f)
+                    )
                 }
             }
         }
@@ -899,7 +904,7 @@ fun FaceRegistrationComponent(
 }
 
 /**
- * Registration Success and Biometric Embedding Summary Card.
+ * Registration Success and Biometric Embedding Summary Card (Ultra-Luxury Glassmorphic).
  */
 @Composable
 private fun RegistrationSuccessCard(
@@ -918,7 +923,8 @@ private fun RegistrationSuccessCard(
     ) {
         Box(
             modifier = Modifier
-                .size(88.dp)
+                .size(92.dp)
+                .shadow(12.dp, CircleShape, ambientColor = Color(0x4D30D158), spotColor = Color(0x3330D158))
                 .clip(CircleShape)
                 .background(omniEmerald(isDark).copy(alpha = 0.18f))
                 .border(2.dp, omniEmerald(isDark), CircleShape),
@@ -928,17 +934,18 @@ private fun RegistrationSuccessCard(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
                 tint = omniEmerald(isDark),
-                modifier = Modifier.size(46.dp)
+                modifier = Modifier.size(48.dp)
             )
         }
 
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "Face Series Registered",
+            text = "Face ID Registration Complete",
             color = omniTextPrimary(isDark),
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.5).sp
         )
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -947,59 +954,79 @@ private fun RegistrationSuccessCard(
             text = "${state.fullName} (${state.rollNumber})",
             color = omniCyan(isDark),
             fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold
         )
 
         Text(
             text = "${state.department} • Semester ${state.semester}",
-            color = omniTextMuted(isDark),
-            fontSize = 12.sp
+            color = omniTextSecondary(isDark),
+            fontSize = 12.5.sp
         )
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Multi-Shot Biometric Quality Report Card
+        // Multi-Shot Biometric Quality Report Card (Titanium Obsidian Glass)
         IOSCard(modifier = Modifier.fillMaxWidth()) {
-            SectionHeader(text = "TFLITE EMBEDDINGS SUMMARY")
+            SectionHeader(text = "BIOMETRIC VAULT SPECIFICATIONS")
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Total Shots Captured", color = omniTextMuted(isDark), fontSize = 12.sp)
-                Text("${state.capturedSamples.size} Frames", color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Total Shots Captured", color = omniTextMuted(isDark), fontSize = 12.5.sp)
+                Text("${state.capturedSamples.size} Frames", color = omniTextPrimary(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Vector Dimension", color = omniTextMuted(isDark), fontSize = 12.sp)
-                Text("512-D L2 Normalized", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Vector Dimension", color = omniTextMuted(isDark), fontSize = 12.5.sp)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(omniCyan(isDark).copy(alpha = 0.15f))
+                        .border(0.5.dp, omniCyan(isDark).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text("512-D L2 ArcFace", color = omniCyan(isDark), fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold)
+                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("KeyStore Encryption", color = omniTextMuted(isDark), fontSize = 12.sp)
-                Text("AES-256-GCM Secure", color = omniEmerald(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Hardware Encryption", color = omniTextMuted(isDark), fontSize = 12.5.sp)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(omniEmerald(isDark).copy(alpha = 0.15f))
+                        .border(0.5.dp, omniEmerald(isDark).copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text("AES-256-GCM KeyStore", color = omniEmerald(isDark), fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold)
+                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Centroid Synthesis", color = omniTextMuted(isDark), fontSize = 12.sp)
-                Text("Quality-Weighted Active", color = omniEmerald(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Master Centroid", color = omniTextMuted(isDark), fontSize = 12.5.sp)
+                Text("Quality-Weighted Synthesized", color = omniEmerald(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
 

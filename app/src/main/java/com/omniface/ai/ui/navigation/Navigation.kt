@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -56,27 +57,28 @@ fun CupertinoTabBar(
 ) {
     val isDark = LocalThemeIsDark.current
     val haptic = LocalHapticFeedback.current
-    val dockShape = RoundedCornerShape(26.dp)
+    val dockShape = RoundedCornerShape(28.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
                 .shadow(
-                    elevation = if (isDark) 8.dp else 12.dp,
+                    elevation = if (isDark) 10.dp else 14.dp,
                     shape = dockShape,
-                    ambientColor = if (isDark) Color(0x66000000) else Color(0x26000000),
-                    spotColor = if (isDark) Color(0x4D000000) else Color(0x1F000000)
+                    ambientColor = if (isDark) Color(0x80000000) else Color(0x260F172A),
+                    spotColor = if (isDark) Color(0x4D0A84FF) else Color(0x1F0071E3)
                 )
                 .clip(dockShape)
                 .background(omniLiquidSurfaceBrush(isDark))
                 .border(0.75.dp, omniLiquidSpecularBorder(isDark), dockShape)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -95,7 +97,7 @@ fun CupertinoTabBar(
                 val isPressed by interactionSource.collectIsPressedAsState()
 
                 val tabScale by animateFloatAsState(
-                    targetValue = if (isPressed) 0.92f else if (isSelected) 1.05f else 1.0f,
+                    targetValue = if (isPressed) 0.92f else if (isSelected) 1.03f else 1.0f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessLow
@@ -103,31 +105,51 @@ fun CupertinoTabBar(
                     label = "tabScale"
                 )
 
-                val tabBgColor by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        if (isDark) Color(0x260A84FF) else Color(0x1A007AFF)
-                    } else Color.Transparent,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "tabBg"
-                )
+                val tabBgBrush = if (isSelected) {
+                    if (isDark) {
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0x330A84FF),
+                                Color(0x1A0A84FF)
+                            )
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0x260071E3),
+                                Color(0x140071E3)
+                            )
+                        )
+                    }
+                } else {
+                    Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                }
+
+                val tabModifier = Modifier
+                    .weight(1f)
+                    .scale(tabScale)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(tabBgBrush)
+                    .let { mod ->
+                        if (isSelected) {
+                            mod.border(
+                                0.5.dp,
+                                if (isDark) Color(0x400A84FF) else Color(0x330071E3),
+                                RoundedCornerShape(20.dp)
+                            )
+                        } else mod
+                    }
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onNavigate(screen)
+                    }
+                    .padding(vertical = 4.dp)
 
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .scale(tabScale)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(tabBgColor)
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onNavigate(screen)
-                        }
-                        .padding(vertical = 8.dp),
+                    modifier = tabModifier,
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -146,9 +168,10 @@ fun CupertinoTabBar(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .offset(x = 6.dp, y = (-3).dp)
-                                        .size(7.dp)
+                                        .size(8.dp)
                                         .clip(CircleShape)
                                         .background(AmberCore)
+                                        .border(1.dp, if (isDark) Color(0xFF131823) else Color.White, CircleShape)
                                 )
                             }
                         }
@@ -156,9 +179,9 @@ fun CupertinoTabBar(
                         Text(
                             text = screen.title,
                             color = contentColor,
-                            fontSize = 10.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            letterSpacing = 0.2.sp
+                            letterSpacing = 0.3.sp
                         )
                         if (isSelected) {
                             Spacer(modifier = Modifier.height(2.dp))
@@ -167,6 +190,7 @@ fun CupertinoTabBar(
                                     .size(4.dp)
                                     .clip(CircleShape)
                                     .background(omniCyan(isDark))
+                                    .shadow(2.dp, CircleShape, ambientColor = omniCyan(isDark), spotColor = omniCyan(isDark))
                             )
                         }
                     }

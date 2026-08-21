@@ -3,6 +3,7 @@ package com.omniface.ai.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -113,24 +115,38 @@ fun DynamicIslandCapsule(
                 label = "islandWidth"
             )
 
+            var isPressed by remember { mutableStateOf(false) }
+            val scale by animateFloatAsState(
+                targetValue = if (isPressed) 0.95f else 1.0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "capsuleScale"
+            )
+
             Box(
                 modifier = Modifier
                     .width(width)
+                    .scale(scale)
                     .shadow(
-                        elevation = if (isDark) 6.dp else 10.dp,
+                        elevation = if (isDark) 10.dp else 12.dp,
                         shape = RoundedCornerShape(999.dp),
-                        ambientColor = if (isDark) Color(0x66000000) else Color(0x26000000),
-                        spotColor = if (isDark) Color(0x4D000000) else Color(0x1F000000)
+                        ambientColor = if (isDark) Color(0x99000000) else Color(0x33000000),
+                        spotColor = event.accentColor.copy(alpha = 0.25f)
                     )
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (isDark) Color(0xFF0F172A).copy(alpha = 0.95f) else Color(0xFFFFFFFF).copy(alpha = 0.95f))
+                    .background(if (isDark) Color(0xFA0B0F17) else Color(0xF7FFFFFF))
                     .border(
                         0.75.dp,
                         omniLiquidSpecularBorder(isDark),
                         RoundedCornerShape(999.dp)
                     )
-                    .clickable { controller.dismiss() }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .clickable {
+                        isPressed = true
+                        controller.dismiss()
+                    }
+                    .padding(horizontal = 16.dp, vertical = 9.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -139,16 +155,17 @@ fun DynamicIslandCapsule(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
-                            .background(event.accentColor.copy(alpha = 0.18f)),
+                            .background(event.accentColor.copy(alpha = 0.18f))
+                            .border(0.5.dp, event.accentColor.copy(alpha = 0.4f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = event.icon,
                             contentDescription = null,
                             tint = event.accentColor,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
 
@@ -158,13 +175,14 @@ fun DynamicIslandCapsule(
                         Text(
                             text = event.title,
                             color = omniTextPrimary(isDark),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.2).sp
                         )
                         if (event.subtitle != null) {
                             Text(
                                 text = event.subtitle,
-                                color = omniTextMuted(isDark),
+                                color = omniTextSecondary(isDark),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
                             )

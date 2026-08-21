@@ -36,6 +36,7 @@ data class ProcessedFaceData(
     val map3dResult: FaceMap3DMMResult?,
     val attrResult: FaceAttributesResult?,
     val meshResult: MediaPipeMeshResult?,
+    val hrnetResult: HRNetFaceResult?,
     val pts5List: List<PointF>,
     val matchResult: MatchResult?,
     val lastExtractedEmbedding: FloatArray?,
@@ -191,6 +192,7 @@ class FaceSecurityPipeline(
             var gazeResult: EyeGazeResult? = null
             var attrResult: FaceAttributesResult? = null
             var meshResult: MediaPipeMeshResult? = null
+            var hrnetResult: HRNetFaceResult? = null
 
             if (faceCrop != null && !faceCrop.isRecycled) {
                 // 1. Multi-Stage Liveness Assessment (Specular glare, LBP texture entropy, Moiré grid & Neural PAD)
@@ -206,6 +208,7 @@ class FaceSecurityPipeline(
                         map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
                         gazeResult = qualcommEngine.estimateEyeGaze(faceCrop)
                         attrResult = qualcommEngine.detectFaceAttributes(faceCrop)
+                        hrnetResult = qualcommEngine.estimateHrnetLandmarks(faceCrop)
                         meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
                     } catch (_: Throwable) {}
                 }
@@ -312,6 +315,7 @@ class FaceSecurityPipeline(
                     map3dResult = map3dResult,
                     attrResult = attrResult,
                     meshResult = meshResult,
+                    hrnetResult = hrnetResult,
                     pts5List = pts5List,
                     matchResult = matchResult,
                     lastExtractedEmbedding = lastExtractedEmbedding,
@@ -424,6 +428,7 @@ class FaceSecurityPipeline(
                 faceMap3DMM = item.map3dResult,
                 attributes = item.attrResult,
                 meshResult = item.meshResult,
+                hrnetResult = item.hrnetResult,
                 qualityResult = item.qualityResult,
                 confidenceZone = zone,
                 decisionMargin = decision.decisionMargin,

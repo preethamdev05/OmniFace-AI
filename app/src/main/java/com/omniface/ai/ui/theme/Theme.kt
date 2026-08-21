@@ -54,17 +54,17 @@ fun omniBackgroundBrush(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF000000),
-                Color(0xFF060913),
-                Color(0xFF0A0E1A)
+                Color(0xFF07090E),
+                Color(0xFF0B101C),
+                Color(0xFF0E1424)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0xFFF2F2F7),
-                Color(0xFFF2F2F7),
-                Color(0xFFE5E5EA)
+                Color(0xFFF8FAFC),
+                Color(0xFFF1F5F9),
+                Color(0xFFE2E8F0)
             )
         )
     }
@@ -74,8 +74,8 @@ fun omniFrostedGlassBrush(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0x331C1C1E),
-                Color(0x4D1C1C1E)
+                Color(0x381E293B),
+                Color(0x520F172A)
             )
         )
     } else {
@@ -92,15 +92,15 @@ fun omniSpecularBorderBrush(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0x38FFFFFF),
-                Color(0x0FFFFFFF),
+                Color(0x40FFFFFF),
+                Color(0x14FFFFFF),
                 Color(0x05FFFFFF)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0x66FFFFFF),
+                Color(0x80FFFFFF),
                 Color(0x1A000000),
                 Color(0x0D000000)
             )
@@ -111,14 +111,28 @@ fun omniSpecularBorderBrush(isDark: Boolean): Brush {
 val CyanGlassBrush = Brush.horizontalGradient(
     colors = listOf(
         Color(0xFF0A84FF),
-        Color(0xFF007AFF)
+        Color(0xFF0071E3)
     )
 )
 
 val LightCyanGlassBrush = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF007AFF),
-        Color(0xFF0062CC)
+        Color(0xFF0071E3),
+        Color(0xFF0056B3)
+    )
+)
+
+val LuxuryGoldBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFFE5C07B),
+        Color(0xFFD4AF37)
+    )
+)
+
+val TitaniumGlassBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF38BDF8),
+        Color(0xFF0A84FF)
     )
 )
 
@@ -128,6 +142,7 @@ fun omniTextSecondary(isDark: Boolean): Color = if (isDark) TextSecondary else L
 fun omniTextMuted(isDark: Boolean): Color = if (isDark) TextMuted else LightTextMuted
 fun omniCyan(isDark: Boolean): Color = if (isDark) CyanCore else LightCyanCore
 fun omniEmerald(isDark: Boolean): Color = if (isDark) EmeraldCore else LightEmeraldCore
+fun omniGold(isDark: Boolean): Color = if (isDark) GoldCore else LightGoldCore
 
 @Composable
 fun OmniFaceTheme(

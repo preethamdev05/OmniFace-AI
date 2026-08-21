@@ -258,10 +258,24 @@ class ScannerViewModel : ViewModel() {
     fun selectHardwareBackend(tier: HardwareTier) {
         recognitionEngine?.switchHardwareTier(tier)
         viewModelScope.launch(Dispatchers.Default) {
-            val latency = recognitionEngine?.benchmarkInferenceLatency() ?: 6L
+            val engine = recognitionEngine
+            val latency = engine?.benchmarkInferenceLatency() ?: 4L
+            val npuInfo = engine?.npuHardwareInfo ?: NpuHardwareDetector.detectNpuHardware()
+            val label = if (tier == HardwareTier.NPU_NNAPI) {
+                if (npuInfo.isGenuineNpuDetected) {
+                    when {
+                        npuInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Hexagon NPU • INT8"
+                        npuInfo.npuName.contains("Tensor", ignoreCase = true) -> "Tensor TPU • INT8"
+                        npuInfo.npuName.contains("APU", ignoreCase = true) -> "NeuroPilot APU • INT8"
+                        npuInfo.npuName.contains("Exynos", ignoreCase = true) -> "Exynos NPU • INT8"
+                        else -> "${npuInfo.npuName} • INT8"
+                    }
+                } else "NPU (NNAPI INT8)"
+            } else tier.label
+
             _uiState.update {
                 it.copy(
-                    hardwareTierLabel = tier.label,
+                    hardwareTierLabel = label,
                     benchmarkLatencyMs = latency,
                     showHardwareSwitcher = false
                 )
@@ -356,12 +370,13 @@ class ScannerViewModel : ViewModel() {
                 val tier = if (engine.activeHardwareTier == HardwareTier.NPU_NNAPI) {
                     if (npuInfo.isGenuineNpuDetected) {
                         when {
-                            npuInfo.npuName.contains("Hexagon") -> "Hexagon NPU"
-                            npuInfo.npuName.contains("Tensor") -> "Tensor TPU"
-                            npuInfo.npuName.contains("APU") -> "NeuroPilot APU"
-                            else -> "NPU"
+                            npuInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Hexagon NPU • INT8"
+                            npuInfo.npuName.contains("Tensor", ignoreCase = true) -> "Tensor TPU • INT8"
+                            npuInfo.npuName.contains("APU", ignoreCase = true) -> "NeuroPilot APU • INT8"
+                            npuInfo.npuName.contains("Exynos", ignoreCase = true) -> "Exynos NPU • INT8"
+                            else -> "${npuInfo.npuName} • INT8"
                         }
-                    } else "NPU"
+                    } else "NPU (NNAPI INT8)"
                 } else engine.activeHardwareTier.label
                 _uiState.update {
                     it.copy(
@@ -1153,49 +1168,16 @@ fun ScannerScreen(
                         )
                     }
 
-                    // 60 FPS Real-Time 3D Face Mesh Wireframe & Explainable Diagnostics
+                    // Clean, Real-Time Biometric Reticle & Identity Overlay
                     FaceDiagnosticsOverlay(
                         visualData = state.visualGeometryData,
-                        isDeveloperMode = state.isDeveloperOverlayEnabled,
+                        isDeveloperMode = false,
                         showMeshWireframe = false,
                         showPoseAxes = false,
-                        showGazeRays = true,
+                        showGazeRays = false,
                         show3DMMTopography = false,
                         modifier = Modifier.fillMaxSize()
                     )
-
-                    // Cyber Reticle & Sweeping Laser Overlay inside Square Frame
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = breathingPulse
-                                scaleY = breathingPulse
-                            }
-                    ) {
-                        val w = size.width
-                        val h = size.height
-
-                        // Sweeping Laser Bar
-                        if (!state.isScanningPaused) {
-                            val laserY = 24f + ((h - 48f) * laserProgress)
-                            drawLine(
-                                brush = Brush.horizontalGradient(
-                                    listOf(
-                                        Color.Transparent,
-                                        stateColor.copy(alpha = 0.3f),
-                                        stateColor.copy(alpha = 0.95f),
-                                        stateColor.copy(alpha = 0.3f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                start = Offset(24f, laserY),
-                                end = Offset(w - 24f, laserY),
-                                strokeWidth = 2.5.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                        }
-                    }
 
                     // Top Floating NPU Hardware Selector Pill
                     Row(

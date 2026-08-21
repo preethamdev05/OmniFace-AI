@@ -202,29 +202,39 @@ fun DashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(id = com.omniface.ai.R.drawable.app_logo),
-                        contentDescription = "OmniFace AI Logo",
+                    Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(1.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(14.dp))
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
+                            .size(48.dp)
+                            .shadow(if (isDark) 6.dp else 8.dp, RoundedCornerShape(15.dp), ambientColor = if (isDark) Color(0x660A84FF) else Color(0x330071E3))
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(omniLiquidSurfaceBrush(isDark))
+                            .border(1.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(15.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = com.omniface.ai.R.drawable.app_logo),
+                            contentDescription = "OmniFace AI Logo",
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column {
                         Text(
                             text = todayDateFormatted.uppercase(),
                             color = omniTextMuted(isDark),
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.8.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "OmniFace AI",
                             color = omniTextPrimary(isDark),
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.5).sp
                         )
                     }
                 }
@@ -235,10 +245,11 @@ fun DashboardScreen(
                 ) {
                     Row(
                         modifier = Modifier
+                            .shadow(4.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x3330D158), spotColor = Color(0x2630D158))
                             .clip(RoundedCornerShape(999.dp))
-                            .background(omniEmerald(isDark).copy(alpha = 0.15f))
-                            .border(0.75.dp, omniEmerald(isDark).copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .background(omniEmerald(isDark).copy(alpha = if (isDark) 0.16f else 0.12f))
+                            .border(0.75.dp, omniEmerald(isDark).copy(alpha = if (isDark) 0.45f else 0.30f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 11.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -247,22 +258,22 @@ fun DashboardScreen(
                                 .clip(CircleShape)
                                 .background(omniEmerald(isDark))
                         )
-                        Spacer(modifier = Modifier.width(5.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "ONLINE",
+                            text = "OPERATIONAL",
                             color = omniEmerald(isDark),
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.6.sp
                         )
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .shadow(if (isDark) 2.dp else 4.dp, CircleShape)
+                            .size(38.dp)
+                            .shadow(if (isDark) 4.dp else 6.dp, CircleShape, ambientColor = if (isDark) Color(0x66000000) else Color(0x1F000000))
                             .clip(CircleShape)
-                            .background(if (isDark) Color(0xFF1C1C1E) else Color(0xFFFFFFFF))
+                            .background(omniLiquidSurfaceBrush(isDark))
                             .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
                             .clickable { onOpenSettings() },
                         contentAlignment = Alignment.Center
@@ -271,14 +282,14 @@ fun DashboardScreen(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
                             tint = omniTextPrimary(isDark),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
             }
         }
 
-        // Refined AI Engine Card (Clean, Non-cluttered)
+        // Refined Neural Engine Hero Card (Luxury Titanium Glass)
         item {
             IOSCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -295,48 +306,75 @@ fun DashboardScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(omniCyan(isDark).copy(alpha = if (isDark) 0.18f else 0.12f)),
+                                .size(44.dp)
+                                .shadow(4.dp, RoundedCornerShape(13.dp), ambientColor = Color(0x330A84FF))
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(omniCyan(isDark).copy(alpha = if (isDark) 0.18f else 0.12f))
+                                .border(0.75.dp, omniCyan(isDark).copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(13.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Memory,
                                 contentDescription = null,
                                 tint = omniCyan(isDark),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
                         Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "NEURAL ENGINE",
+                                    color = omniTextMuted(isDark),
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.6.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(omniCyan(isDark).copy(alpha = 0.20f))
+                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text(
+                                        text = "${state.benchmarkLatencyMs}ms",
+                                        color = omniCyan(isDark),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = "AI ENGINE",
-                                color = omniTextMuted(isDark),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "${state.hardwareTierLabel} • ${state.benchmarkLatencyMs} ms",
+                                text = state.hardwareTierLabel,
                                 color = omniTextPrimary(isDark),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.2).sp
                             )
                             Text(
-                                text = "ArcFace 512-D • Secure KeyStore",
+                                text = "ArcFace 512-D • Hardware KeyStore AES-256",
                                 color = omniTextSecondary(isDark),
-                                fontSize = 11.sp
+                                fontSize = 11.5.sp
                             )
                         }
                     }
 
-                    Text(
-                        text = "Details →",
-                        color = omniCyan(isDark),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(omniCyan(isDark).copy(alpha = 0.12f))
+                            .border(0.5.dp, omniCyan(isDark).copy(alpha = 0.30f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "Specs →",
+                            color = omniCyan(isDark),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -602,76 +640,110 @@ fun DashboardScreen(
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeader(
-                    text = "RECENT ACTIVITY",
-                    actionText = "View Ledger →",
+                    text = "RECENT VERIFICATIONS",
+                    actionText = "Full Ledger →",
                     onAction = { onNavigate(Screen.Ledger) }
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 if (state.recentScans.isEmpty()) {
                     EmptyState(
                         icon = Icons.Default.History,
                         title = "No attendance records yet",
-                        subtitle = "Verified students will appear here."
+                        subtitle = "Verified students will appear here in real-time."
                     )
                 } else {
                     state.recentScans.forEachIndexed { index, record ->
+                        val initials = record.studentName.split(" ")
+                            .mapNotNull { it.firstOrNull()?.toString() }
+                            .take(2)
+                            .joinToString("")
+                            .uppercase()
+                            .ifEmpty { "ID" }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(34.dp)
+                                        .size(38.dp)
+                                        .shadow(3.dp, CircleShape, ambientColor = if (isDark) Color(0x66000000) else Color(0x1F0071E3))
                                         .clip(CircleShape)
-                                        .background(omniEmerald(isDark).copy(alpha = 0.15f)),
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
+                                                    if (isDark) Color(0xFF0F172A) else Color(0xFFCBD5E1)
+                                                )
+                                            )
+                                        )
+                                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = omniEmerald(isDark),
-                                        modifier = Modifier.size(16.dp)
+                                    Text(
+                                        text = initials,
+                                        color = omniCyan(isDark),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text(
                                         text = record.studentName,
                                         color = omniTextPrimary(isDark),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = (-0.2).sp
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "${record.studentRoll} • ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(record.timestamp))}",
                                         color = omniTextSecondary(isDark),
-                                        fontSize = 11.sp
+                                        fontSize = 11.5.sp
                                     )
                                 }
                             }
 
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(omniEmerald(isDark).copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    .border(0.5.dp, omniEmerald(isDark).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 9.dp, vertical = 4.dp)
                             ) {
-                                Text(
-                                    text = "${record.confidencePct.toInt()}%",
-                                    color = omniEmerald(isDark),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(omniEmerald(isDark))
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${record.confidencePct.toInt()}%",
+                                        color = omniEmerald(isDark),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
                             }
                         }
 
                         if (index < state.recentScans.size - 1) {
-                            HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
+                            HorizontalDivider(
+                                color = if (isDark) Color(0x1A384152) else Color(0x1AE2E8F0),
+                                thickness = 0.75.dp
+                            )
                         }
                     }
                 }

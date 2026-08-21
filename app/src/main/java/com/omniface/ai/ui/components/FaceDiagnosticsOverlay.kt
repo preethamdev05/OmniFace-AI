@@ -49,6 +49,7 @@ data class FaceGeometryVisualData(
     val faceMap3DMM: FaceMap3DMMResult? = null,
     val attributes: FaceAttributesResult? = null,
     val meshResult: MediaPipeMeshResult? = null,
+    val hrnetResult: com.omniface.ai.ml.HRNetFaceResult? = null,
     val qualityScore: RegistrationQualityScore? = null,
     val qualityResult: com.omniface.ai.ml.quality.QualityGateResult? = null,
     val confidenceZone: ConfidenceZone = ConfidenceZone.REJECT,
@@ -174,13 +175,38 @@ fun FaceDiagnosticsOverlay(
                 }
             }
 
-            // 1. Core Bounding Box with Smooth Face ID Corner Brackets & Specular Glass Glow
+            // 1. Core Bounding Box with Smooth Face ID Corner Brackets & Clean Highlight
             drawFaceBoundingBox(rect, faceHaloColor, overlayAlpha, pulseScale)
 
-            // 2. Real-Time Floating Identity / Status Capsule on Canvas
+            // 2. 3D Morphable Model (FaceMap 3DMM) Depth Contours
+            if (show3DMMTopography && face.faceMap3DMM != null) {
+                drawFaceMap3DMMContours(rect, face.faceMap3DMM.depthVariance, faceHaloColor, overlayAlpha)
+            }
+
+            // 3. MediaPipe 468-point 3D Mesh Wireframe & HRNet Keypoints
+            if (showMeshWireframe && face.meshResult != null) {
+                drawMediaPipeMeshTessellation(face.meshResult.landmarks468x3, rect, faceHaloColor, overlayAlpha)
+            }
+
+            // 4. 3D Head Pose Coordinate Frame Axes (Pitch, Yaw, Roll)
+            if (showPoseAxes) {
+                drawHeadPoseAxes(cx, cy, faceRadius, face.yaw, face.pitch, face.roll, overlayAlpha)
+            }
+
+            // 5. Optical Eye Gaze Subpixel Vectors
+            if (showGazeRays && face.gazeResult != null) {
+                drawEyeGazeRays(cx, cy, faceRadius, face.gazeResult, overlayAlpha)
+            }
+
+            // 6. Cybernetic Attribute HUD Tags
+            if (isDeveloperMode && face.attributes != null) {
+                drawQualcommAttributeTags(rect, face, overlayAlpha)
+            }
+
+            // 7. Real-Time Floating Identity / Status Capsule on Canvas
             drawFaceIdentityPill(rect, face, faceHaloColor, overlayAlpha)
 
-            // 3. Floating Confidence & Scan Quality Percentage Overlay with smooth score transition
+            // 8. Floating Confidence & Scan Quality Percentage Overlay with smooth score transition
             drawFaceConfidenceOverlay(
                 rect = rect,
                 face = face,
@@ -188,43 +214,6 @@ fun FaceDiagnosticsOverlay(
                 alpha = overlayAlpha,
                 animatedScore = animatedConfidenceScore
             )
-
-            // 4. 5-Point Canonical Biometric Landmarks (Eyes, Nose, Mouth)
-            if (face.landmarks5Pts != null) {
-                for (p in face.landmarks5Pts) {
-                    drawCircle(faceHaloColor.copy(alpha = 0.5f * overlayAlpha), radius = 6.5f, center = Offset(p.x, p.y))
-                    drawCircle(Color.White.copy(alpha = overlayAlpha), radius = 3.5f, center = Offset(p.x, p.y))
-                    drawCircle(Color(0xFF00E5FF).copy(alpha = overlayAlpha), radius = 1.8f, center = Offset(p.x, p.y))
-                }
-            }
-
-            // 5. 468-Point MediaPipe Dense 3D Face Mesh Wireframe & HRNet Constellation
-            val mesh = face.meshResult?.landmarks468x3
-            if (showMeshWireframe && mesh != null && mesh.isNotEmpty()) {
-                drawMediaPipeMeshTessellation(mesh, rect, faceHaloColor, overlayAlpha)
-            }
-
-            // 6. Qualcomm FaceMap 3DMM Neural Depth Topography Contours
-            val map3d = face.faceMap3DMM
-            if (show3DMMTopography && map3d != null && map3d.isTrue3DSurface) {
-                drawFaceMap3DMMContours(rect, map3d.depthVariance, faceHaloColor, overlayAlpha)
-            }
-
-            // 7. 3D Head Pose Coordinate Frame Axes (Pitch, Yaw, Roll)
-            if (showPoseAxes || isDeveloperMode) {
-                drawHeadPoseAxes(cx, cy, faceRadius, face.yaw, face.pitch, face.roll, overlayAlpha)
-            }
-
-            // 8. Optical Eye Gaze Ray Vectors & Pupil Fixation
-            val gaze = face.gazeResult
-            if (showGazeRays && gaze != null) {
-                drawEyeGazeRays(cx, cy, faceRadius, gaze, overlayAlpha)
-            }
-
-            // 9. Qualcomm AI Hub Cybernetic Attribute HUD Tags
-            if (isDeveloperMode && face.attributes != null) {
-                drawQualcommAttributeTags(rect, face, overlayAlpha)
-            }
         }
     }
 }

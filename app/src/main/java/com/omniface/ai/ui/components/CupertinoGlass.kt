@@ -83,18 +83,18 @@ fun Modifier.liquidGlassBackdrop(
 fun omniLiquidSpecularBorder(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.linearGradient(
-            0.0f to Color(0x38FFFFFF),
-            0.35f to Color(0x1AFFFFFF),
-            0.70f to Color(0x08FFFFFF),
-            1.0f to Color(0x0A000000),
+            0.0f to Color(0x4DFFFFFF),
+            0.25f to Color(0x24FFFFFF),
+            0.60f to Color(0x0AFFFFFF),
+            1.0f to Color(0x05000000),
             start = Offset(0f, 0f),
             end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
         )
     } else {
         Brush.linearGradient(
-            0.0f to Color(0x80FFFFFF),
-            0.40f to Color(0x1A000000),
-            1.0f to Color(0x0D000000),
+            0.0f to Color(0x99FFFFFF),
+            0.40f to Color(0x26000000),
+            1.0f to Color(0x0F000000),
             start = Offset(0f, 0f),
             end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
         )
@@ -102,23 +102,23 @@ fun omniLiquidSpecularBorder(isDark: Boolean): Brush {
 }
 
 /**
- * Pure Apple iOS Inset Grouped Surface Diffusion Brush.
+ * Pure Apple iOS Inset Grouped Surface Diffusion Brush with luxury multi-tier depth.
  */
 fun omniLiquidSurfaceBrush(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF1E2129),
-                Color(0xFF171920),
-                Color(0xFF12141A)
+                Color(0xFF161C28),
+                Color(0xFF111620),
+                Color(0xFF0C1018)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
                 Color(0xFFFFFFFF),
-                Color(0xFFFCFDFF),
-                Color(0xFFF6F8FB)
+                Color(0xFFFAFCFF),
+                Color(0xFFF1F5F9)
             )
         )
     }
@@ -140,13 +140,13 @@ fun IOSCard(
     val isDark = LocalThemeIsDark.current
     val effectiveBg = backgroundBrush ?: omniLiquidSurfaceBrush(isDark)
     val effectiveBorder = borderBrush ?: omniLiquidSpecularBorder(isDark)
-    val shadowElevation = elevation ?: (if (isDark) 2.dp else 4.dp)
+    val shadowElevation = elevation ?: (if (isDark) 4.dp else 6.dp)
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed && onClick != null) 0.98f else 1.0f,
+        targetValue = if (isPressed && onClick != null) 0.985f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -159,10 +159,10 @@ fun IOSCard(
     val baseModifier = modifier
         .scale(scale)
         .shadow(
-            shadowElevation,
-            cardShape,
-            ambientColor = if (isDark) Color(0x4D000000) else Color(0x14000000),
-            spotColor = if (isDark) Color(0x33000000) else Color(0x0A000000)
+            elevation = shadowElevation,
+            shape = cardShape,
+            ambientColor = if (isDark) Color(0x66000000) else Color(0x1F0F172A),
+            spotColor = if (isDark) Color(0x4D000000) else Color(0x140F172A)
         )
         .clip(cardShape)
         .background(effectiveBg)
@@ -179,7 +179,7 @@ fun IOSCard(
 
     CompositionLocalProvider(LocalContentColor provides omniTextPrimary(isDark)) {
         Column(
-            modifier = cardModifier.padding(16.dp),
+            modifier = cardModifier.padding(18.dp),
             content = content
         )
     }
@@ -488,7 +488,7 @@ fun CupertinoMetricTile(
 
     IOSCard(
         modifier = modifier,
-        cornerRadius = 16.dp,
+        cornerRadius = 18.dp,
         onClick = onClick
     ) {
         Row(
@@ -499,44 +499,54 @@ fun CupertinoMetricTile(
             Text(
                 text = title.uppercase(),
                 color = omniTextMuted(isDark),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.5.sp
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp
             )
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(accentColor.copy(alpha = if (isDark) 0.20f else 0.12f)),
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.12f))
+                    .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.35f else 0.20f), RoundedCornerShape(9.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
             text = value,
             color = omniTextPrimary(isDark),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
             letterSpacing = (-0.5).sp
         )
 
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(3.dp))
 
-        Text(
-            text = subtitle,
-            color = accentColor,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(accentColor)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = subtitle,
+                color = accentColor,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
@@ -559,9 +569,9 @@ fun CupertinoButton(
 
     val effectiveBrush = if (isSecondary) {
         if (isDark) {
-            Brush.verticalGradient(listOf(Color(0xFF2C2C2E), Color(0xFF2C2C2E)))
+            Brush.verticalGradient(listOf(Color(0xFF1E2433), Color(0xFF161A24)))
         } else {
-            Brush.verticalGradient(listOf(Color(0xFFE5E5EA), Color(0xFFE5E5EA)))
+            Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF1F5F9)))
         }
     } else {
         brush ?: (if (isDark) CyanGlassBrush else LightCyanGlassBrush)
@@ -577,7 +587,7 @@ fun CupertinoButton(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed && enabled) 0.97f else 1.0f,
+        targetValue = if (isPressed && enabled) 0.965f else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -589,14 +599,19 @@ fun CupertinoButton(
         modifier = modifier
             .scale(scale)
             .fillMaxWidth()
-            .height(50.dp)
-            .shadow(if (!isSecondary && enabled) (if (isDark) 4.dp else 6.dp) else 0.dp, RoundedCornerShape(14.dp), ambientColor = if (isDark) Color(0x33000000) else Color(0x26007AFF))
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (enabled) effectiveBrush else Brush.verticalGradient(listOf(Color(0xFF8E8E93), Color(0xFF8E8E93))))
+            .height(52.dp)
+            .shadow(
+                elevation = if (!isSecondary && enabled) (if (isDark) 6.dp else 8.dp) else (if (isDark) 2.dp else 3.dp),
+                shape = RoundedCornerShape(15.dp),
+                ambientColor = if (isDark) Color(0x66000000) else Color(0x330071E3),
+                spotColor = if (isDark) Color(0x4D000000) else Color(0x260071E3)
+            )
+            .clip(RoundedCornerShape(15.dp))
+            .background(if (enabled) effectiveBrush else Brush.verticalGradient(listOf(Color(0xFF64748B), Color(0xFF475569))))
             .border(
-                0.75.dp,
-                if (enabled) omniLiquidSpecularBorder(isDark) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent)),
-                RoundedCornerShape(14.dp)
+                width = 0.75.dp,
+                brush = if (enabled) omniLiquidSpecularBorder(isDark) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent)),
+                shape = RoundedCornerShape(15.dp)
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -617,15 +632,15 @@ fun CupertinoButton(
                     imageVector = icon,
                     contentDescription = null,
                     tint = if (enabled) effectiveContentColor else TextMuted,
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(7.dp))
             }
             Text(
                 text = text,
                 color = if (enabled) effectiveContentColor else TextMuted,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.2).sp
             )
         }
