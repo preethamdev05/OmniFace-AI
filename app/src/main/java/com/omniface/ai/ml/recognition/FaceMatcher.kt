@@ -29,6 +29,11 @@ class FaceMatcher {
 
     private val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
     private val hnswIndex = HnswVectorIndex(dimension = 512)
+    private val faissIndex = FaissVectorIndex(
+        dimension = 512,
+        indexType = FaissVectorIndex.IndexType.HNSW_FLAT,
+        metricType = FaissVectorIndex.MetricType.INNER_PRODUCT
+    )
     private val lock = ReentrantReadWriteLock()
 
     val enrolledTemplateCount: Int get() = biometricCache.size
@@ -36,6 +41,9 @@ class FaceMatcher {
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
         biometricCache.clear()
         hnswIndex.clear()
+        faissIndex.reset()
+        val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
+
         for (entity in templates) {
             val decryptedCsv = try {
                 if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
@@ -60,7 +68,18 @@ class FaceMatcher {
                     angleType = entity.angleType,
                     embedding = embedding
                 )
+                faissBatch.add(
+                    FaissVectorIndex.FaissIndexItem(
+                        id = entity.id,
+                        studentRoll = entity.studentRoll,
+                        angleType = entity.angleType,
+                        vector = embedding
+                    )
+                )
             }
+        }
+        if (faissBatch.isNotEmpty()) {
+            faissIndex.addBatch(faissBatch)
         }
     }
 
@@ -95,9 +114,10 @@ class FaceMatcher {
             }
             l2Normalize(adapted)
 
-            // Update in-memory cache and HNSW graph under write lock
+            // Update in-memory cache, HNSW graph, and FAISS index under write lock
             System.arraycopy(adapted, 0, currentVec, 0, currentVec.size)
             hnswIndex.updateVector(centroidTemplate.templateId, adapted)
+            faissIndex.update(centroidTemplate.templateId, adapted)
 
             val csv = adapted.joinToString(",") { "%.6f".format(java.util.Locale.US, it) }
             val encryptedCsv = try {
@@ -108,6 +128,36 @@ class FaceMatcher {
 
             Pair(centroidTemplate.templateId, encryptedCsv)
         }
+    }
+
+    /**
+     * Rapid FAISS Nearest Neighbor (k-NN / ANN) cosine similarity search.
+     * Returns ranked candidates with similarities, Euclidean distances, and sub-millisecond query latency.
+     */
+    fun searchFaissTopK(
+        queryEmbedding: FloatArray,
+        k: Int = 10,
+        nprobe: Int = 4
+    ): FaissVectorIndex.FaissSearchResult {
+        return faissIndex.search(queryEmbedding, k, nprobe)
+    }
+
+    /**
+     * FAISS Range Search: Retrieves all enrolled templates with cosine similarity above threshold.
+     */
+    fun searchFaissRange(
+        queryEmbedding: FloatArray,
+        minSimilarity: Float = 0.55f
+    ): List<FaissVectorIndex.FaissCandidate> {
+        return faissIndex.rangeSearch(queryEmbedding, minSimilarity)
+    }
+
+    /**
+     * Rapid Approximate Nearest Neighbor (ANN) index search across all enrolled templates.
+     * Returns top-K nearest templates sorted by cosine similarity in sub-millisecond O(log N) time.
+     */
+    fun searchAnnTopK(queryEmbedding: FloatArray, k: Int = 10): List<HnswVectorIndex.AnnCandidate> {
+        return hnswIndex.searchTopK(queryEmbedding, k)
     }
 
     fun match(
@@ -130,10 +180,20 @@ class FaceMatcher {
             )
         }
 
-        // 1. Group templates by student and compute individual angle similarities + centroid similarity
+        // 1. Candidate Generation: For large template sets (>64), use FAISS / HNSW ANN index to filter top candidate rolls
+        val candidateRolls: Set<String>? = if (biometricCache.size > 64) {
+            val faissResult = faissIndex.search(queryEmbedding, k = minOf(48, biometricCache.size))
+            faissResult.candidates.map { it.studentRoll }.toSet()
+        } else {
+            null
+        }
+
+        // 2. Group templates by candidate student and compute individual angle similarities + centroid similarity
         val studentTemplates = HashMap<String, MutableList<CachedBiometric>>()
         for (cached in biometricCache) {
-            studentTemplates.getOrPut(cached.studentRoll) { mutableListOf() }.add(cached)
+            if (candidateRolls == null || candidateRolls.contains(cached.studentRoll)) {
+                studentTemplates.getOrPut(cached.studentRoll) { mutableListOf() }.add(cached)
+            }
         }
 
         data class CandidateScore(
@@ -307,5 +367,6 @@ class FaceMatcher {
         }
         biometricCache.clear()
         hnswIndex.clear()
+        faissIndex.reset()
     }
 }

@@ -36,6 +36,20 @@ class HnswVectorIndex(
         val neighbors: Array<MutableList<String>>
     )
 
+    data class IndexItem(
+        val id: String,
+        val studentRoll: String,
+        val angleType: String,
+        val embedding: FloatArray
+    )
+
+    data class AnnCandidate(
+        val id: String,
+        val studentRoll: String,
+        val angleType: String,
+        val similarity: Float
+    )
+
     private val nodes = ConcurrentHashMap<String, Node>()
     private var entryNodeId: String? = null
     private var maxLevel: Int = -1
@@ -178,6 +192,29 @@ class HnswVectorIndex(
                 }
                 .sortedByDescending { it.second }
                 .take(k)
+        }
+    }
+
+    /**
+     * High-level ANN query returning structured candidate objects.
+     */
+    fun searchTopK(queryVector: FloatArray, k: Int = 10): List<AnnCandidate> {
+        return searchKnn(queryVector, k).map { (node, sim) ->
+            AnnCandidate(
+                id = node.id,
+                studentRoll = node.studentRoll,
+                angleType = node.angleType,
+                similarity = sim
+            )
+        }
+    }
+
+    /**
+     * Batch inserts multiple biometric templates into the index.
+     */
+    fun insertBatch(items: List<IndexItem>) {
+        for (item in items) {
+            insert(item.id, item.studentRoll, item.angleType, item.embedding)
         }
     }
 

@@ -26,6 +26,7 @@ import kotlin.math.sqrt
 
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.NpuHardwareInfo
+import com.omniface.ai.ml.recognition.FaissVectorIndex
 
 enum class SecurityTier(
     val threshold: Float,
@@ -135,8 +136,13 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     private val outputBufferInt8 = Array(1) { ByteArray(embeddingDim) }
     private val pixelBuffer = IntArray(inputSize * inputSize)
 
-    // In-Memory Decrypted Biometric Matrix Cache
+    // In-Memory Decrypted Biometric Matrix Cache & FAISS Vector Index
     private val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
+    val faissIndex = FaissVectorIndex(
+        dimension = embeddingDim,
+        indexType = FaissVectorIndex.IndexType.HNSW_FLAT,
+        metricType = FaissVectorIndex.MetricType.INNER_PRODUCT
+    )
 
     init {
         initializeHardwareEngine()
@@ -412,6 +418,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
         biometricCache.clear()
+        faissIndex.reset()
+        val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
         var loadedCount = 0
         var skippedCount = 0
         for (t in templates) {
@@ -431,13 +439,24 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             val emb = parseEmbeddingCsv(rawCsv)
             if (emb.isNotEmpty()) {
                 biometricCache.add(CachedBiometric(t.id, t.studentRoll, t.angleType, emb))
+                faissBatch.add(
+                    FaissVectorIndex.FaissIndexItem(
+                        id = t.id,
+                        studentRoll = t.studentRoll,
+                        angleType = t.angleType,
+                        vector = emb
+                    )
+                )
                 loadedCount++
             } else {
                 Log.w(TAG, "⚠️ Empty embedding for template ${t.id} (${t.angleType}) — skipped.")
                 skippedCount++
             }
         }
-        Log.i(TAG, "📦 Biometric cache loaded: $loadedCount templates, $skippedCount skipped.")
+        if (faissBatch.isNotEmpty()) {
+            faissIndex.addBatch(faissBatch)
+        }
+        Log.i(TAG, "📦 Biometric cache & FAISS index loaded: $loadedCount templates, $skippedCount skipped.")
     }
 
     // Canonical ArcFace 112x112 4-Point Target Coordinates (Left Eye, Right Eye, Left Mouth, Right Mouth)
@@ -777,6 +796,27 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         }
     }
 
+    /**
+     * Rapid FAISS Vector Search: Retrieves Top-K nearest neighbors across enrolled identities.
+     */
+    fun searchFaissTopK(
+        queryEmbedding: FloatArray,
+        k: Int = 10,
+        nprobe: Int = 4
+    ): FaissVectorIndex.FaissSearchResult {
+        return faissIndex.search(queryEmbedding, k, nprobe)
+    }
+
+    /**
+     * Rapid FAISS Range Search: Retrieves all enrolled templates matching above a similarity threshold.
+     */
+    fun searchFaissRange(
+        queryEmbedding: FloatArray,
+        minSimilarity: Float = 0.55f
+    ): List<FaissVectorIndex.FaissCandidate> {
+        return faissIndex.rangeSearch(queryEmbedding, minSimilarity)
+    }
+
     override fun close() {
         tfliteInterpreter?.close()
         gpuDelegate?.close()
@@ -785,5 +825,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             Arrays.fill(cached.embedding, 0.0f)
         }
         biometricCache.clear()
+        faissIndex.reset()
     }
 }

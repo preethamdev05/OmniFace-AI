@@ -352,7 +352,9 @@ class FaceSecurityPipeline(
 
         for (i in intermediateFaces.indices) {
             val item = intermediateFaces[i]
-            val decision = resolvedDecisions[i]
+            val resolvedDecision = resolvedDecisions[i]
+            val trackId = item.face.trackingId ?: 0
+            val decision = tracker.stabilizeDecision(trackId, resolvedDecision)
             val matchResult = item.matchResult
             val lastExtractedEmbedding = item.lastExtractedEmbedding
 
