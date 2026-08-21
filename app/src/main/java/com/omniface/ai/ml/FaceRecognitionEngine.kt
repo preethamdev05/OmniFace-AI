@@ -875,21 +875,11 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         val size = minOf(a.size, b.size)
         if (size == 0) return 0.0f
         var sum = 0.0f
-        var normA = 0.0f
-        var normB = 0.0f
         for (i in 0 until size) {
-            val va = a[i]
-            val vb = b[i]
-            sum += va * vb
-            normA += va * va
-            normB += vb * vb
+            sum += a[i] * b[i]
         }
-        val denom = kotlin.math.sqrt(normA * normB)
-        return if (denom > 1e-7f) {
-            (sum / denom).coerceIn(-1.0f, 1.0f)
-        } else {
-            0.0f
-        }
+        // Embeddings are already L2 normalized at extraction, so we just clamp the dot product.
+        return sum.coerceIn(-1.0f, 1.0f)
     }
 
     private fun parseEmbeddingCsv(csv: String): FloatArray {
