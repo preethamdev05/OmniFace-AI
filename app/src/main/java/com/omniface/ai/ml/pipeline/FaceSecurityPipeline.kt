@@ -24,6 +24,21 @@ import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 
+data class ProcessedFaceData(
+    val face: Face,
+    val smoothedRect: Rect,
+    val qualityResult: QualityGateResult,
+    val passivePadResult: PassivePadResult?,
+    val gazeResult: EyeGazeResult?,
+    val map3dResult: FaceMap3DMMResult?,
+    val attrResult: FaceAttributesResult?,
+    val meshResult: MediaPipeMeshResult?,
+    val pts5List: List<PointF>,
+    val matchResult: MatchResult?,
+    val lastExtractedEmbedding: FloatArray?,
+    val decision: BiometricSynthesisDecision
+)
+
 data class PipelineFrameOutput(
     val visualGeometries: List<FaceGeometryVisualData>,
     val topDecision: BiometricSynthesisDecision,
@@ -108,11 +123,9 @@ class FaceSecurityPipeline(
         val dx = (previewWidth - fullBitmap.width * scale) / 2f
         val dy = (previewHeight - fullBitmap.height * scale) / 2f
 
-        val visualItems = mutableListOf<FaceGeometryVisualData>()
-        var primaryDecision: BiometricSynthesisDecision? = null
-        var attendanceTriggered = false
+        val intermediateFaces = mutableListOf<ProcessedFaceData>()
 
-        for (face in faces.take(6)) {
+        for (face in faces.take(12)) {
             val rawBox = face.boundingBox
             val box = if (downscaleFactor < 0.99f) {
                 android.graphics.Rect(
@@ -265,6 +278,84 @@ class FaceSecurityPipeline(
                 securityTier = securityTier
             )
 
+            fun mapPoint(pt: PointF?): PointF? {
+                if (pt == null) return null
+                val x = if (isFrontCamera) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
+                val y = pt.y * scale + dy
+                return PointF(x, y)
+            }
+
+            val pts5List = listOfNotNull(
+                mapPoint(leftEye),
+                mapPoint(rightEye),
+                mapPoint(nose),
+                mapPoint(mouthL),
+                mapPoint(mouthR)
+            )
+
+            intermediateFaces.add(
+                ProcessedFaceData(
+                    face = face,
+                    smoothedRect = smoothedRect,
+                    qualityResult = qualityResult,
+                    passivePadResult = passivePadResult,
+                    gazeResult = gazeResult,
+                    map3dResult = map3dResult,
+                    attrResult = attrResult,
+                    meshResult = meshResult,
+                    pts5List = pts5List,
+                    matchResult = matchResult,
+                    lastExtractedEmbedding = lastExtractedEmbedding,
+                    decision = decision
+                )
+            )
+        }
+
+        // ── MULTI-FACE IDENTITY COLLISION & DUPLICATE RESOLUTION ──
+        // If multiple faces in the same frame match to the same enrolled identity,
+        // assign the identity to the face with highest similarity and demote the duplicate.
+        val assignedRolls = mutableSetOf<String>()
+        // Sort descending by match similarity so highest confidence match claims the roll first
+        val sortedIndices = intermediateFaces.indices.sortedByDescending { intermediateFaces[it].decision.matchSimilarity }
+        val resolvedDecisions = Array(intermediateFaces.size) { intermediateFaces[it].decision }
+
+        for (idx in sortedIndices) {
+            val item = intermediateFaces[idx]
+            val origDecision = item.decision
+            if (origDecision.isAttendanceAuthorized && origDecision.matchedStudentRoll.isNotBlank()) {
+                val roll = origDecision.matchedStudentRoll
+                if (assignedRolls.contains(roll)) {
+                    // Duplicate identity collision detected in current frame!
+                    resolvedDecisions[idx] = BiometricSynthesisDecision(
+                        gateState = PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
+                        isAttendanceAuthorized = false,
+                        matchedStudentRoll = "GUEST",
+                        matchedStudentName = "Duplicate Identity Conflict",
+                        matchConfidence = 0f,
+                        matchSimilarity = origDecision.matchSimilarity,
+                        decisionMargin = 0f,
+                        qualityScore = origDecision.qualityScore,
+                        livenessScore = origDecision.livenessScore,
+                        title = "DUPLICATE IDENTITY CONFLICT",
+                        subtitle = "Roll $roll already assigned to another face in view",
+                        technicalExplanation = "Multi-face collision: Identity $roll claimed by multiple faces in the same frame"
+                    )
+                } else {
+                    assignedRolls.add(roll)
+                }
+            }
+        }
+
+        val visualItems = mutableListOf<FaceGeometryVisualData>()
+        var primaryDecision: BiometricSynthesisDecision? = null
+        var attendanceTriggered = false
+
+        for (i in intermediateFaces.indices) {
+            val item = intermediateFaces[i]
+            val decision = resolvedDecisions[i]
+            val matchResult = item.matchResult
+            val lastExtractedEmbedding = item.lastExtractedEmbedding
+
             // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher
             if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
                 val adaptedPair = matcher.adaptCentroidIfHighConfidence(
@@ -302,38 +393,28 @@ class FaceSecurityPipeline(
                     lastAuthorizedTimestampMs = now
                     consecutiveMatchCounts[roll] = 0
                 }
+            }
+
+            val zone = if (decision.isAttendanceAuthorized) {
+                ConfidenceZone.ACCEPT
+            } else if (decision.gateState == PipelineGateState.REVIEW_AMBIGUOUS_MATCH) {
+                ConfidenceZone.REVIEW
             } else {
-                consecutiveMatchCounts.clear()
+                ConfidenceZone.REJECT
             }
-
-            // ── Build Visual Geometry for Viewfinder HUD ──
-            fun mapPoint(pt: PointF?): PointF? {
-                if (pt == null) return null
-                val x = if (isFrontCamera) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
-                val y = pt.y * scale + dy
-                return PointF(x, y)
-            }
-
-            val pts5List = listOfNotNull(
-                mapPoint(leftEye),
-                mapPoint(rightEye),
-                mapPoint(nose),
-                mapPoint(mouthL),
-                mapPoint(mouthR)
-            )
 
             val visualItem = FaceGeometryVisualData(
-                bounds = smoothedRect,
-                yaw = face.headEulerAngleY,
-                pitch = face.headEulerAngleX,
-                roll = face.headEulerAngleZ,
-                landmarks5Pts = if (pts5List.isNotEmpty()) pts5List.toTypedArray() else null,
-                gazeResult = gazeResult,
-                faceMap3DMM = map3dResult,
-                attributes = attrResult,
-                meshResult = meshResult,
-                qualityResult = qualityResult,
-                confidenceZone = matchResult?.confidenceZone ?: ConfidenceZone.REJECT,
+                bounds = item.smoothedRect,
+                yaw = item.face.headEulerAngleY,
+                pitch = item.face.headEulerAngleX,
+                roll = item.face.headEulerAngleZ,
+                landmarks5Pts = if (item.pts5List.isNotEmpty()) item.pts5List.toTypedArray() else null,
+                gazeResult = item.gazeResult,
+                faceMap3DMM = item.map3dResult,
+                attributes = item.attrResult,
+                meshResult = item.meshResult,
+                qualityResult = item.qualityResult,
+                confidenceZone = zone,
                 decisionMargin = decision.decisionMargin,
                 similarityScore = decision.matchSimilarity,
                 studentName = decision.matchedStudentName,
@@ -342,6 +423,10 @@ class FaceSecurityPipeline(
                 activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
             )
             visualItems.add(visualItem)
+        }
+
+        if (primaryDecision?.isAttendanceAuthorized != true) {
+            consecutiveMatchCounts.clear()
         }
 
         val elapsedMs = ((SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000L).coerceAtLeast(1L)
