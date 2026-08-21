@@ -6,6 +6,7 @@ import android.hardware.usb.UsbManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.omniface.ai.security.AndroidSecurityUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,7 +29,26 @@ object TurnstileRelayController {
     var webhookUrl: String = ""
     var gateId: String = "GATE_ALPHA_01"
     var bearerToken: String = ""
+
+    /**
+     * Per-device HMAC secret for signing webhook payloads.
+     * Loaded lazily from EncryptedSharedPreferences on first access via initWithContext().
+     * Never falls back to the old hardcoded literal string.
+     */
+    private var _hmacSecret: String = ""
+    val hmacSecret: String get() = _hmacSecret
+
     var isWebhookEnabled: Boolean = false
+
+    /**
+     * Must be called once from OmniFaceApplication.onCreate() (or before first relay use)
+     * to load (or generate) the per-device HMAC secret from EncryptedSharedPreferences.
+     */
+    fun initWithContext(context: Context) {
+        if (_hmacSecret.isBlank()) {
+            _hmacSecret = AndroidSecurityUtils.getOrCreateHmacSecret(context)
+        }
+    }
 
     fun checkUsbRelayAttached(context: Context): Boolean {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
@@ -78,6 +98,60 @@ object TurnstileRelayController {
         }
     }
 
+    private fun computeHmacSha256(data: String, secret: String): String {
+        return try {
+            val algorithm = "HmacSHA256"
+            val key = javax.crypto.spec.SecretKeySpec(secret.toByteArray(Charsets.UTF_8), algorithm)
+            val mac = javax.crypto.Mac.getInstance(algorithm)
+            mac.init(key)
+            val hmacBytes = mac.doFinal(data.toByteArray(Charsets.UTF_8))
+            hmacBytes.joinToString("") { "%02x".format(it) }
+        } catch (_: Throwable) {
+            AndroidSecurityUtils.computeSha256(data + secret)
+        }
+    }
+
+    suspend fun testWebhookConnection(): Pair<Boolean, String> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        if (webhookUrl.isBlank()) return@withContext Pair(false, "Webhook URL is not configured")
+        try {
+            val url = URL(webhookUrl)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 4000
+                readTimeout = 4000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                if (bearerToken.isNotBlank()) {
+                    setRequestProperty("Authorization", "Bearer $bearerToken")
+                }
+            }
+
+            val payload = JSONObject().apply {
+                put("event", "PING_TEST")
+                put("gateId", gateId)
+                put("timestamp", System.currentTimeMillis())
+                put("app", "OmniFace AI Turnstile Access Control")
+            }
+            val payloadStr = payload.toString()
+            conn.setRequestProperty("X-OmniFace-Signature", computeHmacSha256(payloadStr, hmacSecret))
+
+            OutputStreamWriter(conn.outputStream).use { writer ->
+                writer.write(payloadStr)
+                writer.flush()
+            }
+
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 200..299) {
+                Pair(true, "HTTP $code: Connection Successful")
+            } else {
+                Pair(false, "HTTP $code: Server responded with error")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Connection Failed: ${e.localizedMessage ?: e.message}")
+        }
+    }
+
     private fun dispatchWebhookUnlock(
         studentRoll: String,
         studentName: String,
@@ -109,8 +183,11 @@ object TurnstileRelayController {
                 put("timestamp", System.currentTimeMillis())
             }
 
+            val payloadStr = payload.toString()
+            conn.setRequestProperty("X-OmniFace-Signature", computeHmacSha256(payloadStr, hmacSecret))
+
             OutputStreamWriter(conn.outputStream).use { writer ->
-                writer.write(payload.toString())
+                writer.write(payloadStr)
                 writer.flush()
             }
 

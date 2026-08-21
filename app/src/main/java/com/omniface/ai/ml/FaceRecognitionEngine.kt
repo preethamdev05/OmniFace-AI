@@ -27,10 +27,15 @@ import kotlin.math.sqrt
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.NpuHardwareInfo
 
-enum class SecurityTier(val threshold: Float, val label: String, val farDesc: String) {
-    STANDARD(0.420f, "STANDARD", "Doorway Kiosk (FAR 1:100 • τ ≥ 0.420)"),
-    HIGH(0.500f, "HIGH", "ISO/IEC Standard (FAR 1:1,000 • τ ≥ 0.500)"),
-    STRICT(0.600f, "STRICT", "Bank Grade (FAR 1:10,000 • τ ≥ 0.600)")
+enum class SecurityTier(
+    val threshold: Float,
+    val marginThreshold: Float,
+    val label: String,
+    val farDesc: String
+) {
+    STANDARD(0.550f, 0.080f, "STANDARD", "Doorway Kiosk (FAR 1:1,000 • τ ≥ 0.550)"),
+    HIGH(0.620f, 0.100f, "HIGH", "ISO/IEC Standard (FAR 1:10,000 • τ ≥ 0.620)"),
+    STRICT(0.700f, 0.120f, "STRICT", "Bank Grade (FAR 1:100,000 • τ ≥ 0.700)")
 }
 
 enum class NeuralBackbone(val label: String, val params: String, val isQualcommOptimized: Boolean) {
@@ -605,86 +610,140 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             )
         }
 
-        // ── High-Precision Multi-Angle Candidate Scoring ────
-        // Step 1: For each student, find their MAXIMUM similarity across their multi-angle templates
-        // (frontal, left 22°, right 22°, up 16°, down 16°).
-        // Since a person presents one pose at a time, the best-matching angle represents their true biometric likeness.
-        val perStudentBestScores = HashMap<String, Float>()
-        val perStudentBestAngles = HashMap<String, String>()
-
+        // ── High-Precision Multi-Angle Candidate Scoring with Centroid Consistency ────
+        val studentTemplates = HashMap<String, MutableList<CachedBiometric>>()
         for (cached in biometricCache) {
-            val sim = fastVectorDotProduct(queryEmbedding, cached.embedding)
-            val currentBest = perStudentBestScores[cached.studentRoll] ?: -1.0f
-            if (sim > currentBest) {
-                perStudentBestScores[cached.studentRoll] = sim
-                perStudentBestAngles[cached.studentRoll] = cached.angleType
-            }
+            studentTemplates.getOrPut(cached.studentRoll) { mutableListOf() }.add(cached)
         }
 
-        // Step 2: Rank all candidate students by best similarity descending
-        val rankedCandidates = perStudentBestScores.map { (roll, sim) ->
-            roll to sim
-        }.sortedByDescending { it.second }
+        data class CandidateScore(
+            val roll: String,
+            val compositeScore: Float,
+            val maxAngleScore: Float,
+            val centroidScore: Float,
+            val bestAngle: String
+        )
 
-        val top1 = rankedCandidates.getOrNull(0)
-        val top2 = rankedCandidates.getOrNull(1)
+        val scoredStudents = mutableListOf<CandidateScore>()
 
-        val maxSimilarity = top1?.second ?: 0.0f
-        val bestMatchRoll = top1?.first ?: "GUEST"
-        val matchedAngle = perStudentBestAngles[bestMatchRoll] ?: "FRONTAL"
-        val top2Similarity = top2?.second ?: 0.0f
-        val top2Roll = top2?.first
+        for ((roll, templates) in studentTemplates) {
+            var bestSim = -1.0f
+            var bestAngle = "FRONTAL"
+            var centroidSim: Float? = null
+            var sumSim = 0.0f
 
-        val margin = if (rankedCandidates.size > 1) (maxSimilarity - top2Similarity) else maxSimilarity
+            for (tpl in templates) {
+                val sim = fastVectorDotProduct(queryEmbedding, tpl.embedding)
+                sumSim += sim
+                if (tpl.angleType.equals("MASTER_CENTROID", ignoreCase = true) ||
+                    tpl.angleType.equals("CENTROID", ignoreCase = true) ||
+                    tpl.angleType.equals("MASTER", ignoreCase = true)
+                ) {
+                    centroidSim = sim
+                }
+                if (sim > bestSim) {
+                    bestSim = sim
+                    bestAngle = tpl.angleType
+                }
+            }
+
+            val meanSim = sumSim / templates.size.coerceAtLeast(1)
+            val effectiveCentroid = centroidSim ?: meanSim
+
+            // If multiple angle templates exist, composite = 0.70 * maxAngle + 0.30 * centroid
+            // This prevents an impostor who accidentally correlates with 1 noisy angle from being falsely matched.
+            val compositeScore = if (templates.size > 1) {
+                (bestSim * 0.70f + effectiveCentroid * 0.30f)
+            } else {
+                bestSim
+            }
+
+            scoredStudents.add(
+                CandidateScore(
+                    roll = roll,
+                    compositeScore = compositeScore,
+                    maxAngleScore = bestSim,
+                    centroidScore = effectiveCentroid,
+                    bestAngle = bestAngle
+                )
+            )
+        }
+
+        // Step 2: Rank all candidate students by composite score descending
+        scoredStudents.sortByDescending { it.compositeScore }
+
+        val top1 = scoredStudents.getOrNull(0)
+        val top2 = scoredStudents.getOrNull(1)
+
+        val top1Score = top1?.compositeScore ?: 0.0f
+        val top1MaxAngle = top1?.maxAngleScore ?: 0.0f
+        val top1Centroid = top1?.centroidScore ?: 0.0f
+        val bestMatchRoll = top1?.roll ?: "GUEST"
+        val matchedAngle = top1?.bestAngle ?: "FRONTAL"
+        val top2Score = top2?.compositeScore ?: 0.0f
+        val top2Roll = top2?.roll
+
+        val margin = if (scoredStudents.size > 1) (top1Score - top2Score) else top1Score
         val threshold = securityTier.threshold
-        val marginThreshold = 0.070f // Strict margin guard against lookalike / twin confusion
+        val marginThreshold = securityTier.marginThreshold
 
         val confidenceZone: ConfidenceZone
         val isMatch: Boolean
         val explanation: String
 
-        if (maxSimilarity >= threshold && (rankedCandidates.size <= 1 || margin >= marginThreshold)) {
+        // To be a verified match:
+        // 1. compositeScore >= threshold
+        // 2. top1MaxAngle >= threshold (individual best angle must meet criteria)
+        // 3. For multi-angle profiles, top1Centroid must not be drastically lower than threshold (centroid >= threshold - 0.120f)
+        // 4. Decision margin >= marginThreshold if multiple students enrolled
+        val isCentroidConsistent = (top1Centroid >= (threshold - 0.120f))
+
+        if (top1Score >= threshold && top1MaxAngle >= threshold && isCentroidConsistent && (scoredStudents.size <= 1 || margin >= marginThreshold)) {
             confidenceZone = ConfidenceZone.ACCEPT
             isMatch = true
-            val top2Text = if (top2Roll != null) " (Top-2: $top2Roll @ ${"%.3f".format(top2Similarity)})" else ""
-            explanation = "Verified: $bestMatchRoll (sim ${"%.3f".format(maxSimilarity)} >= ${"%.3f".format(threshold)} [$matchedAngle], Δ=${"%.3f".format(margin)}$top2Text)"
-        } else if (maxSimilarity >= threshold && margin < marginThreshold) {
+            val top2Text = if (top2Roll != null) " (Top-2: $top2Roll @ ${"%.3f".format(top2Score)})" else ""
+            explanation = "Verified: $bestMatchRoll (score ${"%.3f".format(top1Score)} [max ${"%.3f".format(top1MaxAngle)}, ctr ${"%.3f".format(top1Centroid)}] >= ${"%.3f".format(threshold)} [$matchedAngle], Δ=${"%.3f".format(margin)}$top2Text)"
+        } else if (top1Score >= threshold && (margin < marginThreshold || !isCentroidConsistent)) {
             // Sibling / Twin / Ambiguous match safeguard
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
-            explanation = "Ambiguous Identity: Top-1 $bestMatchRoll (${"%.3f".format(maxSimilarity)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Similarity)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
-        } else if (maxSimilarity >= (threshold - 0.060f)) {
+            explanation = if (!isCentroidConsistent) {
+                "Inconsistent Profile: Max angle ${"%.3f".format(top1MaxAngle)} but low centroid ${"%.3f".format(top1Centroid)} for $bestMatchRoll"
+            } else {
+                "Ambiguous Identity: Top-1 $bestMatchRoll (${"%.3f".format(top1Score)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Score)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
+            }
+        } else if (top1Score >= (threshold - 0.060f) || top1MaxAngle >= (threshold - 0.040f)) {
             // Borderline score
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
-            explanation = "Borderline Likeness: Cosine sim ${"%.3f".format(maxSimilarity)} near threshold ${"%.3f".format(threshold)} (Δ=${"%.3f".format(margin)})"
+            explanation = "Borderline Likeness: Cosine sim ${"%.3f".format(top1Score)} near threshold ${"%.3f".format(threshold)} (Δ=${"%.3f".format(margin)})"
         } else {
             confidenceZone = ConfidenceZone.REJECT
             isMatch = false
-            explanation = "Unregistered / Visitor: Cosine sim ${"%.3f".format(maxSimilarity)} < threshold ${"%.3f".format(threshold)}"
+            explanation = "Unregistered / Visitor: Score ${"%.3f".format(top1Score)} < threshold ${"%.3f".format(threshold)}"
         }
 
         val name = if (isMatch) studentMap[bestMatchRoll] ?: bestMatchRoll else "Visitor / Unregistered"
 
         // Calibrated 0-100% confidence for UI presentation
         val normalizedConfidence = if (isMatch) {
-            val progress = ((maxSimilarity - threshold) / (0.85f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
-            (82.0f + progress * 17.9f).coerceIn(82.0f, 99.9f)
+            val progress = ((top1Score - threshold) / (0.85f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
+            (85.0f + progress * 14.9f).coerceIn(85.0f, 99.9f)
         } else {
-            ((maxSimilarity.coerceAtLeast(0f) / threshold) * 69.0f).coerceIn(0.0f, 69.0f)
+            ((top1Score.coerceAtLeast(0f) / threshold) * 65.0f).coerceIn(0.0f, 65.0f)
         }
 
         MatchResult(
             studentRoll = if (isMatch) bestMatchRoll else "GUEST",
             studentName = name,
             confidence = normalizedConfidence,
-            similarity = maxSimilarity,
+            similarity = top1Score,
             isMatch = isMatch,
             hardwareTier = activeHardwareTier,
             confidenceZone = confidenceZone,
             decisionMargin = margin,
             secondBestRoll = top2Roll,
-            secondBestSimilarity = top2Similarity,
+            secondBestSimilarity = top2Score,
             explanation = explanation
         )
     }

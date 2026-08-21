@@ -12,7 +12,8 @@ data class QualityGateResult(
     val exposureScore: Float,       // 0.0 to 100.0
     val poseScore: Float,           // 0.0 to 100.0
     val sizeScore: Float,           // 0.0 to 100.0
-    val rejectionReason: String
+    val rejectionReason: String,
+    val meanLuminance: Float = 128.0f
 )
 
 /**
@@ -59,11 +60,13 @@ object FaceQualityEngine {
         // 3. Image Sharpness & Illumination Analysis (if crop is available)
         var sharpnessScore = 85.0f
         var exposureScore = 90.0f
+        var measuredLuminance = 128.0f
         var isSharpOk = true
         var isExposureOk = true
 
         if (faceCrop != null && !faceCrop.isRecycled) {
             val (sharpVal, meanLum) = computeImageMetrics(faceCrop)
+            measuredLuminance = meanLum
             sharpnessScore = (sharpVal * 4.0f).coerceIn(0f, 100f)
             isSharpOk = sharpVal >= MIN_SHARPNESS_VARIANCE
 
@@ -92,7 +95,8 @@ object FaceQualityEngine {
             exposureScore = exposureScore,
             poseScore = poseScore,
             sizeScore = sizeScore,
-            rejectionReason = reason
+            rejectionReason = reason,
+            meanLuminance = measuredLuminance
         )
     }
 

@@ -10,6 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.omniface.ai.data.local.AppDatabase
+import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.sync.AttendanceSyncWorker
 import java.io.InputStream
@@ -60,7 +61,10 @@ class OmniFaceApplication : Application() {
         // 4. Initialize Local Kiosk Fleet Node with real network IP
         com.omniface.ai.hardware.FleetTopologyManager.initializeLocalNode(this)
 
-        // 5. Check User Consent Before Scheduling Cloud Sync
+        // 5. Initialize Turnstile Relay — loads per-device HMAC secret from EncryptedSharedPreferences
+        TurnstileRelayController.initWithContext(this)
+
+        // 6. Check User Consent Before Scheduling Cloud Sync
         if (isCloudSyncEnabled()) {
             schedulePeriodicSync()
         }

@@ -10,6 +10,8 @@ import android.graphics.YuvImage
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import com.omniface.ai.hardware.NpuHardwareDetector
+import com.omniface.ai.hardware.ThermalGovernor
+import com.omniface.ai.hardware.ThermalState
 import android.util.Range
 import android.util.Size
 import androidx.annotation.OptIn
@@ -157,7 +159,11 @@ data class ScannerUiState(
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
     val qualcommTelemetry: QualcommIntelligenceTelemetry? = null,
     val modelDownloadState: ModelDownloadState = ModelDownloadState.Idle(false, "Qualcomm Unified NPU Engine"),
-    val activeModelDisplayName: String = "Qualcomm Unified NPU Engine"
+    val activeModelDisplayName: String = "Qualcomm Unified NPU Engine",
+    val thermalState: ThermalState = ThermalState.NOMINAL,
+    val deviceTemperature: Float = 33.5f,
+    val isAutoScalingEnabled: Boolean = true,
+    val showThermalDialog: Boolean = false
 )
 
 class ScannerViewModel : ViewModel() {
@@ -166,7 +172,10 @@ class ScannerViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(
         ScannerUiState(
             activeModelDisplayName = downloadManager.getActiveModelDisplayName(),
-            modelDownloadState = downloadManager.downloadState.value
+            modelDownloadState = downloadManager.downloadState.value,
+            thermalState = ThermalGovernor.thermalState.value,
+            deviceTemperature = ThermalGovernor.currentTemperature.value,
+            isAutoScalingEnabled = ThermalGovernor.isAutoScalingEnabled.value
         )
     )
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
@@ -185,9 +194,61 @@ class ScannerViewModel : ViewModel() {
     @Volatile
     var isProcessingFrame = false
     private var lastAnalysisTimestamp = 0L
+    private var activeCameraControl: CameraControl? = null
+    private var activeExposureState: ExposureState? = null
+    private var lastExposureAdjustmentTime = 0L
+
+    fun bindCameraControl(cameraControl: CameraControl, exposureState: ExposureState?) {
+        activeCameraControl = cameraControl
+        activeExposureState = exposureState
+    }
+
+    private fun adjustExposureForLuminance(meanLuminance: Float) {
+        val control = activeCameraControl ?: return
+        val expState = activeExposureState ?: return
+        if (!expState.isExposureCompensationSupported) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastExposureAdjustmentTime < 1200L) return // Smooth 1.2s damping between exposure shifts
+
+        val range = expState.exposureCompensationRange
+        val current = expState.exposureCompensationIndex
+
+        val targetIndex = when {
+            meanLuminance < 65.0f -> (current + 2).coerceAtMost(range.upper) // Low light: step up exposure
+            meanLuminance < 90.0f -> (current + 1).coerceAtMost(range.upper)
+            meanLuminance > 195.0f -> (current - 2).coerceAtLeast(range.lower) // Overexposed glare: step down
+            meanLuminance > 165.0f -> (current - 1).coerceAtLeast(range.lower)
+            else -> 0 // Well-balanced lighting: neutral
+        }
+
+        if (targetIndex != current) {
+            lastExposureAdjustmentTime = now
+            try {
+                control.setExposureCompensationIndex(targetIndex)
+            } catch (_: Throwable) {}
+        }
+    }
 
     fun toggleHardwareSwitcher() {
         _uiState.update { it.copy(showHardwareSwitcher = !it.showHardwareSwitcher) }
+    }
+
+    fun toggleThermalDialog() {
+        _uiState.update { it.copy(showThermalDialog = !it.showThermalDialog) }
+    }
+
+    fun dismissThermalDialog() {
+        _uiState.update { it.copy(showThermalDialog = false) }
+    }
+
+    fun setAutoScalingEnabled(enabled: Boolean) {
+        ThermalGovernor.setAutoScalingEnabled(enabled)
+        _uiState.update { it.copy(isAutoScalingEnabled = enabled) }
+    }
+
+    fun setThermalSimulationOverride(override: ThermalState?) {
+        ThermalGovernor.setSimulationOverride(override)
     }
 
     fun toggleDeveloperOverlay() {
@@ -262,6 +323,23 @@ class ScannerViewModel : ViewModel() {
 
     fun initEngine(context: Context) {
         BiometricSoundboard.initTts(context)
+        ThermalGovernor.startMonitoring(context, viewModelScope)
+        viewModelScope.launch {
+            ThermalGovernor.thermalState.collect { thermal ->
+                _uiState.update { it.copy(thermalState = thermal) }
+            }
+        }
+        viewModelScope.launch {
+            ThermalGovernor.currentTemperature.collect { temp ->
+                _uiState.update { it.copy(deviceTemperature = temp) }
+            }
+        }
+        viewModelScope.launch {
+            ThermalGovernor.isAutoScalingEnabled.collect { enabled ->
+                _uiState.update { it.copy(isAutoScalingEnabled = enabled) }
+            }
+        }
+
         if (recognitionEngine == null) {
             val engine = FaceRecognitionEngine(context)
             if (cachedTemplates.isNotEmpty()) {
@@ -440,7 +518,8 @@ class ScannerViewModel : ViewModel() {
         faces: List<Face>,
         fullBitmap: Bitmap?,
         previewWidth: Float,
-        previewHeight: Float
+        previewHeight: Float,
+        downscaleFactor: Float = 1.0f
     ) {
         if (_uiState.value.isScanningPaused || fullBitmap == null) {
             fullBitmap?.recycle()
@@ -466,18 +545,6 @@ class ScannerViewModel : ViewModel() {
                 val templates = cachedTemplates
                 val studentMap = cachedStudentMap
 
-                if (templates.isEmpty()) {
-                    _uiState.update {
-                        it.copy(
-                            detectedFaces = emptyList(),
-                            scanState = ScannerScanState.EMPTY_DATABASE,
-                            matchTitle = "DATABASE EMPTY",
-                            matchSubtitle = "0 students enrolled"
-                        )
-                    }
-                    return@launch
-                }
-
                 val pipeline = securityPipeline ?: return@launch
                 val isFront = _uiState.value.lensFacing == CameraSelector.LENS_FACING_FRONT
                 val output = pipeline.processFrame(
@@ -487,74 +554,86 @@ class ScannerViewModel : ViewModel() {
                     previewHeight = previewHeight,
                     isFrontCamera = isFront,
                     studentMap = studentMap,
-                    securityTier = _uiState.value.activeTier
+                    securityTier = _uiState.value.activeTier,
+                    downscaleFactor = downscaleFactor
                 )
 
                 val decision = output.topDecision
                 val currentTimestamp = System.currentTimeMillis()
                 val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(currentTimestamp))
 
+                // Autonomous Auto-Exposure Adjustment for low-light / harsh-glare conditions
+                output.visualGeometries.firstOrNull()?.qualityResult?.let { q ->
+                    adjustExposureForLuminance(q.meanLuminance)
+                }
+
                 val scanState: ScannerScanState
                 val topMatchTitle: String
                 val topMatchSubtitle: String
 
-                when (decision.gateState) {
-                    com.omniface.ai.ml.pipeline.PipelineGateState.PASS -> {
-                        if (output.isAttendanceTriggered) {
-                            lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
-                            BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
+                if (templates.isEmpty()) {
+                    scanState = ScannerScanState.EMPTY_DATABASE
+                    topMatchTitle = "FACE DETECTED"
+                    topMatchSubtitle = "Database empty • Enroll students in Students tab"
+                } else {
+                    when (decision.gateState) {
+                        com.omniface.ai.ml.pipeline.PipelineGateState.PASS -> {
+                            if (output.isAttendanceTriggered) {
+                                lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
+                                BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
 
-                            val sha256 = AndroidSecurityUtils.computeSha256("${decision.matchedStudentRoll}_$currentTimestamp")
-                            TurnstileRelayController.triggerDoorUnlock(
-                                durationMs = 2000L,
-                                studentRoll = decision.matchedStudentRoll,
-                                studentName = decision.matchedStudentName,
-                                confidencePct = decision.matchConfidence,
-                                sha256Proof = sha256
-                            )
+                                val sha256 = AndroidSecurityUtils.computeSha256("${decision.matchedStudentRoll}_$currentTimestamp")
+                                TurnstileRelayController.triggerDoorUnlock(
+                                    durationMs = 2000L,
+                                    studentRoll = decision.matchedStudentRoll,
+                                    studentName = decision.matchedStudentName,
+                                    confidencePct = decision.matchConfidence,
+                                    sha256Proof = sha256
+                                )
 
-                            val record = AttendanceRecordEntity(
-                                recordId = UUID.randomUUID().toString(),
-                                studentRoll = decision.matchedStudentRoll,
-                                studentName = decision.matchedStudentName,
-                                timestamp = currentTimestamp,
-                                sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp)),
-                                confidencePct = decision.matchConfidence,
-                                securityTier = _uiState.value.activeTier.name,
-                                sha256Hash = sha256,
-                                isSynced = false
-                            )
-                            db.attendanceDao().recordAttendanceIfNotExists(record)
+                                val record = AttendanceRecordEntity(
+                                    recordId = UUID.randomUUID().toString(),
+                                    studentRoll = decision.matchedStudentRoll,
+                                    studentName = decision.matchedStudentName,
+                                    timestamp = currentTimestamp,
+                                    sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp)),
+                                    confidencePct = decision.matchConfidence,
+                                    securityTier = _uiState.value.activeTier.name,
+                                    sha256Hash = sha256,
+                                    isSynced = false
+                                )
+                                db.attendanceDao().recordAttendanceIfNotExists(record)
 
-                            scanState = ScannerScanState.ATTENDANCE_RECORDED
-                            topMatchTitle = "✓ ATTENDANCE RECORDED"
-                            topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (Δ: ${"%.3f".format(decision.decisionMargin)})"
-                        } else {
-                            scanState = ScannerScanState.RECOGNIZED
-                            topMatchTitle = decision.matchedStudentName.uppercase()
-                            topMatchSubtitle = "${decision.matchConfidence.toInt()}% Match • Live 3D Face Verified"
+                                scanState = ScannerScanState.ATTENDANCE_RECORDED
+                                topMatchTitle = "✓ ATTENDANCE RECORDED"
+                                topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (Δ: ${"%.3f".format(decision.decisionMargin)})"
+                            } else {
+                                scanState = ScannerScanState.RECOGNIZED
+                                topMatchTitle = decision.matchedStudentName.uppercase()
+                                topMatchSubtitle = "${decision.matchConfidence.toInt()}% Match • Live 3D Face Verified"
+                            }
                         }
-                    }
-                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK -> {
-                        BiometricSoundboard.playSpoofAlert()
-                        scanState = ScannerScanState.SPOOF_ALERT
-                        topMatchTitle = decision.title
-                        topMatchSubtitle = decision.subtitle
-                    }
-                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_QUALITY -> {
-                        scanState = ScannerScanState.POOR_QUALITY
-                        topMatchTitle = decision.title
-                        topMatchSubtitle = decision.subtitle
-                    }
-                    com.omniface.ai.ml.pipeline.PipelineGateState.REVIEW_AMBIGUOUS_MATCH -> {
-                        scanState = ScannerScanState.REVIEW_REQUIRED
-                        topMatchTitle = decision.title
-                        topMatchSubtitle = decision.subtitle
-                    }
-                    com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_UNKNOWN_IDENTITY -> {
-                        scanState = ScannerScanState.UNKNOWN_IDENTITY
-                        topMatchTitle = decision.title
-                        topMatchSubtitle = decision.subtitle
+                        com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK -> {
+                            BiometricSoundboard.playSpoofAlert()
+                            scanState = ScannerScanState.SPOOF_ALERT
+                            topMatchTitle = decision.title
+                            topMatchSubtitle = decision.subtitle
+                        }
+                        com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_QUALITY -> {
+                            scanState = ScannerScanState.POOR_QUALITY
+                            topMatchTitle = decision.title
+                            topMatchSubtitle = decision.subtitle
+                        }
+                        com.omniface.ai.ml.pipeline.PipelineGateState.REVIEW_AMBIGUOUS_MATCH -> {
+                            scanState = ScannerScanState.REVIEW_REQUIRED
+                            topMatchTitle = decision.title
+                            topMatchSubtitle = decision.subtitle
+                        }
+                        com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_UNKNOWN_IDENTITY -> {
+                            scanState = ScannerScanState.UNKNOWN_IDENTITY
+                            topMatchTitle = decision.title
+                            topMatchSubtitle = decision.subtitle
+                        }
                     }
                 }
 
@@ -638,11 +717,24 @@ fun ScannerScreen(
         viewModel.initEngine(context)
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
     LaunchedEffect(state.scanState) {
         when (state.scanState) {
             ScannerScanState.RECOGNIZED,
             ScannerScanState.ATTENDANCE_RECORDED -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else "Student"
+                snackbarHostState.showSnackbar(
+                    message = "✓ Recognized: $studentName",
+                    duration = SnackbarDuration.Short
+                )
+            }
+            ScannerScanState.VERIFYING -> {
+                snackbarHostState.showSnackbar(
+                    message = "🔍 Searching face database...",
+                    duration = SnackbarDuration.Short
+                )
             }
             ScannerScanState.SPOOF_ALERT,
             ScannerScanState.UNKNOWN_IDENTITY,
@@ -738,16 +830,46 @@ fun ScannerScreen(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Live Telemetry Pill
+                        // Live Thermal & Resolution Capsule (Interactive)
+                        val thermalColor = when (state.thermalState) {
+                            ThermalState.NOMINAL -> omniEmerald(isDark)
+                            ThermalState.WARM -> Color(0xFFFF9F0A)
+                            ThermalState.CRITICAL -> Color(0xFFFF453A)
+                        }
+                        val thermalIcon = when (state.thermalState) {
+                            ThermalState.NOMINAL -> "❄️"
+                            ThermalState.WARM -> "⚡"
+                            ThermalState.CRITICAL -> "🔥"
+                        }
+                        Row(
+                            modifier = Modifier
+                                .shadow(4.dp, RoundedCornerShape(999.dp))
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
+                                .border(0.75.dp, thermalColor.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
+                                .clickable { viewModel.toggleThermalDialog() }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "$thermalIcon %.1f°C • ${state.thermalState.targetResolution.height}p".format(state.deviceTemperature),
+                                color = thermalColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Live Latency & Hardware Telemetry Pill
                         Row(
                             modifier = Modifier
                                 .shadow(4.dp, RoundedCornerShape(999.dp))
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
                                 .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                .clickable { viewModel.toggleHardwareSwitcher() }
+                                .padding(horizontal = 9.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -781,6 +903,51 @@ fun ScannerScreen(
                                 contentDescription = "Scanner Settings",
                                 tint = omniTextSecondary(isDark),
                                 modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 1.3 Active Thermal Resolution Scaling Banner (when throttled)
+            if (state.thermalState != ThermalState.NOMINAL) {
+                item {
+                    val isCrit = state.thermalState == ThermalState.CRITICAL
+                    val bannerBg = if (isCrit) (if (isDark) Color(0x33EF4444) else Color(0x1AEF4444)) else (if (isDark) Color(0x33F59E0B) else Color(0x1AF59E0B))
+                    val bannerBorder = if (isCrit) Color(0xFFEF4444) else Color(0xFFF59E0B)
+                    val bannerIcon = if (isCrit) "🔥" else "⚡"
+                    val bannerTitle = if (isCrit) "CRITICAL THERMAL THROTTLE (320p ECO)" else "WARM HARDWARE THROTTLE (480p)"
+                    val bannerDesc = if (isCrit) {
+                        "Device temperature (%.1f°C) exceeded safety ceiling. Face detector scaled to 320×240 (10 FPS) to prevent overheating.".format(state.deviceTemperature)
+                    } else {
+                        "Thermal threshold reached (%.1f°C). Face detector scaled to 480×360 (20 FPS) with 45%% lower CPU load.".format(state.deviceTemperature)
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(4.dp, RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bannerBg)
+                            .border(0.75.dp, bannerBorder.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                            .clickable { viewModel.toggleThermalDialog() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = bannerIcon, fontSize = 20.sp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = bannerTitle,
+                                color = bannerBorder,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = bannerDesc,
+                                color = omniTextMuted(isDark),
+                                fontSize = 10.sp
                             )
                         }
                     }
@@ -915,22 +1082,43 @@ fun ScannerScreen(
                                     ext.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
 
                                     val imageAnalysis = analysisBuilder.build()
+                                    var frameCounter = 0L
                                     imageAnalysis.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
                                         val mediaImage = imageProxy.image
                                         if (mediaImage != null && !state.isScanningPaused && !viewModel.isProcessingFrame) {
+                                            frameCounter++
+                                            val activeThermal = ThermalGovernor.thermalState.value
+                                            val thermalSkip = if (state.isAutoScalingEnabled) activeThermal.frameSkipMod else 1
+                                            val hasRecentFace = state.detectedFaces.isNotEmpty()
+                                            val baseSkip = if (hasRecentFace) 1 else 2
+                                            val effectiveSkip = baseSkip * thermalSkip
+
+                                            if (frameCounter % effectiveSkip != 0L) {
+                                                imageProxy.close()
+                                                return@setAnalyzer
+                                            }
                                             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                             val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
 
                                             faceDetector.process(image)
                                                 .addOnSuccessListener { faces ->
                                                     if (faces.isNotEmpty() && !viewModel.isProcessingFrame) {
-                                                        val fullBitmap = imageProxyToBitmap(imageProxy)
-                                                        if (fullBitmap != null) {
+                                                        val rawBitmap = imageProxyToBitmap(imageProxy)
+                                                        if (rawBitmap != null) {
+                                                            val (scaledBitmap, downscaleFactor) = if (state.isAutoScalingEnabled) {
+                                                                ThermalGovernor.scaleBitmapForThermal(rawBitmap, activeThermal)
+                                                            } else {
+                                                                Pair(rawBitmap, 1.0f)
+                                                            }
+                                                            if (scaledBitmap != rawBitmap && !rawBitmap.isRecycled) {
+                                                                rawBitmap.recycle()
+                                                            }
                                                             viewModel.processCameraFaces(
                                                                 faces = faces,
-                                                                fullBitmap = fullBitmap,
+                                                                fullBitmap = scaledBitmap,
                                                                 previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
-                                                                previewHeight = previewView.height.toFloat().coerceAtLeast(1f)
+                                                                previewHeight = previewView.height.toFloat().coerceAtLeast(1f),
+                                                                downscaleFactor = downscaleFactor
                                                             )
                                                         }
                                                     } else if (faces.isEmpty()) {
@@ -956,6 +1144,7 @@ fun ScannerScreen(
                                         cameraProvider.unbindAll()
                                         val cam = cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, imageAnalysis)
                                         cam.cameraControl.setLinearZoom(0.0f)
+                                        viewModel.bindCameraControl(cam.cameraControl, cam.cameraInfo.exposureState)
                                     } catch (_: Exception) {}
                                 }, ContextCompat.getMainExecutor(ctx))
 
@@ -1441,6 +1630,29 @@ fun ScannerScreen(
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp, start = 20.dp, end = 20.dp)
+        ) { snackbarData ->
+            Box(
+                modifier = Modifier
+                    .shadow(12.dp, RoundedCornerShape(20.dp), spotColor = Color(0x33000000))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isDark) Color(0xDD1E293B) else Color(0xEEFFFFFF))
+                    .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = snackbarData.visuals.message,
+                    color = omniTextPrimary(isDark),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 
     if (state.showManualOverrideDialog) {
@@ -1457,6 +1669,18 @@ fun ScannerScreen(
             currentTier = state.hardwareTierLabel,
             onDismiss = { viewModel.toggleHardwareSwitcher() },
             onSelectTier = { viewModel.selectHardwareBackend(it) }
+        )
+    }
+
+    if (state.showThermalDialog) {
+        ThermalGovernorDialog(
+            isDark = isDark,
+            thermalState = state.thermalState,
+            temperature = state.deviceTemperature,
+            isAutoScalingEnabled = state.isAutoScalingEnabled,
+            onDismiss = { viewModel.dismissThermalDialog() },
+            onToggleAutoScaling = { viewModel.setAutoScalingEnabled(it) },
+            onSimulateState = { viewModel.setThermalSimulationOverride(it) }
         )
     }
 }
@@ -1652,4 +1876,261 @@ private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
     } catch (_: Exception) {
         null
     }
+}
+
+@Composable
+private fun ThermalGovernorDialog(
+    isDark: Boolean,
+    thermalState: ThermalState,
+    temperature: Float,
+    isAutoScalingEnabled: Boolean,
+    onDismiss: () -> Unit,
+    onToggleAutoScaling: (Boolean) -> Unit,
+    onSimulateState: (ThermalState?) -> Unit
+) {
+    val stateColor = when (thermalState) {
+        ThermalState.NOMINAL -> Color(0xFF34C759)
+        ThermalState.WARM -> Color(0xFFFF9F0A)
+        ThermalState.CRITICAL -> Color(0xFFFF453A)
+    }
+
+    val stateIcon = when (thermalState) {
+        ThermalState.NOMINAL -> "❄️"
+        ThermalState.WARM -> "⚡"
+        ThermalState.CRITICAL -> "🔥"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = stateIcon, fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "HARDWARE THERMAL GOVERNOR",
+                        color = omniTextPrimary(isDark),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                    Text(
+                        text = "Dynamic Face Detector Resolution Scaling",
+                        color = omniTextMuted(isDark),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // 1. Current Temperature Gauge Card
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
+                        .border(1.dp, stateColor.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "DEVICE TEMPERATURE",
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "%.1f°C".format(temperature),
+                            color = stateColor,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(stateColor.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = thermalState.name,
+                                color = stateColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${thermalState.targetResolution.width}×${thermalState.targetResolution.height} • ${thermalState.maxFps} FPS",
+                            color = omniTextSecondary(isDark),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // 2. Auto Dynamic Resolution Scaling Switch
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isDark) Color(0x1F1E293B) else Color(0x08000000))
+                        .border(0.75.dp, if (isDark) Color(0x38FFFFFF) else Color(0x1A000000), RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto Resolution Scaling",
+                            color = omniTextPrimary(isDark),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Downscale ML input buffer dynamically to prevent thermal throttling and battery drain.",
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = isAutoScalingEnabled,
+                        onCheckedChange = { onToggleAutoScaling(it) }
+                    )
+                }
+
+                // 3. Operating Point Resolution Breakdown
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "SCALING PROFILES",
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    val profiles = listOf(
+                        Triple(ThermalState.NOMINAL, "640×480 @ 30 FPS", "< 38.0°C • Peak Accuracy & Full Frame Rate"),
+                        Triple(ThermalState.WARM, "480×360 @ 20 FPS", "38.0°C–42.0°C • -45% Compute Load"),
+                        Triple(ThermalState.CRITICAL, "320×240 @ 10 FPS", "> 42.0°C • -75% Emergency Thermal Guard")
+                    )
+
+                    profiles.forEach { (state, title, desc) ->
+                        val isCurrent = thermalState == state
+                        val borderCol = if (isCurrent) stateColor else if (isDark) Color(0x1FFFFFFF) else Color(0x0A000000)
+                        val bgCol = if (isCurrent) stateColor.copy(alpha = 0.08f) else Color.Transparent
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(bgCol)
+                                .border(if (isCurrent) 1.dp else 0.5.dp, borderCol, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = "${state.name}: $title",
+                                    color = if (isCurrent) stateColor else omniTextPrimary(isDark),
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
+                                )
+                                Text(
+                                    text = desc,
+                                    color = omniTextMuted(isDark),
+                                    fontSize = 9.sp
+                                )
+                            }
+                            if (isCurrent) {
+                                Text(
+                                    text = "ACTIVE",
+                                    color = stateColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Hardware Simulation Mode
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "THERMAL TESTING & SIMULATION",
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Button(
+                            onClick = { onSimulateState(ThermalState.NOMINAL) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x3334C759) else Color(0x1A34C759)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("❄️ Nominal", color = Color(0xFF34C759), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onSimulateState(ThermalState.WARM) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33FF9F0A) else Color(0x1AFF9F0A)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("⚡ Warm", color = Color(0xFFFF9F0A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onSimulateState(ThermalState.CRITICAL) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33FF453A) else Color(0x1AFF453A)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔥 Critical", color = Color(0xFFFF453A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onSimulateState(null) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33007AFF) else Color(0x1A007AFF)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔄 Auto", color = Color(0xFF007AFF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = stateColor),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Close", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(18.dp)
+    )
 }

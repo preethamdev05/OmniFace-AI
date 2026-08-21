@@ -1,9 +1,12 @@
 package com.omniface.ai.security
 
+import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
@@ -152,19 +155,63 @@ object AndroidSecurityUtils {
         return currentLevel[0]
     }
 
-    // ── Admin PIN management ───────────────────────────────────────────────────
+    // ── Encrypted Preferences Helper ──────────────────────────────────────────
+    private const val ENCRYPTED_PREFS_FILE = "omniface_secure_prefs_enc"
     private const val PREF_ADMIN_PIN_HASH = "admin_pin_hash"
-    // Default PIN = "omniface2025" — operator can change this via Settings
+    private const val PREF_HMAC_SECRET = "relay_hmac_secret"
+
+    // Default PIN = "omniface2025" — operator must change this via Settings
     private val DEFAULT_PIN_HASH by lazy { computeSha256("omniface2025") }
 
     /**
-     * Returns the SHA-256 hash of the admin PIN stored in private SharedPreferences.
+     * Opens (or creates) an AES256-GCM EncryptedSharedPreferences backed by the Android Keystore master key.
+     * Falls back to plain MODE_PRIVATE prefs on devices that fail MasterKey creation (rare edge cases).
+     */
+    private fun getEncryptedPrefs(context: Context): android.content.SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                ENCRYPTED_PREFS_FILE,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (t: Throwable) {
+            android.util.Log.w("AndroidSecurityUtils", "EncryptedSharedPreferences unavailable, falling back to plain prefs: ${t.message}")
+            context.getSharedPreferences(ENCRYPTED_PREFS_FILE, android.content.Context.MODE_PRIVATE)
+        }
+    }
+
+    /**
+     * Returns a per-device HMAC secret for signing webhook payloads.
+     * On first call, generates a cryptographically random 64-character hex secret and persists it
+     * in EncryptedSharedPreferences. Never returns the old hardcoded literal default.
+     */
+    fun getOrCreateHmacSecret(context: Context): String {
+        val prefs = getEncryptedPrefs(context)
+        val existing = prefs.getString(PREF_HMAC_SECRET, null)
+        if (!existing.isNullOrBlank() && existing != "OMNIFACE_RELAY_HMAC_SECRET") {
+            return existing
+        }
+        // Generate a 32-byte (256-bit) cryptographically random secret
+        val randomBytes = ByteArray(32)
+        java.security.SecureRandom().nextBytes(randomBytes)
+        val generated = randomBytes.joinToString("") { "%02x".format(it) }
+        prefs.edit().putString(PREF_HMAC_SECRET, generated).apply()
+        android.util.Log.i("AndroidSecurityUtils", "🔑 New HMAC relay secret generated and stored in encrypted vault.")
+        return generated
+    }
+
+    /**
+     * Returns the SHA-256 hash of the admin PIN stored in EncryptedSharedPreferences.
      * Falls back to the default hash if no PIN has been set yet.
      */
-    fun getAdminPinHash(context: android.content.Context): String {
+    fun getAdminPinHash(context: Context): String {
         return try {
-            val prefs = context.getSharedPreferences("omniface_secure_prefs", android.content.Context.MODE_PRIVATE)
-            prefs.getString(PREF_ADMIN_PIN_HASH, DEFAULT_PIN_HASH) ?: DEFAULT_PIN_HASH
+            getEncryptedPrefs(context).getString(PREF_ADMIN_PIN_HASH, DEFAULT_PIN_HASH) ?: DEFAULT_PIN_HASH
         } catch (e: Exception) {
             android.util.Log.e("AndroidSecurityUtils", "getAdminPinHash failed", e)
             DEFAULT_PIN_HASH
@@ -172,13 +219,12 @@ object AndroidSecurityUtils {
     }
 
     /**
-     * Stores a new admin PIN as its SHA-256 hash in private SharedPreferences.
+     * Stores a new admin PIN as its SHA-256 hash in EncryptedSharedPreferences.
      * Call from the Settings screen PIN-change flow.
      */
-    fun setAdminPin(context: android.content.Context, newPin: String) {
+    fun setAdminPin(context: Context, newPin: String) {
         try {
-            val prefs = context.getSharedPreferences("omniface_secure_prefs", android.content.Context.MODE_PRIVATE)
-            prefs.edit().putString(PREF_ADMIN_PIN_HASH, computeSha256(newPin)).apply()
+            getEncryptedPrefs(context).edit().putString(PREF_ADMIN_PIN_HASH, computeSha256(newPin)).apply()
         } catch (e: Exception) {
             android.util.Log.e("AndroidSecurityUtils", "setAdminPin failed", e)
         }

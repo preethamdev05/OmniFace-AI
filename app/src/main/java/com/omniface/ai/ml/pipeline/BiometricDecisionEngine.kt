@@ -73,6 +73,15 @@ object BiometricDecisionEngine {
         val livenessScore = (passivePad?.livenessScore ?: 0.90f) * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
         if (!isPassiveLive || !isTemporalLive) {
+            val titleText = when (temporalLiveness.requiredAction) {
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.BLINK -> "PLEASE BLINK YOUR EYES"
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.TURN_LEFT,
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.TURN_RIGHT,
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.TILT_UP,
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.TILT_DOWN -> "TURN HEAD SLIGHTLY"
+                com.omniface.ai.ml.antispoof.LivenessChallengeType.SMILE -> "PLEASE SMILE"
+                null -> "LIVENESS CHECK FAILED"
+            }
             val attackDesc = passivePad?.attackTypeDescription ?: temporalLiveness.explanation
             return BiometricSynthesisDecision(
                 gateState = PipelineGateState.REJECT_SPOOF_ATTACK,
@@ -84,7 +93,7 @@ object BiometricDecisionEngine {
                 decisionMargin = 0f,
                 qualityScore = quality.overallQualityScore,
                 livenessScore = livenessScore,
-                title = "SPOOF ATTACK DETECTED",
+                title = titleText,
                 subtitle = attackDesc,
                 technicalExplanation = "Gate 2 (PAD) Failed: $attackDesc (Live Score: ${"%.2f".format(livenessScore)})"
             )

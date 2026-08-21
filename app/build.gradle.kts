@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -23,23 +23,18 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("/storage/emulated/0/AI-HUB/FR/omniface-release.jks")
-            storePassword = "omniface2026"
-            keyAlias = "preethamdev05"
-            keyPassword = "omniface2026"
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
-            enableV4Signing = true
-
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -48,16 +43,17 @@ android {
         debug {
             isMinifyEnabled = false
             isDebuggable = true
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("debugConfig")
         }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     compileOptions {
@@ -124,7 +120,7 @@ dependencies {
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
-    kapt("androidx.room:room-compiler:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
 
     // WorkManager Cloud Sync
     implementation("androidx.work:work-runtime-ktx:2.9.0")
@@ -132,12 +128,10 @@ dependencies {
     // Secure Network & Model Downloader
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // EncryptedSharedPreferences for HMAC secrets & HF token vault
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-}
-
-kapt {
-    correctErrorTypes = true
-    useBuildCache = true
 }

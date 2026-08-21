@@ -52,6 +52,9 @@ interface StudentDao {
         insertTemplates(templates)
     }
 
+    @Update
+    suspend fun updateStudent(student: StudentEntity)
+
     @Delete
     suspend fun deleteStudent(student: StudentEntity)
 }

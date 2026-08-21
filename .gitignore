@@ -74,3 +74,9 @@ models/latest_pretrained/
 *~
 .directory
 .github/
+Omniface-AI.zip
+Omniface-AI/
+"omniface-ai (1)/"
+"omniface-ai (1).zip"
+.agents/
+metadata.json

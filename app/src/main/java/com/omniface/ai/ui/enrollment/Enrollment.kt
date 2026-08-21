@@ -5,15 +5,17 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.YuvImage
+import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.hardware.NpuHardwareDetector
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import android.util.Range
 import android.util.Size
 import android.widget.Toast
-import androidx.annotation.OptIn
+import kotlin.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
@@ -77,6 +79,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -104,6 +109,14 @@ data class EnrollmentUiState(
     val department: String = "AI & Biometrics",
     val semester: String = "VI",
     val enrolledStudentsList: List<StudentEntity> = emptyList(),
+    val filteredEnrolledStudents: List<StudentEntity> = emptyList(),
+    val searchQuery: String = "",
+    val selectedStudentForManage: StudentEntity? = null,
+    val isEditProfileOpen: Boolean = false,
+    val isDeleteConfirmOpen: Boolean = false,
+    val editFullName: String = "",
+    val editDepartment: String = "",
+    val editSemester: String = "",
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice()
 )
@@ -141,7 +154,135 @@ class EnrollmentViewModel : ViewModel() {
     private fun observeEnrolledStudents() {
         viewModelScope.launch {
             db.studentDao().getAllStudentsFlow().collect { list ->
-                _uiState.update { it.copy(enrolledStudentsList = list) }
+                _uiState.update { current ->
+                    current.copy(
+                        enrolledStudentsList = list,
+                        filteredEnrolledStudents = filterStudents(list, current.searchQuery)
+                    )
+                }
+            }
+        }
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        _uiState.update { current ->
+            current.copy(
+                searchQuery = query,
+                filteredEnrolledStudents = filterStudents(current.enrolledStudentsList, query)
+            )
+        }
+    }
+
+    private fun filterStudents(list: List<StudentEntity>, query: String): List<StudentEntity> {
+        val q = query.trim().lowercase(java.util.Locale.getDefault())
+        if (q.isEmpty()) return list
+        return list.filter { s ->
+            s.fullName.lowercase(java.util.Locale.getDefault()).contains(q) ||
+            s.rollNumber.lowercase(java.util.Locale.getDefault()).contains(q) ||
+            s.department.lowercase(java.util.Locale.getDefault()).contains(q)
+        }
+    }
+
+    fun openStudentProfile(student: StudentEntity) {
+        _uiState.update {
+            it.copy(
+                selectedStudentForManage = student,
+                editFullName = student.fullName,
+                editDepartment = student.department,
+                editSemester = student.semester,
+                isEditProfileOpen = false,
+                isDeleteConfirmOpen = false
+            )
+        }
+    }
+
+    fun closeStudentProfile() {
+        _uiState.update {
+            it.copy(
+                selectedStudentForManage = null,
+                isEditProfileOpen = false,
+                isDeleteConfirmOpen = false
+            )
+        }
+    }
+
+    fun openEditProfileDialog() {
+        val s = _uiState.value.selectedStudentForManage ?: return
+        _uiState.update {
+            it.copy(
+                isEditProfileOpen = true,
+                editFullName = s.fullName,
+                editDepartment = s.department,
+                editSemester = s.semester
+            )
+        }
+    }
+
+    fun closeEditProfileDialog() {
+        _uiState.update { it.copy(isEditProfileOpen = false) }
+    }
+
+    fun updateEditFields(name: String? = null, dept: String? = null, sem: String? = null) {
+        _uiState.update {
+            it.copy(
+                editFullName = name ?: it.editFullName,
+                editDepartment = dept ?: it.editDepartment,
+                editSemester = sem ?: it.editSemester
+            )
+        }
+    }
+
+    fun saveEditedProfile(context: Context) {
+        val currentStudent = _uiState.value.selectedStudentForManage ?: return
+        val newName = _uiState.value.editFullName.trim()
+        val newDept = _uiState.value.editDepartment.trim()
+        val newSem = _uiState.value.editSemester.trim()
+
+        if (newName.isBlank()) {
+            Toast.makeText(context, "Full Name cannot be empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = currentStudent.copy(
+                fullName = newName,
+                department = if (newDept.isNotBlank()) newDept else currentStudent.department,
+                semester = if (newSem.isNotBlank()) newSem else currentStudent.semester
+            )
+            db.studentDao().updateStudent(updated)
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        selectedStudentForManage = updated,
+                        isEditProfileOpen = false
+                    )
+                }
+                Toast.makeText(context, "Profile updated for ${updated.fullName}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun openDeleteConfirmDialog() {
+        _uiState.update { it.copy(isDeleteConfirmOpen = true) }
+    }
+
+    fun closeDeleteConfirmDialog() {
+        _uiState.update { it.copy(isDeleteConfirmOpen = false) }
+    }
+
+    fun confirmDeleteSelectedStudent(context: Context) {
+        val student = _uiState.value.selectedStudentForManage ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            db.studentDao().deleteStudent(student)
+            db.studentDao().deleteTemplatesForStudent(student.rollNumber)
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        selectedStudentForManage = null,
+                        isDeleteConfirmOpen = false
+                    )
+                }
+                Toast.makeText(context, "Removed profile for ${student.fullName}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -333,15 +474,26 @@ class EnrollmentViewModel : ViewModel() {
                 } catch (_: Throwable) {}
             }
 
+            val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
+            val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+            val nose = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
+            val mouthL = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position
+            val mouthR = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
+
+            val pts5List = listOfNotNull(leftEye, rightEye, nose, mouthL, mouthR)
+
             val visualItem = FaceGeometryVisualData(
                 bounds = androidx.compose.ui.geometry.Rect(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat()),
                 yaw = latestFaceYaw,
                 pitch = latestFacePitch,
                 roll = face.headEulerAngleZ,
+                landmarks5Pts = if (pts5List.isNotEmpty()) pts5List.toTypedArray() else null,
                 meshResult = meshResult,
                 faceMap3DMM = map3dResult,
                 gazeResult = gazeResult,
                 attributes = attrResult,
+                studentName = _uiState.value.fullName.ifBlank { "ENROLLING" },
+                studentRoll = _uiState.value.rollNumber,
                 isLive = true
             )
 
@@ -573,35 +725,60 @@ fun EnrollmentScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
+    var showMultiShotComponent by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.initEngine(context)
     }
 
-    when (state.stage) {
-        EnrollmentStage.REGISTRATION_FORM -> {
-            RegistrationFormView(viewModel = viewModel, state = state, isDark = isDark, context = context)
-        }
-        EnrollmentStage.BIOMETRIC_STUDIO -> {
-            BiometricStudioView(viewModel = viewModel, state = state, isDark = isDark)
-        }
-        EnrollmentStage.ENROLLMENT_SUCCESS -> {
-            EnrollmentSuccessView(
-                viewModel = viewModel,
-                state = state,
-                isDark = isDark,
-                onNavigateToScanner = onNavigateToScanner
-            )
+    if (showMultiShotComponent) {
+        FaceRegistrationComponent(
+            initialRoll = state.rollNumber,
+            initialName = state.fullName,
+            initialDept = state.department,
+            initialSem = state.semester,
+            onRegistrationFinished = {
+                showMultiShotComponent = false
+                viewModel.resetForNextStudent()
+            },
+            onDismiss = {
+                showMultiShotComponent = false
+            }
+        )
+    } else {
+        when (state.stage) {
+            EnrollmentStage.REGISTRATION_FORM -> {
+                RegistrationFormView(
+                    viewModel = viewModel,
+                    state = state,
+                    isDark = isDark,
+                    context = context,
+                    onLaunchMultiShotStudio = { showMultiShotComponent = true }
+                )
+            }
+            EnrollmentStage.BIOMETRIC_STUDIO -> {
+                BiometricStudioView(viewModel = viewModel, state = state, isDark = isDark)
+            }
+            EnrollmentStage.ENROLLMENT_SUCCESS -> {
+                EnrollmentSuccessView(
+                    viewModel = viewModel,
+                    state = state,
+                    isDark = isDark,
+                    onNavigateToScanner = onNavigateToScanner
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RegistrationFormView(
     viewModel: EnrollmentViewModel,
     state: EnrollmentUiState,
     isDark: Boolean,
-    context: Context
+    context: Context,
+    onLaunchMultiShotStudio: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -634,13 +811,27 @@ private fun RegistrationFormView(
         // Registration Input Card
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "STUDENT DETAILS",
-                    color = omniTextMuted(isDark),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "STUDENT DETAILS",
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+
+                    Text(
+                        text = "⚡ Multi-Shot Studio",
+                        color = omniCyan(isDark),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onLaunchMultiShotStudio() }
+                    )
+                }
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Full Name
@@ -746,15 +937,73 @@ private fun RegistrationFormView(
                     text = "Continue to Face Enrollment",
                     onClick = { viewModel.startBiometricStudio(context) }
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                CupertinoButton(
+                    text = "⚡ Launch Multi-Shot Face Series Studio",
+                    isSecondary = true,
+                    onClick = { onLaunchMultiShotStudio() }
+                )
             }
         }
 
-        // Registered Directory List
+        // Registered Directory List with Name Search & Profile Management
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeader(
                     text = "REGISTERED STUDENTS (${state.enrolledStudentsList.size})"
                 )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Search Box
+                OutlinedTextField(
+                    value = state.searchQuery,
+                    onValueChange = { viewModel.onSearchQueryChanged(it) },
+                    placeholder = { Text("Search by name, roll number, or department...", color = omniTextMuted(isDark), fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = if (state.searchQuery.isNotEmpty()) omniCyan(isDark) else omniTextMuted(isDark),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (state.searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = omniTextMuted(isDark),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = omniTextPrimary(isDark),
+                        unfocusedTextColor = omniTextPrimary(isDark),
+                        focusedBorderColor = omniCyan(isDark),
+                        unfocusedBorderColor = if (isDark) Color(0x29FFFFFF) else Color(0xFFCBD5E1),
+                        focusedContainerColor = if (isDark) Color(0x1F1E293B) else Color(0xFFFFFFFF),
+                        unfocusedContainerColor = if (isDark) Color(0x1F1E293B) else Color(0xFFFFFFFF)
+                    )
+                )
+
+                if (state.searchQuery.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Found ${state.filteredEnrolledStudents.size} of ${state.enrolledStudentsList.size} registered profiles",
+                        color = omniCyan(isDark),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -764,27 +1013,39 @@ private fun RegistrationFormView(
                         title = "No identities enrolled yet",
                         subtitle = "Your enrolled students will appear here."
                     )
+                } else if (state.filteredEnrolledStudents.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "No matching profiles found",
+                        subtitle = "No registered students match \"${state.searchQuery}\"."
+                    )
                 } else {
-                    state.enrolledStudentsList.forEachIndexed { index, student ->
+                    state.filteredEnrolledStudents.forEachIndexed { index, student ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { viewModel.openStudentProfile(student) }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(38.dp)
                                         .clip(CircleShape)
-                                        .background(omniCyan(isDark).copy(alpha = 0.15f)),
+                                        .background(omniCyan(isDark).copy(alpha = 0.18f))
+                                        .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = student.fullName.take(1).uppercase(),
                                         color = omniCyan(isDark),
-                                        fontSize = 14.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -796,6 +1057,7 @@ private fun RegistrationFormView(
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "${student.rollNumber} • ${student.department} (${student.semester})",
                                         color = omniTextMuted(isDark),
@@ -804,26 +1066,296 @@ private fun RegistrationFormView(
                                 }
                             }
 
-                            IconButton(
-                                onClick = { viewModel.deleteStudent(student) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000))
+                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "Manage",
+                                        color = omniCyan(isDark),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete Student",
-                                    tint = CrimsonCore,
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = "Manage Profile",
+                                    tint = omniTextMuted(isDark),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
 
-                        if (index < state.enrolledStudentsList.size - 1) {
+                        if (index < state.filteredEnrolledStudents.size - 1) {
                             HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
                         }
                     }
                 }
             }
         }
+    }
+
+    // Profile Management Sheet
+    if (state.selectedStudentForManage != null) {
+        val student = state.selectedStudentForManage
+        val creationDateStr = remember(student.createdAt) {
+            SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(student.createdAt))
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.closeStudentProfile() },
+            containerColor = if (isDark) Color(0xFF161922) else Color(0xFFFFFFFF),
+            dragHandle = { BottomSheetDefaults.DragHandle(color = omniTextMuted(isDark)) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 36.dp)
+            ) {
+                // Header Avatar & Identity
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(omniCyan(isDark).copy(alpha = 0.20f))
+                            .border(1.5.dp, omniCyan(isDark), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = student.fullName.take(1).uppercase(),
+                            color = omniCyan(isDark),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = student.fullName,
+                            color = omniTextPrimary(isDark),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Roll No: ${student.rollNumber}",
+                            color = omniCyan(isDark),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Profile Details Card
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 16.dp
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("DEPARTMENT", color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(student.department, color = omniTextPrimary(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("SEMESTER", color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("Semester ${student.semester}", color = omniTextPrimary(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("ENROLLED ON", color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(creationDateStr, color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Normal)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("VAULT STATUS", color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("AES-256 Encrypted 🔒", color = EmeraldCore, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Action Buttons
+                CupertinoButton(
+                    text = "✏️ Edit Student Profile",
+                    isSecondary = true,
+                    onClick = { viewModel.openEditProfileDialog() }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = { viewModel.openDeleteConfirmDialog() },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CrimsonCore.copy(alpha = 0.15f),
+                        contentColor = CrimsonCore
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonCore.copy(alpha = 0.35f))
+                ) {
+                    Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete Face Identity & Profile", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            }
+        }
+    }
+
+    // Edit Profile Dialog
+    if (state.isEditProfileOpen && state.selectedStudentForManage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.closeEditProfileDialog() },
+            containerColor = if (isDark) Color(0xFF1E2129) else Color(0xFFFFFFFF),
+            title = {
+                Text(
+                    text = "Edit Student Profile",
+                    color = omniTextPrimary(isDark),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Roll Number: ${state.selectedStudentForManage.rollNumber} (Locked)",
+                        color = omniTextMuted(isDark),
+                        fontSize = 12.sp
+                    )
+
+                    OutlinedTextField(
+                        value = state.editFullName,
+                        onValueChange = { viewModel.updateEditFields(name = it) },
+                        label = { Text("Full Name", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = omniCyan(isDark),
+                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                            focusedTextColor = omniTextPrimary(isDark),
+                            unfocusedTextColor = omniTextPrimary(isDark)
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = state.editDepartment,
+                        onValueChange = { viewModel.updateEditFields(dept = it) },
+                        label = { Text("Department", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = omniCyan(isDark),
+                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                            focusedTextColor = omniTextPrimary(isDark),
+                            unfocusedTextColor = omniTextPrimary(isDark)
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = state.editSemester,
+                        onValueChange = { viewModel.updateEditFields(sem = it) },
+                        label = { Text("Semester", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = omniCyan(isDark),
+                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                            focusedTextColor = omniTextPrimary(isDark),
+                            unfocusedTextColor = omniTextPrimary(isDark)
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.saveEditedProfile(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Save Changes", color = if (isDark) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.closeEditProfileDialog() }) {
+                    Text("Cancel", color = omniTextMuted(isDark))
+                }
+            }
+        )
+    }
+
+    // Delete Confirmation Dialog
+    if (state.isDeleteConfirmOpen && state.selectedStudentForManage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.closeDeleteConfirmDialog() },
+            containerColor = if (isDark) Color(0xFF1E2129) else Color(0xFFFFFFFF),
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = CrimsonCore,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Delete Biometric Profile?",
+                    color = omniTextPrimary(isDark),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete ${state.selectedStudentForManage.fullName} (${state.selectedStudentForManage.rollNumber})? This will permanently wipe all biometric templates and face vectors from the local vault.",
+                    color = omniTextMuted(isDark),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmDeleteSelectedStudent(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonCore),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Delete Permanently", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.closeDeleteConfirmDialog() }) {
+                    Text("Cancel", color = omniTextMuted(isDark))
+                }
+            }
+        )
     }
 }
 

@@ -2,10 +2,12 @@ package com.omniface.ai.ml.pipeline
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.PointF
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.ui.geometry.Rect
 import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.ml.*
 import com.omniface.ai.ml.antispoof.PassivePadEngine
@@ -72,7 +74,8 @@ class FaceSecurityPipeline(
         previewHeight: Float,
         isFrontCamera: Boolean,
         studentMap: Map<String, String>,
-        securityTier: SecurityTier
+        securityTier: SecurityTier,
+        downscaleFactor: Float = 1.0f
     ): PipelineFrameOutput = withContext(Dispatchers.Default) {
         val t0 = SystemClock.elapsedRealtimeNanos()
 
@@ -108,8 +111,18 @@ class FaceSecurityPipeline(
         var primaryDecision: BiometricSynthesisDecision? = null
         var attendanceTriggered = false
 
-        for (face in faces.take(2)) {
-            val box = face.boundingBox
+        for (face in faces.take(6)) {
+            val rawBox = face.boundingBox
+            val box = if (downscaleFactor < 0.99f) {
+                android.graphics.Rect(
+                    (rawBox.left * downscaleFactor).toInt().coerceIn(0, fullBitmap.width),
+                    (rawBox.top * downscaleFactor).toInt().coerceIn(0, fullBitmap.height),
+                    (rawBox.right * downscaleFactor).toInt().coerceIn(0, fullBitmap.width),
+                    (rawBox.bottom * downscaleFactor).toInt().coerceIn(0, fullBitmap.height)
+                )
+            } else {
+                rawBox
+            }
             val trackId = face.trackingId ?: 0
 
             // 1. Map coordinates to preview coordinates
@@ -131,6 +144,19 @@ class FaceSecurityPipeline(
 
             val smoothedRect = tracker.updateTrack(trackId, rawRect)
             val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
+
+            // Extract ML Kit canonical 5 landmarks from frame (adapted to scaled frame if downscale active)
+            val leftEyeRaw = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
+            val rightEyeRaw = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+            val noseRaw = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
+            val mouthLRaw = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position
+            val mouthRRaw = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
+
+            val leftEye = leftEyeRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
+            val rightEye = rightEyeRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
+            val nose = noseRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
+            val mouthL = mouthLRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
+            val mouthR = mouthRRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
 
             // ── GATE 1: Multi-Factor Quality Gate ──
             val qualityResult = FaceQualityEngine.evaluateFaceQuality(
@@ -167,6 +193,10 @@ class FaceSecurityPipeline(
             }
 
             // ── GATE 2: Temporal Anti-Spoofing Gate ──
+            val avgEyeProb = if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
+                ((face.leftEyeOpenProbability ?: 1.0f) + (face.rightEyeOpenProbability ?: 1.0f)) / 2.0f
+            } else null
+
             temporalLivenessEngine.recordSample(
                 trackId = trackId,
                 yaw = face.headEulerAngleY,
@@ -174,15 +204,46 @@ class FaceSecurityPipeline(
                 roll = face.headEulerAngleZ,
                 attributes = attrResult,
                 faceMap3DMM = map3dResult,
-                passivePad = passivePadResult
+                passivePad = passivePadResult,
+                eyeOpenProbability = avgEyeProb
             )
             val temporalResult = temporalLivenessEngine.evaluateTemporalLiveness(trackId)
 
             // ── GATE 3: 512-D Identity Embedding Extraction & Matching ──
             var matchResult: MatchResult? = null
+            var lastExtractedEmbedding: FloatArray? = null
+
             if (qualityResult.isPassed && temporalResult.isLive && faceCrop != null && !faceCrop.isRecycled) {
                 try {
-                    val embedding = recognitionEngine.extractEmbedding(faceCrop)
+                    // Refined Biometric Alignment: Prefer 5-point Umeyama Canonical Alignment if all 5 fiducials are available
+                    val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
+                        arrayOf(leftEye, rightEye, nose, mouthL, mouthR)
+                    } else null
+
+                    val embeddingInputBitmap: Bitmap
+                    val isTemporaryAligned: Boolean
+
+                    if (raw5Pts != null) {
+                        val alignmentResult = UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
+                        if (alignmentResult != null) {
+                            embeddingInputBitmap = alignmentResult.alignedBitmap
+                            isTemporaryAligned = true
+                        } else {
+                            embeddingInputBitmap = faceCrop
+                            isTemporaryAligned = false
+                        }
+                    } else {
+                        embeddingInputBitmap = faceCrop
+                        isTemporaryAligned = false
+                    }
+
+                    val embedding = recognitionEngine.extractEmbedding(embeddingInputBitmap)
+                    lastExtractedEmbedding = embedding
+                    
+                    if (isTemporaryAligned && embeddingInputBitmap != faceCrop && !embeddingInputBitmap.isRecycled) {
+                        embeddingInputBitmap.recycle()
+                    }
+
                     matchResult = matcher.match(
                         queryEmbedding = embedding,
                         studentMap = studentMap,
@@ -203,7 +264,27 @@ class FaceSecurityPipeline(
                 securityTier = securityTier
             )
 
-            if (primaryDecision == null) {
+            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher
+            if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
+                val adaptedPair = matcher.adaptCentroidIfHighConfidence(
+                    studentRoll = decision.matchedStudentRoll,
+                    liveEmbedding = lastExtractedEmbedding,
+                    similarityScore = decision.matchSimilarity
+                )
+                if (adaptedPair != null) {
+                    val (tplId, newEncryptedCsv) = adaptedPair
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            com.omniface.ai.OmniFaceApplication.instance.database.studentDao().updateTemplateEmbedding(tplId, newEncryptedCsv)
+                            Log.d(TAG, "🧠 [DYNAMIC CENTROID] Adapted and persisted template $tplId for ${decision.matchedStudentRoll}")
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "Failed to persist adapted centroid: ${t.message}")
+                        }
+                    }
+                }
+            }
+
+            if (primaryDecision == null || (decision.isAttendanceAuthorized && !primaryDecision.isAttendanceAuthorized)) {
                 primaryDecision = decision
             }
 
@@ -225,19 +306,37 @@ class FaceSecurityPipeline(
             }
 
             // ── Build Visual Geometry for Viewfinder HUD ──
+            fun mapPoint(pt: PointF?): PointF? {
+                if (pt == null) return null
+                val x = if (isFrontCamera) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
+                val y = pt.y * scale + dy
+                return PointF(x, y)
+            }
+
+            val pts5List = listOfNotNull(
+                mapPoint(leftEye),
+                mapPoint(rightEye),
+                mapPoint(nose),
+                mapPoint(mouthL),
+                mapPoint(mouthR)
+            )
+
             val visualItem = FaceGeometryVisualData(
                 bounds = smoothedRect,
                 yaw = face.headEulerAngleY,
                 pitch = face.headEulerAngleX,
                 roll = face.headEulerAngleZ,
+                landmarks5Pts = if (pts5List.isNotEmpty()) pts5List.toTypedArray() else null,
                 gazeResult = gazeResult,
                 faceMap3DMM = map3dResult,
                 attributes = attrResult,
                 meshResult = meshResult,
+                qualityResult = qualityResult,
                 confidenceZone = matchResult?.confidenceZone ?: ConfidenceZone.REJECT,
                 decisionMargin = decision.decisionMargin,
                 similarityScore = decision.matchSimilarity,
                 studentName = decision.matchedStudentName,
+                studentRoll = decision.matchedStudentRoll,
                 isLive = decision.gateState != PipelineGateState.REJECT_SPOOF_ATTACK,
                 activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
             )

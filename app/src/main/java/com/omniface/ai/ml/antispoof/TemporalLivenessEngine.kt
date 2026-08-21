@@ -23,25 +23,28 @@ data class TemporalLivenessResult(
     val temporalConfidence: Float,    // 0.0 to 1.0
     val microMotionDetected: Boolean,
     val naturalBlinkDetected: Boolean,
+    val headTurnDetected: Boolean = false,
     val stable3DDepth: Boolean,
+    val requiredAction: LivenessChallengeType? = null,
     val explanation: String
 )
 
 /**
  * Multi-Frame Temporal Anti-Spoofing & Liveness Consistency Engine.
  *
- * Examines a sequence of frames over a 500ms sliding window:
+ * Examines a sequence of frames over a sliding window:
  * 1. Micro-Motion Trajectory: Rejects completely static 2D planar photos.
- * 2. Natural Blink / Ocular Dynamics: Detects physiological involuntary transitions.
- * 3. 3D Depth Variance Stability: Asserts consistent topological variance across head turns.
- * 4. Temporal PAD Consensus: Prevents momentary noise spikes from triggering false alarms.
+ * 2. Natural Blink / Ocular Dynamics: Detects physiological involuntary transitions or prompted blinks.
+ * 3. Head Turn Dynamics: Detects genuine 3D continuous rotation across yaw/pitch.
+ * 4. 3D Depth Variance Stability: Asserts consistent topological variance across head turns.
+ * 5. Temporal PAD Consensus: Prevents momentary noise spikes from triggering false alarms.
  */
 class TemporalLivenessEngine {
 
     companion object {
-        private const val MAX_HISTORY_FRAMES = 8
+        private const val MAX_HISTORY_FRAMES = 10
         private const val MIN_SAMPLES_FOR_CONSENSUS = 3
-        private const val STATIC_PHOTO_JITTER_THRESHOLD = 0.40f // Minimum pixel movement required to prove live biology
+        private const val STATIC_PHOTO_JITTER_THRESHOLD = 0.40f
     }
 
     private val trackHistory = ConcurrentHashMap<Int, ArrayDeque<TemporalFrameSample>>()
@@ -54,10 +57,11 @@ class TemporalLivenessEngine {
         attributes: FaceAttributesResult?,
         faceMap3DMM: FaceMap3DMMResult?,
         passivePad: PassivePadResult?,
-        landmarks5Pts: Array<PointF>? = null
+        landmarks5Pts: Array<PointF>? = null,
+        eyeOpenProbability: Float? = null
     ) {
         val queue = trackHistory.getOrPut(trackId) { ArrayDeque() }
-        val eyeOpen = attributes?.rawProbabilities?.getOrNull(3) ?: 0.95f
+        val eyeOpen = eyeOpenProbability ?: (attributes?.rawProbabilities?.getOrNull(3) ?: 0.95f)
         val depthVar = faceMap3DMM?.depthVariance ?: 0.005f
         val padScore = passivePad?.livenessScore ?: 0.90f
 
@@ -86,7 +90,9 @@ class TemporalLivenessEngine {
             temporalConfidence = 0.85f,
             microMotionDetected = true,
             naturalBlinkDetected = false,
+            headTurnDetected = false,
             stable3DDepth = true,
+            requiredAction = null,
             explanation = "Initial frame sample"
         )
 
@@ -97,7 +103,9 @@ class TemporalLivenessEngine {
                 temporalConfidence = 0.85f,
                 microMotionDetected = true,
                 naturalBlinkDetected = false,
+                headTurnDetected = false,
                 stable3DDepth = true,
+                requiredAction = null,
                 explanation = "Accumulating temporal sequence (${samples.size}/$MIN_SAMPLES_FOR_CONSENSUS)"
             )
         }
@@ -107,10 +115,14 @@ class TemporalLivenessEngine {
 
         // 2. Check 3D Depth Variance Stability
         val meanDepth = samples.map { it.depthVariance }.average().toFloat()
-        val stable3DDepth = meanDepth > 0.0025f
+        val stable3DDepth = meanDepth > 0.0020f
 
-        // 3. Check Natural Micro-Motion across 5-point Landmarks or Pose
+        // 3. Check Natural Micro-Motion & Continuous Head Rotation across Pose
         var totalMotion = 0.0f
+        var maxYawDiff = 0.0f
+        var maxPitchDiff = 0.0f
+        val firstSample = samples.first()
+
         for (i in 1 until samples.size) {
             val prev = samples[i - 1]
             val curr = samples[i]
@@ -118,23 +130,46 @@ class TemporalLivenessEngine {
             val dpitch = abs(curr.pitch - prev.pitch)
             val droll = abs(curr.roll - prev.roll)
             totalMotion += (dyaw + dpitch + droll)
-        }
-        val avgMotionPerFrame = totalMotion / (samples.size - 1)
-        val hasMicroMotion = avgMotionPerFrame > 0.05f || samples.size >= 5
 
-        // 4. Check Eye Openness Transition
+            val totalYawSpan = abs(curr.yaw - firstSample.yaw)
+            if (totalYawSpan > maxYawDiff) maxYawDiff = totalYawSpan
+
+            val totalPitchSpan = abs(curr.pitch - firstSample.pitch)
+            if (totalPitchSpan > maxPitchDiff) maxPitchDiff = totalPitchSpan
+        }
+
+        val avgMotionPerFrame = totalMotion / (samples.size - 1)
+        val hasMicroMotion = avgMotionPerFrame > 0.04f || samples.size >= 5
+        val headTurnOccurred = maxYawDiff >= 12.0f || maxPitchDiff >= 10.0f
+
+        // 4. Check Eye Openness Transition (Blink Detection)
         val minEye = samples.minOf { it.eyeOpenness }
         val maxEye = samples.maxOf { it.eyeOpenness }
-        val blinkOccurred = (maxEye - minEye) > 0.35f
+        val eyeDelta = maxEye - minEye
+        val blinkOccurred = eyeDelta >= 0.30f || (minEye <= 0.25f && maxEye >= 0.65f)
 
-        // 5. Final Temporal Synthesis
-        val isLive = (avgPadScore >= 0.50f) && stable3DDepth
-        val score = (avgPadScore * 0.60f + (if (stable3DDepth) 0.25f else 0f) + (if (hasMicroMotion) 0.15f else 0f)).coerceIn(0f, 1f)
+        // 5. Anti-Spoof Dynamic Action Requirement: If passive PAD or depth is borderline or static, require challenge (blink or head turn)
+        val isStaticReplay = avgMotionPerFrame < 0.015f && !blinkOccurred && !headTurnOccurred && samples.size >= 6
+        val dynamicChallengePassed = blinkOccurred || headTurnOccurred || (hasMicroMotion && avgPadScore >= 0.70f)
+
+        val requiredAction = when {
+            isStaticReplay -> if (samples.size % 2 == 0) LivenessChallengeType.BLINK else LivenessChallengeType.TURN_LEFT
+            avgPadScore in 0.40f..0.65f && !blinkOccurred && !headTurnOccurred -> LivenessChallengeType.BLINK
+            else -> null
+        }
+
+        // 6. Final Temporal Synthesis
+        val isLive = (avgPadScore >= 0.45f) && stable3DDepth && !isStaticReplay
+        val bonus = (if (blinkOccurred) 0.15f else 0f) + (if (headTurnOccurred) 0.15f else 0f)
+        val score = (avgPadScore * 0.50f + (if (stable3DDepth) 0.20f else 0f) + (if (hasMicroMotion) 0.15f else 0f) + bonus).coerceIn(0f, 1f)
 
         val explanation = when {
-            !stable3DDepth -> "Planar 2D Surface Detected (Low 3D Topography)"
-            avgPadScore < 0.50f -> "Temporal PAD Replay / Print Attack Detected"
-            else -> "Live 3D Subject Verified (${samples.size} frames consensus)"
+            isStaticReplay -> "Static image detected — please blink or turn head slightly"
+            !stable3DDepth -> "Planar 2D surface detected (Low 3D Topography)"
+            avgPadScore < 0.45f -> "Temporal PAD replay / print attack detected"
+            blinkOccurred -> "Live subject verified (Natural eye blink detected)"
+            headTurnOccurred -> "Live subject verified (3D head rotation confirmed)"
+            else -> "Live 3D subject verified (${samples.size} frames consensus)"
         }
 
         return TemporalLivenessResult(
@@ -142,7 +177,9 @@ class TemporalLivenessEngine {
             temporalConfidence = score,
             microMotionDetected = hasMicroMotion,
             naturalBlinkDetected = blinkOccurred,
+            headTurnDetected = headTurnOccurred,
             stable3DDepth = stable3DDepth,
+            requiredAction = requiredAction,
             explanation = explanation
         )
     }
