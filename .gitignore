@@ -68,7 +68,7 @@ models/antelopev2/
 models/buffalo_l/
 models/latest_pretrained/
 
-# Temporary files
+# Temporary & machine-specific build scripts
 *.tmp
 *.bak
 *~
@@ -80,3 +80,10 @@ Omniface-AI/
 "omniface-ai (1).zip"
 .agents/
 metadata.json
+
+# Local ARM64 / Cross-Arch bootstrap scripts & keystores
+setup_armdroid64.sh
+build_local.sh
+debug.keystore
+debug.keystore.*
+local.properties
