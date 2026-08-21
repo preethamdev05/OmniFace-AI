@@ -19,6 +19,7 @@ import com.omniface.ai.ml.recognition.FaceMatcher
 import com.omniface.ai.ml.tracking.FaceTracker
 import com.omniface.ai.ui.components.FaceGeometryVisualData
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
