@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -1518,10 +1520,13 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = if (showTokenPlain) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         trailingIcon = {
-                            IconButton(onClick = { showTokenPlain = !showTokenPlain }) {
+                            IconButton(
+                                onClick = { showTokenPlain = !showTokenPlain },
+                                modifier = Modifier.semantics { contentDescription = "Toggle Visibility" }
+                            ) {
                                 Icon(
                                     imageVector = if (showTokenPlain) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = "Toggle Visibility",
+                                    contentDescription = null,
                                     tint = omniTextMuted(isDark)
                                 )
                             }
