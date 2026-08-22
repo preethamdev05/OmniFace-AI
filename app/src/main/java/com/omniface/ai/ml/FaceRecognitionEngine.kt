@@ -135,6 +135,10 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     private val outputBufferFloat = Array(1) { FloatArray(embeddingDim) }
     private val outputBufferInt8 = Array(1) { ByteArray(embeddingDim) }
     private val pixelBuffer = IntArray(inputSize * inputSize)
+    private val reusableBitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+    private val reusableCanvas = Canvas(reusableBitmap)
+    private val destRect = android.graphics.Rect(0, 0, inputSize, inputSize)
+    private val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
     // In-Memory Decrypted Biometric Matrix Cache & FAISS Vector Index
     private val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
@@ -603,11 +607,10 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         }
 
         return try {
-            val resized = Bitmap.createScaledBitmap(faceBitmap, inputSize, inputSize, true)
-            resized.getPixels(pixelBuffer, 0, inputSize, 0, 0, inputSize, inputSize)
-            if (resized != faceBitmap) {
-                resized.recycle()
-            }
+            val srcRect = android.graphics.Rect(0, 0, faceBitmap.width, faceBitmap.height)
+            reusableCanvas.drawColor(android.graphics.Color.BLACK, android.graphics.PorterDuff.Mode.CLEAR)
+            reusableCanvas.drawBitmap(faceBitmap, srcRect, destRect, scalePaint)
+            reusableBitmap.getPixels(pixelBuffer, 0, inputSize, 0, 0, inputSize, inputSize)
 
             val embedding = when (activeHardwareTier) {
                 HardwareTier.NPU_NNAPI -> {
