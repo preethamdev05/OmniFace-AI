@@ -39,6 +39,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -1463,11 +1465,13 @@ fun ScannerScreen(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         viewModel.retryScan()
                                     },
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .semantics { contentDescription = "Retry Scan" }
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Retry Scan",
+                                        contentDescription = null,
                                         tint = omniCyan(isDark),
                                         modifier = Modifier.size(20.dp)
                                     )
