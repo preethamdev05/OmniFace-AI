@@ -383,10 +383,15 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
 
     private fun unzip(zipFile: File, destDir: File) {
         destDir.mkdirs()
+        val destDirPath = destDir.canonicalPath
         java.util.zip.ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
                 val outFile = File(destDir, entry.name)
+                val outFilePath = outFile.canonicalPath
+                if (!outFilePath.startsWith(destDirPath + File.separator)) {
+                    throw SecurityException("Zip Slip vulnerability detected: invalid file path ${entry.name}")
+                }
                 if (entry.isDirectory) outFile.mkdirs()
                 else { outFile.parentFile?.mkdirs(); FileOutputStream(outFile).use { zis.copyTo(it) } }
                 zis.closeEntry(); entry = zis.nextEntry
