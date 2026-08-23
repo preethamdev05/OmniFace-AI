@@ -60,12 +60,13 @@ class TemporalLivenessEngineTest {
             engine.recordSample(
                 trackId = TRACK_ID, yaw = i * 0.5f, pitch = 0.0f, roll = 0.0f,
                 attributes = null, faceMap3DMM = null, passivePad = null,
+                landmarks5Pts = null,
                 eyeOpenProbability = eyeProb
             )
         }
         val result = engine.evaluateTemporalLiveness(TRACK_ID)
         // eyeDelta = 0.95 - 0.15 = 0.80 > 0.30 — blink should be detected
-        assertTrue("Blink should be detected with eyeDelta >= 0.30", result.blinkDetected)
+        assertTrue("Blink should be detected with eyeDelta >= 0.30", result.naturalBlinkDetected)
     }
 
     @Test fun `no blink detected when eyes stay constant`() {
@@ -73,16 +74,17 @@ class TemporalLivenessEngineTest {
             engine.recordSample(
                 trackId = TRACK_ID, yaw = it * 0.3f, pitch = 0.0f, roll = 0.0f,
                 attributes = null, faceMap3DMM = null, passivePad = null,
+                landmarks5Pts = null,
                 eyeOpenProbability = 0.92f // no variation
             )
         }
         val result = engine.evaluateTemporalLiveness(TRACK_ID)
         // eyeDelta = 0 — no blink
-        assertFalse("Should not detect blink when eyes remain fully open", result.blinkDetected)
+        assertFalse("Should not detect blink when eyes remain fully open", result.naturalBlinkDetected)
     }
 
     @Test fun `clearAll removes all track history`() {
-        engine.recordSample(TRACK_ID, 0f, 0f, 0f, null, null, null, 0.9f)
+        engine.recordSample(TRACK_ID, 0f, 0f, 0f, null, null, null, null, 0.9f)
         engine.clearAll()
         // After clear, evaluating returns a fresh (short) sample result — no crash
         val result = engine.evaluateTemporalLiveness(TRACK_ID)
