@@ -27,6 +27,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -277,8 +279,11 @@ fun LedgerScreen(
                 },
                 trailingIcon = {
                     if (state.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = omniTextMuted(isDark), modifier = Modifier.size(16.dp))
+                        IconButton(
+                            onClick = { viewModel.onSearchQueryChanged("") },
+                            modifier = Modifier.semantics { contentDescription = "Clear" }
+                        ) {
+                            Icon(Icons.Default.Clear, contentDescription = null, tint = omniTextMuted(isDark), modifier = Modifier.size(16.dp))
                         }
                     }
                 },
@@ -408,11 +413,13 @@ fun LedgerScreen(
                             // One-Click Parent Alert Dispatcher
                             IconButton(
                                 onClick = { viewModel.dispatchParentAlert(context, record) },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .semantics { contentDescription = "Notify Parent" }
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Chat,
-                                    contentDescription = "Notify Parent",
+                                    contentDescription = null,
                                     tint = omniCyan(isDark),
                                     modifier = Modifier.size(18.dp)
                                 )

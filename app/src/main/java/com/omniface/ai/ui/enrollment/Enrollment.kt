@@ -57,6 +57,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -981,10 +983,13 @@ private fun RegistrationFormView(
                     },
                     trailingIcon = {
                         if (state.searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                            IconButton(
+                                onClick = { viewModel.onSearchQueryChanged("") },
+                                modifier = Modifier.semantics { contentDescription = "Clear search" }
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear search",
+                                    contentDescription = null,
                                     tint = omniTextMuted(isDark),
                                     modifier = Modifier.size(16.dp)
                                 )
