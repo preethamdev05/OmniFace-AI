@@ -1461,21 +1461,21 @@ private fun BiometricStudioView(
                             if (mediaImage != null) {
                                 val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                 val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
-                                val fullBitmap = imageProxyToBitmap(imageProxy)
 
                                 faceDetector.process(image)
-                                    .addOnSuccessListener { faces ->
+                                    .addOnSuccessListener(viewModel.cameraExecutor) { faces ->
                                         val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
-                                        if (face != null && fullBitmap != null) {
-                                            viewModel.processCameraFrame(face, fullBitmap)
-                                        } else {
-                                            fullBitmap?.recycle()
+                                        if (face != null) {
+                                            val fullBitmap = imageProxyToBitmap(imageProxy)
+                                            if (fullBitmap != null) {
+                                                viewModel.processCameraFrame(face, fullBitmap)
+                                            }
                                         }
                                     }
-                                    .addOnFailureListener {
-                                        fullBitmap?.recycle()
+                                    .addOnFailureListener(viewModel.cameraExecutor) {
+                                        // Nothing to recycle here since bitmap is not created eagerly
                                     }
-                                    .addOnCompleteListener {
+                                    .addOnCompleteListener(viewModel.cameraExecutor) {
                                         imageProxy.close()
                                     }
                             } else {
