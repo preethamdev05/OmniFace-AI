@@ -594,21 +594,21 @@ fun FaceRegistrationComponent(
                                 if (mediaImage != null) {
                                     val rotationDegrees = imageProxy.imageInfo.rotationDegrees
                                     val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
-                                    val fullBitmap = imageProxyToBitmap(imageProxy)
 
                                     faceDetector.process(image)
-                                        .addOnSuccessListener { faces ->
+                                        .addOnSuccessListener(state.cameraExecutor) { faces ->
                                             val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
-                                            if (face != null && fullBitmap != null) {
-                                                state.processFrame(face, fullBitmap)
-                                            } else {
-                                                fullBitmap?.recycle()
+                                            if (face != null) {
+                                                val fullBitmap = imageProxyToBitmap(imageProxy)
+                                                if (fullBitmap != null) {
+                                                    state.processFrame(face, fullBitmap)
+                                                }
                                             }
                                         }
-                                        .addOnFailureListener {
-                                            fullBitmap?.recycle()
+                                        .addOnFailureListener(state.cameraExecutor) {
+                                            // Nothing to recycle here since bitmap is not created eagerly
                                         }
-                                        .addOnCompleteListener {
+                                        .addOnCompleteListener(state.cameraExecutor) {
                                             imageProxy.close()
                                         }
                                 } else {

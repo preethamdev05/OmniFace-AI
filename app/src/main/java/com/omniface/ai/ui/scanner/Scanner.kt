@@ -1116,7 +1116,7 @@ fun ScannerScreen(
                                             val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
 
                                             faceDetector.process(image)
-                                                .addOnSuccessListener { faces ->
+                                                .addOnSuccessListener(viewModel.cameraExecutor) { faces ->
                                                     if (faces.isNotEmpty() && !viewModel.isProcessingFrame) {
                                                         val rawBitmap = imageProxyToBitmap(imageProxy)
                                                         if (rawBitmap != null) {
@@ -1140,10 +1140,10 @@ fun ScannerScreen(
                                                         viewModel.handleEmptyFaces()
                                                     }
                                                 }
-                                                .addOnFailureListener {
+                                                .addOnFailureListener(viewModel.cameraExecutor) {
                                                     viewModel.handleEmptyFaces()
                                                 }
-                                                .addOnCompleteListener {
+                                                .addOnCompleteListener(viewModel.cameraExecutor) {
                                                     imageProxy.close()
                                                 }
                                         } else {

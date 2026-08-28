@@ -1,0 +1,1 @@
+## 2026-08-28 - [Avoid Bitmap Re-creation]\n\n**Learning:** Recreating a heavy object (Bitmap) every frame in ML kit callbacks before face detection checks creates huge overhead.\n\n**Action:** Avoid allocating heavy resources inside image proxy loops before they are strictly needed.
