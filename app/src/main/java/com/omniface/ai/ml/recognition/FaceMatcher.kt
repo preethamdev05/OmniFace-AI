@@ -325,21 +325,41 @@ class FaceMatcher {
         )
     }
 
+    // ⚡ Bolt: 8-way unrolled dot product for pre-normalized vectors (avoids redundant L2 norm math)
     private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
-        val size = minOf(a.size, b.size)
-        if (size == 0) return 0.0f
-        var sum = 0.0f
-        var normA = 0.0f
-        var normB = 0.0f
-        for (i in 0 until size) {
-            val va = a[i]
-            val vb = b[i]
-            sum += va * vb
-            normA += va * va
-            normB += vb * vb
+        var sum0 = 0.0f
+        var sum1 = 0.0f
+        var sum2 = 0.0f
+        var sum3 = 0.0f
+        var sum4 = 0.0f
+        var sum5 = 0.0f
+        var sum6 = 0.0f
+        var sum7 = 0.0f
+
+        val len = minOf(a.size, b.size)
+        val unrollLimit = len - (len % 8)
+        var i = 0
+
+        while (i < unrollLimit) {
+            sum0 += a[i] * b[i]
+            sum1 += a[i + 1] * b[i + 1]
+            sum2 += a[i + 2] * b[i + 2]
+            sum3 += a[i + 3] * b[i + 3]
+            sum4 += a[i + 4] * b[i + 4]
+            sum5 += a[i + 5] * b[i + 5]
+            sum6 += a[i + 6] * b[i + 6]
+            sum7 += a[i + 7] * b[i + 7]
+            i += 8
         }
-        val denom = sqrt(normA * normB)
-        return if (denom > 1e-7f) (sum / denom).coerceIn(-1.0f, 1.0f) else 0.0f
+
+        var total = sum0 + sum1 + sum2 + sum3 + sum4 + sum5 + sum6 + sum7
+
+        while (i < len) {
+            total += a[i] * b[i]
+            i++
+        }
+
+        return total.coerceIn(-1.0f, 1.0f)
     }
 
     private fun l2Normalize(vec: FloatArray): FloatArray {
