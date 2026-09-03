@@ -282,8 +282,8 @@ fun BiometricDeduplicationStudio(
                             )
                         }
 
-                        CupertinoButton(
-                            text = if (state.isScanning) "..." else LocalizationManager.get(StringKey.DEDUP_RESCAN_BUTTON),
+                        CupertinoActionPill(
+                            text = if (state.isScanning) "Scanning..." else LocalizationManager.get(StringKey.DEDUP_RESCAN_BUTTON),
                             icon = Icons.Default.Refresh,
                             onClick = { viewModel.runDeduplicationScan() }
                         )
@@ -297,7 +297,7 @@ fun BiometricDeduplicationStudio(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 40.dp),
+                            .padding(vertical = 32.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -312,13 +312,15 @@ fun BiometricDeduplicationStudio(
                     }
                 }
             } else if (state.duplicateClusters.isEmpty()) {
-                // Empty State — Clean Database
+                // Empty State — Clean Database in Glass Card
                 item {
-                    EmptyState(
-                        title = LocalizationManager.get(StringKey.DEDUP_NO_DUPLICATES),
-                        subtitle = LocalizationManager.get(StringKey.DEDUP_CLEAN_DESC),
-                        icon = Icons.Default.VerifiedUser
-                    )
+                    IOSCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+                        EmptyState(
+                            title = LocalizationManager.get(StringKey.DEDUP_NO_DUPLICATES),
+                            subtitle = LocalizationManager.get(StringKey.DEDUP_CLEAN_DESC),
+                            icon = Icons.Default.VerifiedUser
+                        )
+                    }
                 }
             } else {
                 // Section Header

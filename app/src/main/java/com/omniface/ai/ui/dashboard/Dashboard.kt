@@ -400,7 +400,7 @@ fun DashboardScreen(
                     }
                     val syncTileSubtitle = when (val s = state.syncState) {
                         is com.omniface.ai.sync.FleetSyncState.Syncing -> s.message
-                        is com.omniface.ai.sync.FleetSyncState.Synced -> "${s.peerNodeCount} Node Active • Synced"
+                        is com.omniface.ai.sync.FleetSyncState.Synced -> "${s.peerNodeCount} Node • Synced"
                         is com.omniface.ai.sync.FleetSyncState.OfflineReady -> if (state.unsyncedCount > 0) "Tap to Sync Now" else "P2P Mesh Online"
                         is com.omniface.ai.sync.FleetSyncState.Error -> s.error.take(24)
                         else -> "Tap to Sync Now"
@@ -413,7 +413,7 @@ fun DashboardScreen(
 
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = LocalizationManager.get(StringKey.CLOUD_SYNC_INTEGRATION),
+                        title = "CLOUD SYNC",
                         value = syncTileValue,
                         subtitle = syncTileSubtitle,
                         icon = Icons.Default.CloudSync,
@@ -628,7 +628,7 @@ fun DashboardScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(modifier = Modifier.weight(1.2f)) {
+                Box(modifier = Modifier.weight(1f)) {
                     CupertinoButton(
                         text = LocalizationManager.get(StringKey.TAB_SCANNER),
                         icon = Icons.Default.Videocam,
@@ -637,7 +637,7 @@ fun DashboardScreen(
                 }
                 Box(modifier = Modifier.weight(1f)) {
                     CupertinoButton(
-                        text = LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT),
+                        text = "Enroll Face",
                         icon = Icons.Default.PersonAdd,
                         isSecondary = true,
                         onClick = { onNavigate(Screen.Enrollment) }

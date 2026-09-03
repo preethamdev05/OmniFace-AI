@@ -8,7 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import com.omniface.ai.hardware.QrBadgeGenerator
+import com.omniface.ai.hardware.QrCodeExporter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +54,7 @@ fun StudentInfoSheet(
         onDismiss()
     }
 
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
 
@@ -256,6 +259,62 @@ fun StudentInfoSheet(
                                 contentDescription = "Student 2FA QR Badge",
                                 modifier = Modifier.fillMaxSize()
                             )
+                        }
+
+                        // Export & Share Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    QrCodeExporter.saveQrCodeToGallery(
+                                        context = context,
+                                        rollNumber = student.rollNumber,
+                                        fullName = student.fullName,
+                                        department = student.department,
+                                        semester = student.semester
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
+                                    contentColor = omniTextPrimary(isDark)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Save Image", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+
+                            Button(
+                                onClick = {
+                                    QrCodeExporter.shareQrCode(
+                                        context = context,
+                                        rollNumber = student.rollNumber,
+                                        fullName = student.fullName,
+                                        department = student.department,
+                                        semester = student.semester
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = omniCyan(isDark),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Share", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
                         }
                     }
 

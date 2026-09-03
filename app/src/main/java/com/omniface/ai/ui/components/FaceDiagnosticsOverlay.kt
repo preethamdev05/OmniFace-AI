@@ -59,8 +59,6 @@ data class FaceGeometryVisualData(
     val studentName: String = "",
     val studentRoll: String = "",
     val isLive: Boolean = true,
-    val pulseBpm: Int = 72,
-    val isPulseValid: Boolean = false,
     val activeHardwareNpu: String = "Qualcomm Hexagon NPU",
     val isFrontCamera: Boolean = true
 )

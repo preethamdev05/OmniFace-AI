@@ -925,7 +925,7 @@ private fun SettingsCategoryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -935,8 +935,8 @@ private fun SettingsCategoryCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(11.dp))
                         .background(category.accentColor.copy(alpha = if (isDark) 0.22f else 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -944,44 +944,54 @@ private fun SettingsCategoryCard(
                         imageVector = category.icon,
                         contentDescription = category.title,
                         tint = category.accentColor,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-                Column {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Text(
                         text = LocalizationManager.get(category.titleKey),
                         color = omniTextPrimary(isDark),
-                        fontSize = 15.5.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.2).sp
+                        letterSpacing = (-0.2).sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = LocalizationManager.get(category.subtitleKey),
                         color = omniTextMuted(isDark),
                         fontSize = 11.5.sp,
-                        lineHeight = 14.sp
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 if (category.badge != null) {
                     IOSGlassPill(
                         text = category.badge,
                         accentColor = category.accentColor
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
                 }
 
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = "Open",
                     tint = omniTextMuted(isDark).copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }

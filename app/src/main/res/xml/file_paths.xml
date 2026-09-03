@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="compliance_reports" path="compliance_reports/" />
+    <cache-path name="shared_qr" path="qr_badges/" />
+    <cache-path name="shared_images" path="." />
     <files-path name="compliance_reports_files" path="compliance_reports/" />
     <external-files-path name="external_compliance" path="compliance_reports/" />
 </paths>

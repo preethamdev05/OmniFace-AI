@@ -86,10 +86,9 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = "Zero-cloud biometrics & DPDP Act 2023 compliance",
                         icon = Icons.Default.PrivacyTip,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = "View Policy",
                                 icon = Icons.Default.Description,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 130.dp),
                                 onClick = { showPrivacyPolicyDialog = true }
                             )
                         }
@@ -105,10 +104,9 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.DEDUP_STUDIO_SUBTITLE),
                         icon = Icons.Default.FindReplace,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = LocalizationManager.get(StringKey.SCAN_DUPLICATES),
                                 icon = Icons.Default.Search,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 130.dp),
                                 onClick = { showDedupStudio = true }
                             )
                         }
@@ -124,10 +122,9 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = "WhatsApp-style user-owned encrypted backups",
                         icon = Icons.Default.CloudUpload,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = "Manage",
                                 icon = Icons.Default.ChevronRight,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
                                 onClick = { showDriveBackup = true }
                             )
                         }
@@ -143,10 +140,9 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.ENCRYPTED_BACKUP_DESC),
                         icon = Icons.Default.SaveAlt,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = if (state.isBackingUp) LocalizationManager.get(StringKey.TESTING) else LocalizationManager.get(StringKey.BACKUP_ACTION),
                                 icon = Icons.Default.Backup,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
                                 onClick = {
                                     val act = context.findFragmentActivity()
                                     if (act != null) {
@@ -174,10 +170,9 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.COMPLIANCE_REPORT_DESC),
                         icon = Icons.Default.Description,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = if (state.isGeneratingReport) LocalizationManager.get(StringKey.TESTING) else LocalizationManager.get(StringKey.EXPORT_ACTION),
                                 icon = Icons.Default.Share,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
                                 onClick = {
                                     val act = context.findFragmentActivity()
                                     if (act != null) {
@@ -205,10 +200,10 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.DPDP_RETENTION_DESC),
                         icon = Icons.Default.AutoDelete,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = LocalizationManager.get(StringKey.PURGE_ACTION),
                                 icon = Icons.Default.DeleteSweep,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
+                                isDestructive = true,
                                 onClick = {
                                     val act = context.findFragmentActivity()
                                     if (act != null) {
@@ -236,10 +231,10 @@ fun DataGovernanceSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.WIPE_LEDGER_DESC),
                         icon = Icons.Default.DeleteForever,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = if (state.isPurging) LocalizationManager.get(StringKey.TESTING) else LocalizationManager.get(StringKey.WIPE_ALL_ACTION),
                                 icon = Icons.Default.Delete,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
+                                isDestructive = true,
                                 onClick = {
                                     val act = context.findFragmentActivity()
                                     if (act != null) {

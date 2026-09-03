@@ -495,8 +495,6 @@ class FaceSecurityPipeline(
                 studentName = decision.matchedStudentName,
                 studentRoll = decision.matchedStudentRoll,
                 isLive = decision.gateState != PipelineGateState.REJECT_SPOOF_ATTACK,
-                pulseBpm = item.temporalResult?.heartRateBpm ?: 72,
-                isPulseValid = item.temporalResult?.rppgVitality?.isLive ?: true,
                 activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
                 isFrontCamera = isFrontCamera
             )

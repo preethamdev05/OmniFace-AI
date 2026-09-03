@@ -11,6 +11,7 @@ import android.graphics.YuvImage
 import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.QrBadgeGenerator
+import com.omniface.ai.hardware.QrCodeExporter
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import android.util.Range
@@ -130,7 +131,7 @@ data class EnrollmentUiState(
     val editSemester: String = "",
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
-    val engineLoadingProgress: com.omniface.ai.ml.EngineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress()
+    val engineLoadingProgress: com.omniface.ai.ml.EngineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(isReady = true, stage = "Ready", progress = 1.0f)
 )
 
 class EnrollmentViewModel : ViewModel() {
@@ -1370,6 +1371,62 @@ private fun RegistrationFormView(
                                     contentDescription = "Student 2FA QR Badge",
                                     modifier = Modifier.fillMaxSize()
                                 )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    QrCodeExporter.saveQrCodeToGallery(
+                                        context = context,
+                                        rollNumber = student.rollNumber,
+                                        fullName = student.fullName,
+                                        department = student.department,
+                                        semester = student.semester
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
+                                    contentColor = omniTextPrimary(isDark)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Save Image", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+
+                            Button(
+                                onClick = {
+                                    QrCodeExporter.shareQrCode(
+                                        context = context,
+                                        rollNumber = student.rollNumber,
+                                        fullName = student.fullName,
+                                        department = student.department,
+                                        semester = student.semester
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = omniCyan(isDark),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text("Share", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                             }
                         }
                     }

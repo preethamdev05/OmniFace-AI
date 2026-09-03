@@ -185,7 +185,8 @@ data class ScannerUiState(
     val selectedStudentForInfo: StudentEntity? = null,
     val studentTemplatesForInfo: List<FaceTemplateEntity> = emptyList(),
     val studentAttendanceCountForInfo: Int = 0,
-    val studentRecentRecordsForInfo: List<AttendanceRecordEntity> = emptyList()
+    val studentRecentRecordsForInfo: List<AttendanceRecordEntity> = emptyList(),
+    val isDatabaseRefreshedMessage: String? = null
 )
 
 class ScannerViewModel : ViewModel() {
@@ -388,21 +389,28 @@ class ScannerViewModel : ViewModel() {
 
     fun refreshEnrolledTemplates() {
         viewModelScope.launch(Dispatchers.IO) {
-            val students = db.studentDao().getAllStudents()
-            val templates = db.studentDao().getAllTemplates()
-            cachedStudentMap = students.associate { it.rollNumber to it.fullName }
-            cachedTemplates = templates
-            recognitionEngine?.preloadTemplates(templates)
-            securityPipeline?.preloadTemplates(templates)
-            val isEmpty = students.isEmpty()
-            val count = students.size
-            _uiState.update {
-                it.copy(
-                    isDatabaseEmpty = isEmpty,
-                    enrolledCount = count,
-                    matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
-                    matchSubtitle = if (isEmpty) "0 students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "$count students enrolled • Tap 'START SCAN' to begin" else it.matchSubtitle)
-                )
+            try {
+                val students = db.studentDao().getAllStudents()
+                val templates = db.studentDao().getAllTemplates()
+                cachedStudentMap = students.associate { it.rollNumber to it.fullName }
+                cachedTemplates = templates
+                recognitionEngine?.preloadTemplates(templates)
+                securityPipeline?.preloadTemplates(templates)
+                val isEmpty = students.isEmpty()
+                val count = students.size
+                _uiState.update {
+                    it.copy(
+                        isDatabaseEmpty = isEmpty,
+                        enrolledCount = count,
+                        isDatabaseRefreshedMessage = "Database Refreshed ($count Students)",
+                        matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
+                        matchSubtitle = if (isEmpty) "0 students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "$count students enrolled • Tap 'START SCAN' to begin" else it.matchSubtitle)
+                    )
+                }
+                kotlinx.coroutines.delay(2000)
+                _uiState.update { it.copy(isDatabaseRefreshedMessage = null) }
+            } catch (e: Exception) {
+                android.util.Log.e("Scanner", "Failed to refresh templates", e)
             }
         }
     }
@@ -451,71 +459,87 @@ class ScannerViewModel : ViewModel() {
 
         if (recognitionEngine == null) {
             viewModelScope.launch(Dispatchers.Default) {
-                val appContext = context.applicationContext
-                val engine = FaceRecognitionEngine.getInstance(appContext)
-                
-                _uiState.update { 
-                    it.copy(
-                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                            isReady = false,
-                            stage = "Discovering Neural Silicon & Hardware Tensors...",
-                            progress = 0.25f,
-                            activeModelName = it.activeModelDisplayName,
-                            hardwareTarget = it.hardwareTierLabel
+                try {
+                    val appContext = context.applicationContext
+                    val engine = FaceRecognitionEngine.getInstance(appContext)
+                    
+                    _uiState.update { 
+                        it.copy(
+                            engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                                isReady = false,
+                                stage = "Discovering Neural Silicon & Hardware Tensors...",
+                                progress = 0.25f,
+                                activeModelName = it.activeModelDisplayName,
+                                hardwareTarget = it.hardwareTierLabel
+                            )
                         )
-                    )
-                }
-                kotlinx.coroutines.delay(200)
-                
-                _uiState.update { 
-                    it.copy(
-                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                            isReady = false,
-                            stage = "Compiling MLIR Graph & Warming up Neural Cores...",
-                            progress = 0.70f,
-                            activeModelName = it.activeModelDisplayName,
-                            hardwareTarget = it.hardwareTierLabel
+                    }
+                    kotlinx.coroutines.delay(100)
+                    
+                    _uiState.update { 
+                        it.copy(
+                            engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                                isReady = false,
+                                stage = "Compiling MLIR Graph & Warming up Neural Cores...",
+                                progress = 0.70f,
+                                activeModelName = it.activeModelDisplayName,
+                                hardwareTarget = it.hardwareTierLabel
+                            )
                         )
-                    )
-                }
-                
-                val currentTemplates = if (cachedTemplates.isEmpty()) {
-                    val dbTemplates = db.studentDao().getAllTemplates()
-                    cachedTemplates = dbTemplates
-                    val students = db.studentDao().getAllStudents()
-                    cachedStudentMap = students.associate { it.rollNumber to it.fullName }
-                    dbTemplates
-                } else {
-                    cachedTemplates
-                }
-                if (currentTemplates.isNotEmpty()) {
-                    engine.preloadTemplates(currentTemplates)
-                }
-                recognitionEngine = engine
-                val pipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline(appContext, engine, qualcommIntelligenceEngine, faceTracker)
-                if (currentTemplates.isNotEmpty()) {
-                    pipeline.preloadTemplates(currentTemplates)
-                }
-                securityPipeline = pipeline
+                    }
+                    
+                    val currentTemplates = if (cachedTemplates.isEmpty()) {
+                        val dbTemplates = db.studentDao().getAllTemplates()
+                        cachedTemplates = dbTemplates
+                        val students = db.studentDao().getAllStudents()
+                        cachedStudentMap = students.associate { it.rollNumber to it.fullName }
+                        dbTemplates
+                    } else {
+                        cachedTemplates
+                    }
+                    if (currentTemplates.isNotEmpty()) {
+                        engine.preloadTemplates(currentTemplates)
+                    }
+                    recognitionEngine = engine
+                    val pipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline(appContext, engine, qualcommIntelligenceEngine, faceTracker)
+                    if (currentTemplates.isNotEmpty()) {
+                        pipeline.preloadTemplates(currentTemplates)
+                    }
+                    securityPipeline = pipeline
 
-                val latency = engine.benchmarkInferenceLatency()
-                val npuInfo = engine.npuHardwareInfo
-                val tier = engine.activeHardwareTier.getResolvedLabel(npuInfo)
-                
-                kotlinx.coroutines.delay(250)
-                
-                _uiState.update {
-                    it.copy(
-                        hardwareTierLabel = tier,
-                        benchmarkLatencyMs = latency,
-                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                            isReady = true,
-                            stage = "Operational (Sub-8ms Ready)",
-                            progress = 1.0f,
-                            activeModelName = it.activeModelDisplayName,
-                            hardwareTarget = tier
+                    val latency = engine.benchmarkInferenceLatency()
+                    val npuInfo = engine.npuHardwareInfo
+                    val tier = engine.activeHardwareTier.getResolvedLabel(npuInfo)
+                    
+                    _uiState.update {
+                        it.copy(
+                            hardwareTierLabel = tier,
+                            benchmarkLatencyMs = latency,
+                            engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                                isReady = true,
+                                stage = "Operational (Sub-8ms Ready)",
+                                progress = 1.0f,
+                                activeModelName = it.activeModelDisplayName,
+                                hardwareTarget = tier
+                            )
                         )
-                    )
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.e("Scanner", "Error initializing recognition engine", e)
+                } finally {
+                    _uiState.update {
+                        if (!it.engineLoadingProgress.isReady) {
+                            it.copy(
+                                engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                                    isReady = true,
+                                    stage = "Operational (Fallback Ready)",
+                                    progress = 1.0f,
+                                    activeModelName = it.activeModelDisplayName,
+                                    hardwareTarget = it.hardwareTierLabel
+                                )
+                            )
+                        } else it
+                    }
                 }
             }
         }
@@ -543,6 +567,7 @@ class ScannerViewModel : ViewModel() {
     }
 
     fun retryScan() {
+        refreshEnrolledTemplates()
         _uiState.update {
             it.copy(
                 lastConfidence = 0f,
@@ -1553,15 +1578,11 @@ fun ScannerScreen(
                     val depthVar = firstFace?.faceMap3DMM?.depthVariance ?: (state.qualcommTelemetry?.depthVariance ?: 0.182f)
                     val gazeAttentive = firstFace?.gazeResult?.isGazeAttentive ?: (state.qualcommTelemetry?.gazeAttentive ?: true)
                     val livenessScore = if (firstFace?.isLive == true) 0.994f else (if (hasFace) 0.55f else 0f)
-                    val pulseBpm = firstFace?.pulseBpm ?: 72
-                    val isPulseValid = firstFace?.isPulseValid ?: hasFace
 
                     BiometricLiveTelemetryCapsule(
                         depthVariance = depthVar,
                         isGazeAttentive = gazeAttentive,
                         livenessProbability = livenessScore,
-                        pulseBpm = pulseBpm,
-                        isPulseValid = isPulseValid,
                         isDark = isDark,
                         hasFace = hasFace,
                         modifier = Modifier
@@ -1569,33 +1590,31 @@ fun ScannerScreen(
                             .padding(bottom = 12.dp)
                     )
 
-                    // Neural Engine Loading / Model Warmup Progress Screen
-                    if (!state.engineLoadingProgress.isReady || !state.isCameraBound) {
-                        val activeName = if (state.activeModelDisplayName.isNotBlank() && !state.activeModelDisplayName.contains("No Model", ignoreCase = true)) {
-                            state.activeModelDisplayName
-                        } else {
-                            "Qualcomm CavaFace NPU (512-D Ultra HD)"
-                        }
-                        val displayLoading = if (!state.engineLoadingProgress.isReady) {
-                            if (state.engineLoadingProgress.activeModelName.contains("No Model", ignoreCase = true) || state.engineLoadingProgress.activeModelName.isBlank()) {
-                                state.engineLoadingProgress.copy(activeModelName = activeName)
-                            } else {
-                                state.engineLoadingProgress
-                            }
-                        } else {
-                            com.omniface.ai.ml.EngineLoadingProgress(
-                                isReady = false,
-                                stage = "Calibrating Silicon NPU & CameraX Viewfinder...",
-                                progress = 0.88f,
-                                activeModelName = activeName,
-                                hardwareTarget = state.hardwareTierLabel
+                    // Non-blocking ambient NPU warmup pill at top of viewfinder
+                    if (!state.engineLoadingProgress.isReady) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 16.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (isDark) Color(0xD90B0F19) else Color(0xEBFFFFFF))
+                                .border(0.75.dp, if (isDark) Color(0x3338BDF8) else Color(0x1F0284C7), RoundedCornerShape(999.dp))
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                color = Color(0xFF0284C7),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "NPU Warming Up... ${(state.engineLoadingProgress.progress * 100).toInt()}%",
+                                color = omniTextPrimary(isDark),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                        NeuralEngineLoadingOverlay(
-                            loading = displayLoading,
-                            isDark = isDark,
-                            modifier = Modifier.fillMaxSize()
-                        )
                     }
                 }
             }
@@ -1960,15 +1979,39 @@ fun ScannerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${state.enrolledCount} ${LocalizationManager.get(StringKey.STUDENTS_ENROLLED)}",
-                            color = omniTextMuted(isDark),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f, fill = false)
-                        )
+                        ) {
+                            Text(
+                                text = "${state.enrolledCount} ${LocalizationManager.get(StringKey.STUDENTS_ENROLLED)}",
+                                color = omniTextMuted(isDark),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Explicit Database Reload Button
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(omniCyan(isDark).copy(alpha = if (isDark) 0.20f else 0.12f))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.refreshEnrolledTemplates()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Reload Database",
+                                    tint = omniCyan(isDark),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (state.enrolledCount == 0) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else LocalizationManager.get(StringKey.MANAGE_DATABASE),
@@ -1978,6 +2021,16 @@ fun ScannerScreen(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.clickable { onNavigateToEnroll() }
+                        )
+                    }
+
+                    state.isDatabaseRefreshedMessage?.let { msg ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "✓ $msg",
+                            color = omniEmerald(isDark),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }

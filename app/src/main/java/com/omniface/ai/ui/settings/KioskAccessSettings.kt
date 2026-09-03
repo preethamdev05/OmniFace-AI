@@ -243,24 +243,18 @@ fun KioskAccessSettingsSubScreen(
                         subtitle = if (state.isKioskLocked) "Screen Pinned • Locked with Admin PIN / Biometrics" else "Unlocked • Standard Window",
                         icon = if (state.isKioskLocked) Icons.Default.Lock else Icons.Default.LockOpen,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = if (state.isKioskLocked) "Unlock" else "Lock Kiosk",
                                 icon = if (state.isKioskLocked) Icons.Default.KeyOff else Icons.Default.Lock,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
+                                isDestructive = state.isKioskLocked,
                                 onClick = {
-                                    val act = context.findFragmentActivity()
-                                    if (act != null && com.omniface.ai.security.DeviceBiometricAuthManager.canAuthenticate(context)) {
-                                        com.omniface.ai.security.DeviceBiometricAuthManager.authenticate(
-                                            activity = act,
-                                            title = if (state.isKioskLocked) "Unlock Kiosk Screen" else "Lock Kiosk Screen",
-                                            subtitle = "Verify fingerprint or screen lock to toggle kiosk mode",
-                                            onSuccess = {
-                                                viewModel.toggleKioskLock(act)
-                                            },
-                                            onError = { showPinDialog = true }
-                                        )
-                                    } else {
+                                    if (state.isKioskLocked) {
                                         showPinDialog = true
+                                    } else {
+                                        val act = context.findFragmentActivity()
+                                        if (act != null) {
+                                            viewModel.toggleKioskLock(act)
+                                        }
                                     }
                                 }
                             )
@@ -277,10 +271,9 @@ fun KioskAccessSettingsSubScreen(
                         subtitle = LocalizationManager.get(StringKey.KIOSK_SELF_TEST_DESC),
                         icon = Icons.Default.Science,
                         trailing = {
-                            CupertinoButton(
+                            CupertinoActionPill(
                                 text = if (state.isRunningSelfTest) LocalizationManager.get(StringKey.TESTING) else LocalizationManager.get(StringKey.RUN_TEST),
                                 icon = Icons.Default.PlayArrow,
-                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
                                 onClick = { viewModel.runHardwareSelfTest(context) }
                             )
                         }

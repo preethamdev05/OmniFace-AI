@@ -958,3 +958,59 @@ fun CupertinoSwitch(
         )
     )
 }
+
+/**
+ * Standardized Apple iOS compact trailing action pill for list rows & settings items.
+ * Guaranteed never to wrap onto multiple lines or overflow narrow device viewports.
+ */
+@Composable
+fun CupertinoActionPill(
+    text: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    isDestructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val isDark = LocalThemeIsDark.current
+    val haptic = LocalHapticFeedback.current
+    val bgColor = if (isDestructive) {
+        Color(0xFFFF453A).copy(alpha = if (isDark) 0.22f else 0.12f)
+    } else {
+        omniCyan(isDark).copy(alpha = if (isDark) 0.22f else 0.12f)
+    }
+    val contentColor = if (isDestructive) Color(0xFFFF453A) else omniCyan(isDark)
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+            Text(
+                text = text,
+                color = contentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
