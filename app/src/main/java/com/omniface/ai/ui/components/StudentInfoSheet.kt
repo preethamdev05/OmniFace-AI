@@ -48,7 +48,8 @@ fun StudentInfoSheet(
     onDismiss: () -> Unit,
     onEditClick: () -> Unit = {},
     onViewAttendanceClick: () -> Unit = {},
-    onReEnrollClick: () -> Unit = {}
+    onReEnrollClick: () -> Unit = {},
+    onDeleteClick: (() -> Unit)? = null
 ) {
     BackHandler {
         onDismiss()
@@ -57,6 +58,7 @@ fun StudentInfoSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val regDateStr = remember(student.createdAt) {
         SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(student.createdAt))
@@ -524,6 +526,63 @@ fun StudentInfoSheet(
                     Text("Re-enroll", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
+
+            // 6. DPDP / GDPR Right-to-Forget Erasure Action
+            if (onDeleteClick != null) {
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 28.dp)
+                        .height(46.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Profile", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete Subject Profile (Right-to-Forget)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
         }
+    }
+
+    if (showDeleteDialog && onDeleteClick != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFFFF),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Confirm Profile Deletion", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = omniTextPrimary(isDark))
+                }
+            },
+            text = {
+                Text(
+                    "Are you sure you want to permanently erase the biometric templates and profile for ${student.fullName} (${student.rollNumber})? This action cannot be undone.",
+                    color = omniTextSecondary(isDark),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteClick()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Delete Permanently", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel", color = omniTextSecondary(isDark))
+                }
+            }
+        )
     }
 }

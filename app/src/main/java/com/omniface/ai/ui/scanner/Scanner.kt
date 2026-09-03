@@ -548,6 +548,17 @@ class ScannerViewModel : ViewModel() {
         _uiState.update { it.copy(activeTier = tier) }
     }
 
+    fun deleteStudent(rollNumber: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.studentDao().deleteTemplatesForStudent(rollNumber)
+            db.studentDao().deleteStudentByRoll(rollNumber)
+            refreshEnrolledTemplates()
+            withContext(Dispatchers.Main) {
+                closeStudentInfo()
+            }
+        }
+    }
+
     fun toggleMultiFaceMode() {
         _uiState.update { it.copy(isMultiFaceMode = !it.isMultiFaceMode) }
     }
@@ -2230,6 +2241,9 @@ fun ScannerScreen(
             onReEnrollClick = {
                 viewModel.closeStudentInfo()
                 onNavigateToEnroll()
+            },
+            onDeleteClick = {
+                viewModel.deleteStudent(student.rollNumber)
             }
         )
     }
