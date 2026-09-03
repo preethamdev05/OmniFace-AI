@@ -18,6 +18,7 @@ import kotlin.math.sqrt
 
 data class UnifiedFaceInferenceResult(
     val embedding512: FloatArray,
+    val cavafaceEmbedding512: FloatArray = FloatArray(512),
     val passivePad: PassivePadResult,
     val map3d: FaceMap3DMMResult,
     val attributes: FaceAttributesResult,
@@ -30,14 +31,15 @@ data class UnifiedFaceInferenceResult(
 /**
  * Sovereign Unified LiteRT / TFLite Inference Engine for OmniFace-AI.
  *
- * Consolidates all 7 biometric neural networks into ONE single unified LiteRT model:
+ * Consolidates all 8 biometric neural networks into ONE single unified LiteRT model:
  * 1. MiniFASNetV2 LiteRT (Passive RGB PAD / Anti-Spoofing)
- * 2. FaceNet-512 (512-D L2-Normalized Identity Biometrics)
- * 3. Qualcomm FaceMap 3DMM (265-D Surface Geometry & Depth Variance)
- * 4. Qualcomm FaceAttribNet (Expression, Smile, Eyeglasses, Head Pose)
- * 5. Qualcomm EyeGaze (Pupil Pitch/Yaw, 34 Eye Keypoints, Attention Cone)
- * 6. Qualcomm MediaPipe Mesh (468 Dense 3D Topological Mesh Points)
- * 7. Qualcomm HRNetFace (29 High-Resolution Heatmap Landmarks)
+ * 2. Qualcomm AI Hub CavaFace (Flagship 65.5M Param ArcFace-512 Identity Embedding)
+ * 3. FaceNet-512 (512-D L2-Normalized Identity Biometrics)
+ * 4. Qualcomm FaceMap 3DMM (265-D Surface Geometry & Depth Variance)
+ * 5. Qualcomm FaceAttribNet (Expression, Smile, Eyeglasses, Head Pose)
+ * 6. Qualcomm EyeGaze (Pupil Pitch/Yaw, 34 Eye Keypoints, Attention Cone)
+ * 7. Qualcomm MediaPipe Mesh (468 Dense 3D Topological Mesh Points)
+ * 8. Qualcomm HRNetFace (29 High-Resolution Heatmap Landmarks)
  *
  * Packaged as single on-device model: `assets/unified_omniface.tflite`.
  */
@@ -66,6 +68,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     // Preallocated direct ByteBuffers for inputs (thread-safe synchronization on inference)
     private val bufferLock = Any()
     private val inputAntiSpoof = ByteBuffer.allocateDirect(1 * 3 * 80 * 80 * 4).order(ByteOrder.nativeOrder())
+    private val inputCavaface = ByteBuffer.allocateDirect(1 * 112 * 112 * 3 * 4).order(ByteOrder.nativeOrder())
     private val inputEmbedding = ByteBuffer.allocateDirect(1 * 160 * 160 * 3).order(ByteOrder.nativeOrder())
     private val input3DMM = ByteBuffer.allocateDirect(1 * 128 * 128 * 3 * 4).order(ByteOrder.nativeOrder())
     private val inputAttrib = ByteBuffer.allocateDirect(1 * 128 * 128 * 3 * 4).order(ByteOrder.nativeOrder())
@@ -75,6 +78,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     // Preallocated output data structures
     private val outAntiSpoof = Array(1) { FloatArray(3) }
+    private val outCavaface = Array(1) { FloatArray(512) }
     private val outEmbedding = Array(1) { FloatArray(512) }
     private val out3DMM = Array(1) { FloatArray(265) }
     private val outAttrib = Array(1) { FloatArray(5) }
@@ -149,26 +153,30 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             // 1. Populate Input 0: Anti-Spoof (MiniFASNetV2) [1, 3, 80, 80] Float32 NCHW
             populateAntiSpoofBuffer(faceCrop)
 
-            // 2. Populate Input 1: FaceNet-512 [1, 160, 160, 3] uint8 NHWC
+            // 2. Populate Input 1: Qualcomm CavaFace [1, 112, 112, 3] Float32 NHWC [0.0, 1.0]
+            populateRgbNormalizedBuffer(faceCrop, inputCavaface, 112, 112)
+
+            // 3. Populate Input 2: FaceNet-512 [1, 160, 160, 3] uint8 NHWC
             populateEmbeddingBuffer(faceCrop)
 
-            // 3. Populate Input 2: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
+            // 4. Populate Input 3: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, input3DMM, 128, 128)
 
-            // 4. Populate Input 3: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
+            // 5. Populate Input 4: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputAttrib, 128, 128)
 
-            // 5. Populate Input 4: EyeGaze [1, 96, 160] Float32 Grayscale
+            // 6. Populate Input 5: EyeGaze [1, 96, 160] Float32 Grayscale
             populateEyeGazeBuffer(faceCrop)
 
-            // 6. Populate Input 5: MediaPipe Mesh [1, 192, 192, 3] Float32 NHWC
+            // 7. Populate Input 6: MediaPipe Mesh [1, 192, 192, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputMesh, 192, 192)
 
-            // 7. Populate Input 6: HRNetFace [1, 256, 256, 3] Float32 NHWC
+            // 8. Populate Input 7: HRNetFace [1, 256, 256, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputHRNet, 256, 256)
 
             val inputs = arrayOf<Any>(
                 inputAntiSpoof,
+                inputCavaface,
                 inputEmbedding,
                 input3DMM,
                 inputAttrib,
@@ -182,15 +190,16 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
             val outputs = mutableMapOf<Int, Any>(
                 0 to outAntiSpoof,
-                1 to outEmbedding,
-                2 to out3DMM,
-                3 to outAttrib,
-                4 to outEyeHeatmaps,
-                5 to outEyeLandmarks,
-                6 to outEyePitchYaw,
-                7 to outMeshScores,
-                8 to outMeshLandmarks,
-                9 to outHRNetHeatmaps
+                1 to outCavaface,
+                2 to outEmbedding,
+                3 to out3DMM,
+                4 to outAttrib,
+                5 to outEyeHeatmaps,
+                6 to outEyeLandmarks,
+                7 to outEyePitchYaw,
+                8 to outMeshScores,
+                9 to outMeshLandmarks,
+                10 to outHRNetHeatmaps
             )
 
             // Single unified native invocation
@@ -221,7 +230,14 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
                 latencyMs = elapsedMs
             )
 
-            // ── Parse Output 1: 512-D Identity Embedding ──
+            // ── Parse Output 1: 512-D Qualcomm CavaFace Identity Embedding ──
+            val rawCava = outCavaface[0]
+            var cavaNormSum = 0f
+            for (v in rawCava) cavaNormSum += v * v
+            val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
+            val normalizedCavaEmb = FloatArray(512) { i -> rawCava[i] / cavaNorm }
+
+            // ── Parse Output 2: 512-D FaceNet Identity Embedding ──
             val rawEmb = outEmbedding[0]
             var normSum = 0f
             for (v in rawEmb) normSum += v * v
@@ -300,6 +316,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
             return UnifiedFaceInferenceResult(
                 embedding512 = normalizedEmb,
+                cavafaceEmbedding512 = normalizedCavaEmb,
                 passivePad = padResult,
                 map3d = map3dResult,
                 attributes = attrResult,
@@ -417,7 +434,16 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     fun extractEmbedding(faceBitmap: Bitmap): FloatArray {
         val res = processFace(faceBitmap)
-        return res?.embedding512 ?: FloatArray(512)
+        return if (res != null && res.cavafaceEmbedding512.isNotEmpty() && res.cavafaceEmbedding512[0] != 0f) {
+            res.cavafaceEmbedding512
+        } else {
+            res?.embedding512 ?: FloatArray(512)
+        }
+    }
+
+    fun extractCavafaceEmbedding(faceBitmap: Bitmap): FloatArray {
+        val res = processFace(faceBitmap)
+        return res?.cavafaceEmbedding512 ?: FloatArray(512)
     }
 
     fun runPassivePad(faceBitmap: Bitmap): PassivePadResult {

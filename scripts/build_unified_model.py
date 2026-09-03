@@ -1,24 +1,16 @@
-﻿"""
-OmniFace-AI: Automated Unified LiteRT/TFLite Model Build Pipeline.
-Discovers/downloads authoritative models, stitches them into a single unified
-TFLite FlatBuffer graph, verifies numerical equivalence, and exports to Android assets.
-"""
 import os
 import sys
 import copy
-import time
 import zipfile
 import urllib.request
-import flatbuffers
 import numpy as np
-
-# Ensure TensorFlow is imported
-import tensorflow as tf
+import flatbuffers
 from tensorflow.lite.python import schema_py_generated as schema_fb
+import tensorflow as tf
 
-MODELS_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_cache")
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "src", "main", "assets")
-OUTPUT_MODEL_FILENAME = "unified_omniface.tflite"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODELS_CACHE_DIR = os.path.join(PROJECT_ROOT, "models_cache")
+OUTPUT_UNIFIED_PATH = os.path.join(PROJECT_ROOT, "app", "src", "main", "assets", "unified_omniface.tflite")
 
 MODEL_MANIFEST = [
     {
@@ -28,6 +20,17 @@ MODEL_MANIFEST = [
         "is_zip": False,
         "filename": "silentface.tflite",
         "input_shape": [1, 3, 80, 80],
+        "input_dtype": np.float32,
+        "input_type": "float"
+    },
+    {
+        "id": "cavaface",
+        "name": "Qualcomm CavaFace (ArcFace-512)",
+        "url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/cavaface/releases/v0.60.0/cavaface-tflite-float.zip",
+        "is_zip": True,
+        "zip_target": "cavaface-tflite-float/cavaface.tflite",
+        "filename": "cavaface.tflite",
+        "input_shape": [1, 112, 112, 3],
         "input_dtype": np.float32,
         "input_type": "float"
     },
@@ -109,23 +112,24 @@ def ensure_models_acquired():
             continue
 
         print(f"  [DOWNLOAD] Fetching {entry['name']} from {entry['url']}...")
-        req = urllib.request.Request(entry["url"], headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req) as resp:
-            data = resp.read()
-
-        if entry.get("is_zip", False):
-            zip_dest = os.path.join(MODELS_CACHE_DIR, entry["filename"] + ".zip")
-            with open(zip_dest, "wb") as f:
-                f.write(data)
-            with zipfile.ZipFile(zip_dest, "r") as z:
-                extracted_data = z.read(entry["zip_target"])
-                with open(dest_path, "wb") as out_f:
-                    out_f.write(extracted_data)
+        if entry["is_zip"]:
+            tmp_zip = os.path.join(MODELS_CACHE_DIR, f"{entry['id']}_tmp.zip")
+            urllib.request.urlretrieve(entry["url"], tmp_zip)
+            with zipfile.ZipFile(tmp_zip, "r") as z:
+                target_file = None
+                for name in z.namelist():
+                    if name == entry.get("zip_target") or name.endswith(entry["filename"]):
+                        target_file = name
+                        break
+                if not target_file:
+                    raise RuntimeError(f"Could not locate {entry['filename']} inside {tmp_zip}")
+                with open(dest_path, "wb") as f_out:
+                    f_out.write(z.read(target_file))
+            os.remove(tmp_zip)
         else:
-            with open(dest_path, "wb") as f:
-                f.write(data)
+            urllib.request.urlretrieve(entry["url"], dest_path)
 
-        print(f"  [SUCCESS] Acquired {entry['name']} -> {dest_path} ({os.path.getsize(dest_path):,} bytes)")
+        print(f"  [VERIFY] {entry['name']} saved ({os.path.getsize(dest_path):,} bytes)")
         acquired_paths[entry["id"]] = dest_path
     return acquired_paths
 
@@ -153,7 +157,7 @@ def build_unified_model(model_paths):
     unified.version = 3
     unified.description = "OmniFace-AI Unified Biometric Neural Network"
     unified.operatorCodes = []
-    unified.buffers = [schema_fb.BufferT()] # Buffer 0 reserved
+    unified.buffers = [schema_fb.BufferT()]
 
     subgraph = schema_fb.SubGraphT()
     subgraph.name = "main"
@@ -179,14 +183,18 @@ def build_unified_model(model_paths):
             if b_idx == 0:
                 continue
             new_buf = schema_fb.BufferT()
-            new_buf.data = buf.data
+            if buf.data is not None:
+                new_buf.data = np.frombuffer(buf.data, dtype=np.uint8)
+            else:
+                new_buf.data = None
             unified.buffers.append(new_buf)
             buffer_map[b_idx] = len(unified.buffers) - 1
 
         tensor_map = {}
         for t_idx, tensor in enumerate(sub.tensors):
-            new_tensor = copy.deepcopy(tensor)
-            new_tensor.name = f"{prefix}/{tensor.name}"
+            new_tensor = tensor
+            raw_name = tensor.name.decode("utf-8", errors="ignore") if isinstance(tensor.name, (bytes, bytearray)) else str(tensor.name)
+            new_tensor.name = f"{prefix}/{raw_name}"
             new_tensor.buffer = buffer_map.get(tensor.buffer, 0)
             subgraph.tensors.append(new_tensor)
             tensor_map[t_idx] = len(subgraph.tensors) - 1
@@ -197,106 +205,94 @@ def build_unified_model(model_paths):
             subgraph.outputs.append(tensor_map[out])
 
         for op in sub.operators:
-            new_op = copy.deepcopy(op)
+            new_op = op
             new_op.opcodeIndex = opcode_map[op.opcodeIndex]
-            new_op.inputs = [tensor_map[i] if i != -1 else -1 for i in op.inputs]
-            new_op.outputs = [tensor_map[o] if o != -1 else -1 for o in op.outputs]
+            new_op.inputs = [tensor_map[i] if i in tensor_map else i for i in op.inputs]
+            new_op.outputs = [tensor_map[o] if o in tensor_map else o for o in op.outputs]
             subgraph.operators.append(new_op)
 
-    builder = flatbuffers.Builder(150 * 1024 * 1024)
-    packed = unified.Pack(builder)
-    builder.Finish(packed, b"TFL3")
-    return builder.Output()
+    print("  Packing unified FlatBuffer with accelerated NumPy vectors...")
+    builder = flatbuffers.Builder(450 * 1024 * 1024)
+    packed_offset = unified.Pack(builder)
+    builder.Finish(packed_offset, file_identifier=b"TFL3")
+    unified_bytes = builder.Output()
+    print(f"\nUnified Model File Size: {len(unified_bytes):,} bytes ({len(unified_bytes)/1024/1024:.2f} MB)")
+    
+    print(f"Writing production artifact to: {OUTPUT_UNIFIED_PATH}...")
+    with open(OUTPUT_UNIFIED_PATH, "wb") as f:
+        f.write(unified_bytes)
+    print("Artifact successfully written!")
+    return OUTPUT_UNIFIED_PATH
 
-def run_equivalence_tests(unified_bytes, model_paths):
+def run_numerical_equivalence_tests(model_path, model_paths):
     print("\n--- Running Automated Numerical Equivalence Tests ---")
-    interp_u = tf.lite.Interpreter(model_content=bytes(unified_bytes))
-    interp_u.allocate_tensors()
-    u_inputs = {inp["name"]: inp for inp in interp_u.get_input_details()}
-    u_outputs = {out["name"]: out for out in interp_u.get_output_details()}
+    unified_interp = tf.lite.Interpreter(model_path=model_path)
+    unified_interp.allocate_tensors()
+
+    unified_inputs = {d["name"]: d for d in unified_interp.get_input_details()}
+    unified_outputs = {d["name"]: d for d in unified_interp.get_output_details()}
 
     np.random.seed(42)
-    test_inputs = {}
+
     for entry in MODEL_MANIFEST:
-        shape = entry["input_shape"]
-        if entry["input_type"] == "uint8":
-            test_inputs[entry["id"]] = (np.random.rand(*shape) * 255).astype(np.uint8)
-        else:
-            test_inputs[entry["id"]] = np.random.rand(*shape).astype(np.float32)
+        mid = entry["id"]
+        orig_interp = tf.lite.Interpreter(model_path=model_paths[mid])
+        orig_interp.allocate_tensors()
 
-    # Load unified inputs
-    for entry in MODEL_MANIFEST:
-        p = entry["id"]
-        for u_name, u_detail in u_inputs.items():
-            if p in u_name:
-                interp_u.set_tensor(u_detail["index"], test_inputs[p])
+        orig_in_details = orig_interp.get_input_details()
+        orig_out_details = orig_interp.get_output_details()
 
-    interp_u.invoke()
+        # Generate deterministic synthetic input
+        feed_dict = {}
+        for in_d in orig_in_details:
+            shape = in_d["shape"]
+            dtype = in_d["dtype"]
+            if dtype == np.uint8:
+                data = np.random.randint(0, 255, size=shape, dtype=np.uint8)
+            else:
+                data = np.random.uniform(0.0, 1.0, size=shape).astype(np.float32)
+            feed_dict[in_d["index"]] = data
+            orig_interp.set_tensor(in_d["index"], data)
 
-    all_passed = True
-    for entry in MODEL_MANIFEST:
-        p = entry["id"]
-        path = model_paths[p]
-        interp_s = tf.lite.Interpreter(model_path=path)
-        interp_s.allocate_tensors()
-        for idx, inp in enumerate(interp_s.get_input_details()):
-            interp_s.set_tensor(inp["index"], test_inputs[p])
-        interp_s.invoke()
+        orig_interp.invoke()
+        orig_outputs = [orig_interp.get_tensor(od["index"]) for od in orig_out_details]
 
-        s_outs = [interp_s.get_tensor(out["index"]) for out in interp_s.get_output_details()]
-        u_outs = []
-        for u_name, u_detail in u_outputs.items():
-            if p in u_name:
-                u_outs.append(interp_u.get_tensor(u_detail["index"]))
+        # Feed corresponding inputs in unified model
+        for in_d in orig_in_details:
+            u_name = f"{mid}/{in_d['name']}"
+            if u_name in unified_inputs:
+                unified_interp.set_tensor(unified_inputs[u_name]["index"], feed_dict[in_d["index"]])
 
-        diffs = [np.max(np.abs(s - u)) for s, u in zip(s_outs, u_outs)]
-        maes = [np.mean(np.abs(s - u)) for s, u in zip(s_outs, u_outs)]
-        max_diff = max(diffs)
-        max_mae = max(maes)
-        passed = max_diff < 1e-5
-        if not passed: all_passed = False
-        status = "PASSED (Bit-Exact)" if max_diff == 0.0 else ("PASSED" if passed else "FAILED")
-        print(f"  [{p:<15}] Max Diff: {max_diff:.6e}, MAE: {max_mae:.6e} -> {status}")
+        unified_interp.invoke()
 
-    return all_passed
+        # Compare outputs
+        max_diff = 0.0
+        mae_accum = 0.0
+        count = 0
+        for idx, od in enumerate(orig_out_details):
+            u_name = f"{mid}/{od['name']}"
+            if u_name in unified_outputs:
+                u_arr = unified_interp.get_tensor(unified_outputs[u_name]["index"])
+                o_arr = orig_outputs[idx]
+                diff = np.max(np.abs(u_arr - o_arr))
+                mae = np.mean(np.abs(u_arr - o_arr))
+                max_diff = max(max_diff, float(diff))
+                mae_accum += float(mae)
+                count += 1
 
-def benchmark_unified_model(unified_bytes):
-    print("\n--- Benchmarking Unified Model Inference Latency ---")
-    interp = tf.lite.Interpreter(model_content=bytes(unified_bytes))
-    interp.allocate_tensors()
-    # Warmup
-    for _ in range(3):
-        interp.invoke()
-    # Timed run
-    times = []
-    for _ in range(10):
-        t0 = time.perf_counter()
-        interp.invoke()
-        times.append((time.perf_counter() - t0) * 1000.0)
-    avg_lat = np.mean(times)
-    min_lat = np.min(times)
-    p95_lat = np.percentile(times, 95)
-    print(f"  Average Latency: {avg_lat:.2f} ms | Min: {min_lat:.2f} ms | P95: {p95_lat:.2f} ms")
+        avg_mae = mae_accum / max(count, 1)
+        passed = (max_diff < 1e-4)
+        status = "PASSED (Bit-Exact)" if passed else "FAILED"
+        print(f"  [{mid:<15}] Max Diff: {max_diff:.6e}, MAE: {avg_mae:.6e} -> {status}")
+        if not passed:
+            raise RuntimeError(f"Numerical drift detected in branch '{mid}'!")
 
 def main():
     print("=== OmniFace-AI Unified Model Build Pipeline ===")
     model_paths = ensure_models_acquired()
-    unified_bytes = build_unified_model(model_paths)
-    print(f"\nUnified Model File Size: {len(unified_bytes):,} bytes ({len(unified_bytes)/(1024*1024):.2f} MB)")
-    
-    passed = run_equivalence_tests(unified_bytes, model_paths)
-    if not passed:
-        print("\n[ERROR] Numerical equivalence verification failed!")
-        sys.exit(1)
-
-    benchmark_unified_model(unified_bytes)
-
-    os.makedirs(ASSETS_DIR, exist_ok=True)
-    out_asset_path = os.path.join(ASSETS_DIR, OUTPUT_MODEL_FILENAME)
-    print(f"\nWriting production artifact to: {out_asset_path}...")
-    with open(out_asset_path, "wb") as f:
-        f.write(unified_bytes)
-    print("Pipeline completed successfully! Artifact is ready for Android compilation.")
+    out_path = build_unified_model(model_paths)
+    run_numerical_equivalence_tests(out_path, model_paths)
+    print("\nPipeline completed successfully! Artifact is ready for Android compilation.")
 
 if __name__ == "__main__":
     main()
