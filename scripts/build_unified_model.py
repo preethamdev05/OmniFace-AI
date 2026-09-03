@@ -35,16 +35,6 @@ MODEL_MANIFEST = [
         "input_type": "float"
     },
     {
-        "id": "face_embedding",
-        "name": "FaceNet-512",
-        "url": "https://huggingface.co/nxp/facenet512-imx/resolve/main/original_model/facenet512_uint8_float32.tflite",
-        "is_zip": False,
-        "filename": "facenet512.tflite",
-        "input_shape": [1, 160, 160, 3],
-        "input_dtype": np.uint8,
-        "input_type": "uint8"
-    },
-    {
         "id": "facemap_3dmm",
         "name": "Qualcomm FaceMap 3DMM",
         "url": "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/facemap_3dmm/releases/v0.61.0/facemap_3dmm-tflite-float.zip",

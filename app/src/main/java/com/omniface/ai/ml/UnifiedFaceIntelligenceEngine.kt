@@ -69,7 +69,6 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     private val bufferLock = Any()
     private val inputAntiSpoof = ByteBuffer.allocateDirect(1 * 3 * 80 * 80 * 4).order(ByteOrder.nativeOrder())
     private val inputCavaface = ByteBuffer.allocateDirect(1 * 112 * 112 * 3 * 4).order(ByteOrder.nativeOrder())
-    private val inputEmbedding = ByteBuffer.allocateDirect(1 * 160 * 160 * 3).order(ByteOrder.nativeOrder())
     private val input3DMM = ByteBuffer.allocateDirect(1 * 128 * 128 * 3 * 4).order(ByteOrder.nativeOrder())
     private val inputAttrib = ByteBuffer.allocateDirect(1 * 128 * 128 * 3 * 4).order(ByteOrder.nativeOrder())
     private val inputEyeGaze = ByteBuffer.allocateDirect(1 * 96 * 160 * 4).order(ByteOrder.nativeOrder())
@@ -79,7 +78,6 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     // Preallocated output data structures
     private val outAntiSpoof = Array(1) { FloatArray(3) }
     private val outCavaface = Array(1) { FloatArray(512) }
-    private val outEmbedding = Array(1) { FloatArray(512) }
     private val out3DMM = Array(1) { FloatArray(265) }
     private val outAttrib = Array(1) { FloatArray(5) }
     private val outEyeHeatmaps = ByteBuffer.allocateDirect(1 * 3 * 34 * 48 * 80 * 4).order(ByteOrder.nativeOrder())
@@ -156,28 +154,24 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             // 2. Populate Input 1: Qualcomm CavaFace [1, 112, 112, 3] Float32 NHWC [0.0, 1.0]
             populateRgbNormalizedBuffer(faceCrop, inputCavaface, 112, 112)
 
-            // 3. Populate Input 2: FaceNet-512 [1, 160, 160, 3] uint8 NHWC
-            populateEmbeddingBuffer(faceCrop)
-
-            // 4. Populate Input 3: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
+            // 3. Populate Input 2: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, input3DMM, 128, 128)
 
-            // 5. Populate Input 4: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
+            // 4. Populate Input 3: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputAttrib, 128, 128)
 
-            // 6. Populate Input 5: EyeGaze [1, 96, 160] Float32 Grayscale
+            // 5. Populate Input 4: EyeGaze [1, 96, 160] Float32 Grayscale
             populateEyeGazeBuffer(faceCrop)
 
-            // 7. Populate Input 6: MediaPipe Mesh [1, 192, 192, 3] Float32 NHWC
+            // 6. Populate Input 5: MediaPipe Mesh [1, 192, 192, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputMesh, 192, 192)
 
-            // 8. Populate Input 7: HRNetFace [1, 256, 256, 3] Float32 NHWC
+            // 7. Populate Input 6: HRNetFace [1, 256, 256, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, inputHRNet, 256, 256)
 
             val inputs = arrayOf<Any>(
                 inputAntiSpoof,
                 inputCavaface,
-                inputEmbedding,
                 input3DMM,
                 inputAttrib,
                 inputEyeGaze,
@@ -191,15 +185,14 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             val outputs = mutableMapOf<Int, Any>(
                 0 to outAntiSpoof,
                 1 to outCavaface,
-                2 to outEmbedding,
-                3 to out3DMM,
-                4 to outAttrib,
-                5 to outEyeHeatmaps,
-                6 to outEyeLandmarks,
-                7 to outEyePitchYaw,
-                8 to outMeshScores,
-                9 to outMeshLandmarks,
-                10 to outHRNetHeatmaps
+                2 to out3DMM,
+                3 to outAttrib,
+                4 to outEyeHeatmaps,
+                5 to outEyeLandmarks,
+                6 to outEyePitchYaw,
+                7 to outMeshScores,
+                8 to outMeshLandmarks,
+                9 to outHRNetHeatmaps
             )
 
             // Single unified native invocation
@@ -236,13 +229,6 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             for (v in rawCava) cavaNormSum += v * v
             val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
             val normalizedCavaEmb = FloatArray(512) { i -> rawCava[i] / cavaNorm }
-
-            // ── Parse Output 2: 512-D FaceNet Identity Embedding ──
-            val rawEmb = outEmbedding[0]
-            var normSum = 0f
-            for (v in rawEmb) normSum += v * v
-            val norm = sqrt(normSum).coerceAtLeast(1e-12f)
-            val normalizedEmb = FloatArray(512) { i -> rawEmb[i] / norm }
 
             // ── Parse Output 2: FaceMap 3DMM ──
             val params265 = out3DMM[0].clone()
@@ -315,7 +301,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             )
 
             return UnifiedFaceInferenceResult(
-                embedding512 = normalizedEmb,
+                embedding512 = normalizedCavaEmb,
                 cavafaceEmbedding512 = normalizedCavaEmb,
                 passivePad = padResult,
                 map3d = map3dResult,
@@ -348,22 +334,6 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
                 }
                 inputAntiSpoof.putFloat(channelVal)
             }
-        }
-    }
-
-    private fun populateEmbeddingBuffer(bitmap: Bitmap) {
-        inputEmbedding.rewind()
-        val scaled = Bitmap.createScaledBitmap(bitmap, 160, 160, true)
-        val pixels = IntArray(160 * 160)
-        scaled.getPixels(pixels, 0, 160, 0, 0, 160, 160)
-        if (scaled != bitmap && !scaled.isRecycled) scaled.recycle()
-
-        // uint8 NHWC format
-        for (i in 0 until 25600) {
-            val p = pixels[i]
-            inputEmbedding.put(((p shr 16) and 0xFF).toByte())
-            inputEmbedding.put(((p shr 8) and 0xFF).toByte())
-            inputEmbedding.put((p and 0xFF).toByte())
         }
     }
 
