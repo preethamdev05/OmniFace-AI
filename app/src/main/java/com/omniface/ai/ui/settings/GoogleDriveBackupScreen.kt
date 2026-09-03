@@ -116,9 +116,10 @@ fun GoogleDriveBackupScreen(
                 backupProgressMessage = "Acquiring secure Google Drive auth token..."
                 val token = withContext(Dispatchers.IO) {
                     try {
+                        val account = android.accounts.Account(connectedEmail, "com.google")
                         GoogleAuthUtil.getToken(
                             context,
-                            connectedEmail,
+                            account,
                             "oauth2:https://www.googleapis.com/auth/drive.appdata"
                         )
                     } catch (e: Exception) {
@@ -172,9 +173,10 @@ fun GoogleDriveBackupScreen(
             try {
                 val token = withContext(Dispatchers.IO) {
                     try {
+                        val account = android.accounts.Account(connectedEmail, "com.google")
                         GoogleAuthUtil.getToken(
                             context,
-                            connectedEmail,
+                            account,
                             "oauth2:https://www.googleapis.com/auth/drive.appdata"
                         )
                     } catch (e: Exception) {
@@ -412,7 +414,7 @@ fun GoogleDriveBackupScreen(
                             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = omniTextSecondary(isDark))
                         }
 
-                        Divider(color = if (isDark) Color(0x22FFFFFF) else Color(0x11000000))
+                        HorizontalDivider(color = if (isDark) Color(0x22FFFFFF) else Color(0x11000000))
 
                         // Backup Frequency
                         Row(
@@ -438,7 +440,7 @@ fun GoogleDriveBackupScreen(
                             }
                         }
 
-                        Divider(color = if (isDark) Color(0x22FFFFFF) else Color(0x11000000))
+                        HorizontalDivider(color = if (isDark) Color(0x22FFFFFF) else Color(0x11000000))
 
                         // Wi-Fi Only Toggle
                         Row(

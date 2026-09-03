@@ -30,7 +30,8 @@ class GoogleDriveBackupWorker(
         try {
             // Obtain OAuth2 access token for Google Drive appDataFolder
             val scope = "oauth2:https://www.googleapis.com/auth/drive.appdata"
-            val token = GoogleAuthUtil.getToken(applicationContext, userEmail, scope)
+            val account = android.accounts.Account(userEmail, "com.google")
+            val token = GoogleAuthUtil.getToken(applicationContext, account, scope)
 
             val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
             val uploadResult = GoogleDriveAppDataService.uploadBackup(token, encryptedBytes)
