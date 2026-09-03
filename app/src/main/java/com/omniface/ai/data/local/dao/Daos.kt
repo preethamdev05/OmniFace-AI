@@ -73,6 +73,12 @@ interface AttendanceDao {
     @Query("SELECT * FROM attendance_records ORDER BY timestamp DESC")
     fun getAllRecordsFlow(): Flow<List<AttendanceRecordEntity>>
 
+    @Query("SELECT * FROM attendance_records ORDER BY timestamp DESC")
+    suspend fun getAllRecords(): List<AttendanceRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecords(records: List<AttendanceRecordEntity>)
+
     @Query("SELECT * FROM attendance_records ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentRecordsFlow(limit: Int): Flow<List<AttendanceRecordEntity>>
 

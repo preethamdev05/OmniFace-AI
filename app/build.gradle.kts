@@ -169,6 +169,9 @@ dependencies {
     // AndroidX Biometric Prompt for Device Inbuilt Fingerprint / Face / Screen Lock
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
+    // Google Play Services Auth for User-Owned Google Drive Backup
+    implementation("com.google.android.gms:play-services-auth:21.0.0")
+
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")

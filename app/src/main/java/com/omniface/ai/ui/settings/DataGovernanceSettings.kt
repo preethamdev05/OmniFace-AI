@@ -37,14 +37,23 @@ fun DataGovernanceSettingsSubScreen(
     val context = LocalContext.current
     var showDedupStudio by remember { mutableStateOf(false) }
     var showPrivacyPolicyDialog by remember { mutableStateOf(false) }
+    var showDriveBackup by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = showDedupStudio) {
-        showDedupStudio = false
+    BackHandler(enabled = showDedupStudio || showDriveBackup) {
+        if (showDedupStudio) showDedupStudio = false
+        if (showDriveBackup) showDriveBackup = false
     }
 
     if (showDedupStudio) {
         BiometricDeduplicationStudio(
             onClose = { showDedupStudio = false }
+        )
+        return
+    }
+
+    if (showDriveBackup) {
+        GoogleDriveBackupScreen(
+            onNavigateBack = { showDriveBackup = false }
         )
         return
     }
@@ -105,55 +114,22 @@ fun DataGovernanceSettingsSubScreen(
                 }
             }
 
-            // 2. Cloud Sync Consent & Dispatch
+            // 2. Google Drive Cloud Uploads (User-Owned)
             item {
                 IOSCard(cornerRadius = 20.dp) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF38BDF8).copy(alpha = if (isDark) 0.22f else 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudSync,
-                                    contentDescription = "Sync",
-                                    tint = Color(0xFF38BDF8),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = LocalizationManager.get(StringKey.CLOUD_SYNC_INTEGRATION),
-                                    color = omniTextPrimary(isDark),
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (state.isCloudSyncEnabled) LocalizationManager.get(StringKey.CLOUD_SYNC_ENABLED) else LocalizationManager.get(StringKey.OFFLINE_FIRST_MODE),
-                                    color = if (state.isCloudSyncEnabled) Color(0xFF34C759) else omniTextMuted(isDark),
-                                    fontSize = 12.sp
-                                )
-                            }
+                    SettingRow(
+                        title = "Google Drive Cloud Backup",
+                        subtitle = "WhatsApp-style user-owned encrypted backups",
+                        icon = Icons.Default.CloudUpload,
+                        trailing = {
+                            CupertinoButton(
+                                text = "Manage",
+                                icon = Icons.Default.ChevronRight,
+                                modifier = Modifier.widthIn(min = 90.dp, max = 120.dp),
+                                onClick = { showDriveBackup = true }
+                            )
                         }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IOSGlassPill(
-                            text = LocalizationManager.get(StringKey.COMING_SOON),
-                            accentColor = Color(0xFF38BDF8)
-                        )
-                    }
+                    )
                 }
             }
 
