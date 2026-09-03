@@ -40,7 +40,8 @@ data class StudentEntity(
     ],
     indices = [
         Index(value = ["student_roll"]),
-        Index(value = ["angle_type"])
+        Index(value = ["angle_type"]),
+        Index(value = ["student_roll", "angle_type"], unique = true)
     ]
 )
 data class FaceTemplateEntity(
@@ -78,11 +79,20 @@ data class FaceTemplateEntity(
 
 @Entity(
     tableName = "attendance_records",
+    foreignKeys = [
+        ForeignKey(
+            entity = StudentEntity::class,
+            parentColumns = ["roll_number"],
+            childColumns = ["student_roll"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["session_date", "timestamp"]),
-        Index(value = ["session_date", "student_roll"]),
+        Index(value = ["session_date", "student_roll"], unique = true),
         Index(value = ["student_roll"]),
-        Index(value = ["is_synced"])
+        Index(value = ["is_synced"]),
+        Index(value = ["timestamp"])
     ]
 )
 data class AttendanceRecordEntity(

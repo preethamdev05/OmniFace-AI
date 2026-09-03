@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("com.google.devtools.ksp")
@@ -22,12 +24,47 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            it.testLogging {
+                events("passed", "skipped", "failed")
+            }
+        }
+    }
+
+    // ── Release Signing: credentials loaded from keystore.properties (gitignored)
+    // or environment variables — never hardcoded in VCS.
+    val keystoreProps = Properties().apply {
+        val propsFile = rootProject.file("keystore.properties")
+        if (propsFile.exists()) propsFile.inputStream().use { load(it) }
+    }
+    val releaseStoreFilePath = keystoreProps.getProperty("storeFile")
+        ?: System.getenv("OMNIFACE_STORE_FILE") ?: ""
+    val releaseStorePassword = keystoreProps.getProperty("storePassword")
+        ?: System.getenv("OMNIFACE_STORE_PASSWORD") ?: ""
+    val releaseKeyAlias = keystoreProps.getProperty("keyAlias")
+        ?: System.getenv("OMNIFACE_KEY_ALIAS") ?: ""
+    val releaseKeyPassword = keystoreProps.getProperty("keyPassword")
+        ?: System.getenv("OMNIFACE_KEY_PASSWORD") ?: ""
+
     signingConfigs {
         create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        if (releaseStoreFilePath.isNotBlank()) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
         }
     }
 
@@ -39,6 +76,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseStoreFilePath.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -55,6 +95,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -102,11 +146,10 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
 
-    // TensorFlow Lite Multi-Tier Hardware Inference
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    // LiteRT (Google's official successor to TensorFlow Lite)
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-gpu:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-api:1.4.2")
 
     // Room SQLite Offline Database
     val roomVersion = "2.7.0-alpha13"
@@ -122,6 +165,9 @@ dependencies {
 
     // EncryptedSharedPreferences for HMAC secrets & HF token vault
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // AndroidX Biometric Prompt for Device Inbuilt Fingerprint / Face / Screen Lock
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
     // Unit Testing
     testImplementation("junit:junit:4.13.2")

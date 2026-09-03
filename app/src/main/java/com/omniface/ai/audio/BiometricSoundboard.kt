@@ -6,13 +6,8 @@ import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import com.omniface.ai.i18n.AppLanguage
 import java.util.Locale
-
-enum class AppLanguage(val code: String, val displayName: String, val locale: Locale) {
-    ENGLISH("en", "English", Locale.US),
-    KANNADA("kn", "ಕನ್ನಡ (Kannada)", Locale("kn", "IN")),
-    HINDI("hi", "हिंदी (Hindi)", Locale("hi", "IN"))
-}
 
 enum class SoundEnvironmentMode(val displayName: String, val volumeLevel: Int) {
     NOISY_HALLWAY("Noisy Hallway (Max Volume)", 100),
@@ -39,11 +34,26 @@ object BiometricSoundboard {
         }
     }
 
+    private fun getLocaleForLanguage(lang: AppLanguage): Locale {
+        return when (lang) {
+            AppLanguage.ENGLISH -> Locale.US
+            AppLanguage.HINDI -> Locale.forLanguageTag("hi-IN")
+            AppLanguage.KANNADA -> Locale.forLanguageTag("kn-IN")
+            AppLanguage.TAMIL -> Locale.forLanguageTag("ta-IN")
+            AppLanguage.TELUGU -> Locale.forLanguageTag("te-IN")
+            AppLanguage.MALAYALAM -> Locale.forLanguageTag("ml-IN")
+            AppLanguage.BENGALI -> Locale.forLanguageTag("bn-IN")
+            AppLanguage.MARATHI -> Locale.forLanguageTag("mr-IN")
+            AppLanguage.GUJARATI -> Locale.forLanguageTag("gu-IN")
+            AppLanguage.PUNJABI -> Locale.forLanguageTag("pa-IN")
+        }
+    }
+
     fun initTts(context: Context) {
         if (ttsEngine == null) {
             ttsEngine = TextToSpeech(context.applicationContext) { status ->
                 if (status == TextToSpeech.SUCCESS) {
-                    ttsEngine?.language = currentLanguage.locale
+                    ttsEngine?.language = getLocaleForLanguage(currentLanguage)
                     isTtsInitialized = true
                 }
             }
@@ -52,7 +62,7 @@ object BiometricSoundboard {
 
     fun setLanguage(lang: AppLanguage) {
         currentLanguage = lang
-        ttsEngine?.language = lang.locale
+        ttsEngine?.language = getLocaleForLanguage(lang)
     }
 
     fun setSoundMode(mode: SoundEnvironmentMode) {
@@ -79,9 +89,16 @@ object BiometricSoundboard {
 
         if (isVoiceAnnounceEnabled && isTtsInitialized && !studentName.isNullOrBlank()) {
             val announcement = when (currentLanguage) {
-                AppLanguage.KANNADA -> "ಸ್ವಾಗತ $studentName, ಹಾಜರಾತಿ ದೃಢೀಕರಿಸಲಾಗಿದೆ"
+                AppLanguage.ENGLISH -> "Welcome $studentName, attendance verified"
                 AppLanguage.HINDI -> "स्वागत है $studentName, उपस्थिति सत्यापित हुई"
-                AppLanguage.ENGLISH -> "Welcome $studentName, verified"
+                AppLanguage.KANNADA -> "ಸ್ವಾಗತ $studentName, ಹಾಜರಾತಿ ದೃಢೀಕರಿಸಲಾಗಿದೆ"
+                AppLanguage.TAMIL -> "வரவேற்கிறோம் $studentName, வருகை உறுதிப்படுத்தப்பட்டது"
+                AppLanguage.TELUGU -> "స్వాగతం $studentName, హాజరు ధృవీకరించబడింది"
+                AppLanguage.MALAYALAM -> "സ്വാഗതം $studentName, ഹാജർ രേഖപ്പെടുത്തി"
+                AppLanguage.BENGALI -> "স্বাগতম $studentName, উপস্থিতি নিশ্চিত হয়েছে"
+                AppLanguage.MARATHI -> "स्वागत आहे $studentName, उपस्थिती नोंदवली गेली"
+                AppLanguage.GUJARATI -> "સ્વાગત છે $studentName, હાજરી ચકાસાયેલ છે"
+                AppLanguage.PUNJABI -> "ਜੀ ਆਇਆਂ ਨੂੰ $studentName, ਹਾਜ਼ਰੀ ਦਰਜ ਕੀਤੀ ਗਈ"
             }
             ttsEngine?.speak(announcement, TextToSpeech.QUEUE_ADD, null, "MATCH_TTS")
         }

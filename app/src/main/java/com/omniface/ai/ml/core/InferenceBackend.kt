@@ -52,8 +52,11 @@ data class InferenceBackend(
             }
 
             // 2. Try Mobile GPU Delegate (Adreno/Mali)
+            // Note: GpuDelegate.Options() is deprecated in TFLite 2.14 but has no replacement
+            // in this version. The try-catch guarantees safe fallback if the delegate fails.
             if (preferredType == BackendType.ADRENO_GPU || preferredType == null) {
                 try {
+                    @Suppress("DEPRECATION")
                     val gpuOptions = GpuDelegate.Options().apply {
                         setPrecisionLossAllowed(true)
                         setInferencePreference(GpuDelegate.Options.INFERENCE_PREFERENCE_SUSTAINED_SPEED)

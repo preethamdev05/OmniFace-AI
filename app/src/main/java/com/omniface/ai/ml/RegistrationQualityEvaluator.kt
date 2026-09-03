@@ -53,6 +53,10 @@ data class EnrollmentConsistencyMatrix(
 
 object RegistrationQualityEvaluator {
 
+    const val MAX_UMEYAMA_RESIDUAL_PX = 18.0f
+
+    fun isAlignmentAcceptable(residualError: Float): Boolean = residualError < MAX_UMEYAMA_RESIDUAL_PX
+
     /**
      * Evaluates comprehensive multi-factor quality gates for an enrollment frame.
      */
@@ -65,7 +69,8 @@ object RegistrationQualityEvaluator {
         targetYaw: Float = 0f,
         targetPitch: Float = 0f,
         qualcommAttributes: FaceAttributesResult? = null,
-        qualcommGaze: EyeGazeResult? = null
+        qualcommGaze: EyeGazeResult? = null,
+        alignmentResidualError: Float? = null
     ): RegistrationQualityScore {
         if (face == null || faceCrop == null || faceCrop.isRecycled) {
             return RegistrationQualityScore(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false,
@@ -173,7 +178,7 @@ object RegistrationQualityEvaluator {
             }
         }
 
-        // 5. Landmark & Alignment Integrity
+        // 5. Landmark & Alignment Integrity (Umeyama 5-Point Residual Gating)
         val landmarks = arrayOf(
             face.getLandmark(FaceLandmark.LEFT_EYE)?.position,
             face.getLandmark(FaceLandmark.RIGHT_EYE)?.position,
@@ -183,7 +188,33 @@ object RegistrationQualityEvaluator {
         )
         val hasAll5Landmarks = landmarks.all { it != null }
         val landmarkScore = if (hasAll5Landmarks) 100f else 75f
-        val alignmentScore = 95f
+
+        // Residual alignment error gate (< 18.0 px)
+        if (alignmentResidualError != null && alignmentResidualError >= MAX_UMEYAMA_RESIDUAL_PX) {
+            val alignScore = ((1.0f - (alignmentResidualError / 50.0f).coerceIn(0f, 1f)) * 100f).coerceIn(0f, 100f)
+            return RegistrationQualityScore(
+                detectionScore = detectionScore,
+                landmarkScore = landmarkScore,
+                alignmentScore = alignScore,
+                sharpnessScore = sharpnessScore,
+                lightingScore = lightingScore,
+                poseScore = poseScore,
+                occlusionScore = occlusionScore,
+                eyeQualityScore = eyeQualityScore,
+                overallScore = 30.0f,
+                isPassed = false,
+                rejectionReason = RegistrationRejectionReason.ALIGNMENT_FAILED,
+                guidanceMessage = RegistrationRejectionReason.ALIGNMENT_FAILED.userMessage
+            )
+        }
+
+        val alignmentScore = if (alignmentResidualError != null) {
+            ((1.0f - (alignmentResidualError / MAX_UMEYAMA_RESIDUAL_PX)) * 100f).coerceIn(50f, 100f)
+        } else if (hasAll5Landmarks) {
+            95f
+        } else {
+            75f
+        }
 
         // Weighted Overall Score (Justified Normalization Scheme)
         val overallScore = (
@@ -217,6 +248,7 @@ object RegistrationQualityEvaluator {
 
     /**
      * Computes Pairwise Consistency Matrix and Quality-Weighted Master Centroid Vector.
+     * Enforces mathematically rigorous L2 normalized mean embedding over valid angular frames.
      */
     fun computeQualityWeightedTemplate(
         embeddings: List<FloatArray>,
@@ -225,7 +257,7 @@ object RegistrationQualityEvaluator {
         val count = embeddings.size
         require(count > 0) { "Embeddings list cannot be empty" }
 
-        // 1. Build Pairwise Similarity Matrix M[i, j]
+        // 1. Build Pairwise Cosine Similarity Matrix M[i, j]
         val matrix = Array(count) { FloatArray(count) }
         var totalSim = 0f
         var minSim = 1.0f
@@ -234,7 +266,7 @@ object RegistrationQualityEvaluator {
         for (i in 0 until count) {
             matrix[i][i] = 1.0f
             for (j in i + 1 until count) {
-                val sim = dotProduct(embeddings[i], embeddings[j])
+                val sim = cosineSimilarity(embeddings[i], embeddings[j])
                 matrix[i][j] = sim
                 matrix[j][i] = sim
                 totalSim += sim
@@ -251,20 +283,24 @@ object RegistrationQualityEvaluator {
         var totalWeight = 0f
 
         for (k in 0 until count) {
-            val w = (qualityScores.getOrNull(k) ?: 100f) / 100f
+            val q = qualityScores.getOrNull(k) ?: 100f
+            val w = (q / 100f).coerceAtLeast(0.01f)
             totalWeight += w
+            val emb = embeddings[k]
             for (d in 0 until dim) {
-                centroid[d] += embeddings[k][d] * w
+                centroid[d] += emb[d] * w
             }
         }
 
-        // 3. L2 Normalize Centroid Vector
-        var norm = 0f
+        // 3. Normalize by Total Weight and Apply Strict L2 Unit Normalization
+        var normSq = 0f
         for (d in 0 until dim) {
-            centroid[d] /= totalWeight
-            norm += centroid[d] * centroid[d]
+            if (totalWeight > 1e-6f) {
+                centroid[d] /= totalWeight
+            }
+            normSq += centroid[d] * centroid[d]
         }
-        norm = sqrt(norm)
+        val norm = sqrt(normSq)
         if (norm > 1e-6f) {
             for (d in 0 until dim) {
                 centroid[d] /= norm
@@ -282,12 +318,17 @@ object RegistrationQualityEvaluator {
         return Pair(centroid, consistencyMatrix)
     }
 
-    private fun dotProduct(a: FloatArray, b: FloatArray): Float {
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
         var dot = 0f
+        var normA = 0f
+        var normB = 0f
         val len = minOf(a.size, b.size)
         for (i in 0 until len) {
             dot += a[i] * b[i]
+            normA += a[i] * a[i]
+            normB += b[i] * b[i]
         }
-        return dot
+        val denom = sqrt(normA * normB)
+        return if (denom > 1e-6f) (dot / denom).coerceIn(-1f, 1f) else 0f
     }
 }

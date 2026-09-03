@@ -5,7 +5,7 @@
     <string name="btn_live_scan">Launch 30 FPS Live Scanner</string>
     <string name="btn_enroll_student">Enroll New Face Biometric</string>
     <string name="btn_view_ledger">Audit Attendance Ledger</string>
-    <string name="tier_standard">Standard (τ=0.240)</string>
-    <string name="tier_high">High Security (τ=0.416)</string>
-    <string name="tier_strict">Strict Biometric (τ=0.500)</string>
+    <string name="tier_standard">Standard (τ=0.120)</string>
+    <string name="tier_high">High Security (τ=0.158)</string>
+    <string name="tier_strict">Strict Biometric (τ=0.220)</string>
 </resources>

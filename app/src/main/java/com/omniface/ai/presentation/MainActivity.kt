@@ -7,14 +7,14 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.omniface.ai.ui.OmniFaceApp
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val requestCameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -48,16 +48,21 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Unlocks 120Hz / 90Hz / 60Hz display refresh rates on all Android OEM panels (Samsung One UI, OnePlus, Xiaomi, Pixel, Oppo, Realme, Vivo).
-     * Uses SurfaceFlinger setFrameRate + Display Mode ID + Window attributes override with reflection fallback.
+     * Unlocks True 120Hz LTPO display refresh rate on Android (Xiaomi HyperOS, Samsung, OnePlus, Pixel).
+     * Locks preferred display mode, sets preferred min/max refresh rate to 120Hz, and triggers SurfaceFlinger 120 FPS pacing.
      */
     private fun configureAdaptiveHighRefreshRate() {
         try {
-            // 1. Select the highest refresh rate display mode matching native screen resolution
+            // 1. Enable Hardware Acceleration on Window
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+            )
+
+            // 2. Lock 120Hz Display Mode & Preferred Refresh Rate
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val currentDisplay = this.display
                 if (currentDisplay != null) {
-
                     val supportedModes = currentDisplay.supportedModes
                     val currentMode = currentDisplay.mode
                     val matchedModes = supportedModes.filter {
@@ -69,14 +74,14 @@ class MainActivity : ComponentActivity() {
                     if (targetMode != null) {
                         val lp = window.attributes
                         lp.preferredDisplayModeId = targetMode.modeId
-                        lp.preferredRefreshRate = targetMode.refreshRate
+                        lp.preferredRefreshRate = targetMode.refreshRate.coerceAtLeast(120.0f)
 
-                        // Reflection for preferredMinDisplayRefreshRate & preferredMaxDisplayRefreshRate (API 31+ / Android 12+)
+                        // API 31+ (Android 12+) direct fields
                         try {
                             val minField = lp.javaClass.getField("preferredMinDisplayRefreshRate")
-                            minField.setFloat(lp, targetMode.refreshRate)
+                            minField.setFloat(lp, 120.0f)
                             val maxField = lp.javaClass.getField("preferredMaxDisplayRefreshRate")
-                            maxField.setFloat(lp, targetMode.refreshRate)
+                            maxField.setFloat(lp, targetMode.refreshRate.coerceAtLeast(120.0f))
                         } catch (_: Throwable) {}
 
                         window.attributes = lp
@@ -88,12 +93,7 @@ class MainActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 val defaultDisplay = wm?.defaultDisplay
                 val modes = defaultDisplay?.supportedModes
-                val currentMode = defaultDisplay?.mode
-                val matchedModes = modes?.filter {
-                    currentMode == null || (it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight)
-                }
-                val targetMode = (if (!matchedModes.isNullOrEmpty()) matchedModes else modes?.toList())
-                    ?.maxByOrNull { it.refreshRate }
+                val targetMode = modes?.maxByOrNull { it.refreshRate }
 
                 if (targetMode != null) {
                     val lp = window.attributes
@@ -102,18 +102,31 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // 2. Set Frame Rate on DecorView / Surface Control via Reflection for SurfaceFlinger 120Hz Pacing
-            try {
-                val decorView = window.decorView
-                val setFrameRateMethod = decorView.javaClass.getMethod(
-                    "setFrameRate",
-                    Float::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                setFrameRateMethod.invoke(decorView, 120.0f, 0, 1)
-            } catch (_: Throwable) {}
-        } catch (t: Throwable) {
+            // 3. Set Frame Rate directly on DecorView and Surface for SurfaceFlinger 120Hz pacing (Android 11+ / API 30+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val decorView = window.decorView
+                    val setFrameRateMethod = decorView.javaClass.getMethod(
+                        "setFrameRate",
+                        Float::class.javaPrimitiveType,
+                        Int::class.javaPrimitiveType,
+                        Int::class.javaPrimitiveType
+                    )
+                    // 120 FPS, FRAME_RATE_COMPATIBILITY_DEFAULT (0), CHANGE_FRAME_RATE_ALWAYS (1)
+                    setFrameRateMethod.invoke(decorView, 120.0f, 0, 1)
+                } catch (_: Throwable) {
+                    try {
+                        val decorView = window.decorView
+                        val setFrameRateMethod = decorView.javaClass.getMethod(
+                            "setFrameRate",
+                            Float::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType
+                        )
+                        setFrameRateMethod.invoke(decorView, 120.0f, 0)
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {
             // Graceful fallback
         }
     }

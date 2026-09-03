@@ -87,4 +87,55 @@ class RegistrationQualityEvaluatorTest {
         assertFalse("Expected inconsistent registration to be flagged", matrix.isConsistent)
         assertTrue("Expected minimum similarity to drop below threshold", matrix.minimumSimilarity < 0.78f)
     }
+
+    @Test
+    fun testUmeyamaResidualErrorGating_thresholdAcceptance() {
+        assertTrue("Residual error 12.5px (< 18.0px) must be acceptable",
+            RegistrationQualityEvaluator.isAlignmentAcceptable(12.5f))
+        assertTrue("Residual error 17.9px (< 18.0px) must be acceptable",
+            RegistrationQualityEvaluator.isAlignmentAcceptable(17.9f))
+        assertFalse("Residual error 18.0px (>= 18.0px) must be rejected",
+            RegistrationQualityEvaluator.isAlignmentAcceptable(18.0f))
+        assertFalse("Residual error 24.5px (>= 18.0px) must be rejected",
+            RegistrationQualityEvaluator.isAlignmentAcceptable(24.5f))
+    }
+
+    @Test
+    fun test5AngleBurstCentroid_qualityWeightingMath() {
+        // Construct 5 distinct angular vectors (Frontal, Left, Right, Up, Down)
+        val frontal = FloatArray(512) { 0.1f }
+        val left = FloatArray(512) { if (it < 256) 0.12f else 0.08f }
+        val right = FloatArray(512) { if (it >= 256) 0.12f else 0.08f }
+        val up = FloatArray(512) { if (it % 2 == 0) 0.11f else 0.09f }
+        val down = FloatArray(512) { if (it % 2 != 0) 0.11f else 0.09f }
+
+        fun norm(v: FloatArray) {
+            var s = 0f
+            for (x in v) s += x * x
+            val n = sqrt(s)
+            for (i in v.indices) v[i] /= n
+        }
+
+        norm(frontal); norm(left); norm(right); norm(up); norm(down)
+
+        val embeddings = listOf(frontal, left, right, up, down)
+        val qualityScores = listOf(99f, 95f, 94f, 92f, 91f) // Quality weights
+
+        val (centroid, matrix) = RegistrationQualityEvaluator.computeQualityWeightedTemplate(
+            embeddings = embeddings,
+            qualityScores = qualityScores
+        )
+
+        assertEquals(5, matrix.sampleCount)
+        assertEquals(512, centroid.size)
+
+        // Strict mathematical assertion: Centroid must have exactly L2 norm = 1.0
+        var cNormSq = 0f
+        for (v in centroid) cNormSq += v * v
+        assertEquals(1.0f, sqrt(cNormSq), 1e-4f)
+
+        // Consistency check
+        assertTrue("5-angle burst must be consistent", matrix.isConsistent)
+        assertTrue(matrix.averageSimilarity > 0.85f)
+    }
 }

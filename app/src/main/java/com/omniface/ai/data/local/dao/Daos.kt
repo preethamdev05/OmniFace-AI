@@ -52,6 +52,9 @@ interface StudentDao {
         insertTemplates(templates)
     }
 
+    @Query("DELETE FROM students WHERE roll_number = :roll")
+    suspend fun deleteStudentByRoll(roll: String)
+
     @Update
     suspend fun updateStudent(student: StudentEntity)
 
@@ -79,11 +82,20 @@ interface AttendanceDao {
     @Query("SELECT * FROM attendance_records WHERE session_date = :date AND student_roll = :roll LIMIT 1")
     suspend fun getRecordForStudentOnDate(date: String, roll: String): AttendanceRecordEntity?
 
+    @Query("SELECT * FROM attendance_records WHERE student_roll = :roll ORDER BY timestamp DESC")
+    fun getRecordsForStudentFlow(roll: String): Flow<List<AttendanceRecordEntity>>
+
+    @Query("SELECT COUNT(*) FROM attendance_records WHERE student_roll = :roll")
+    suspend fun getAttendanceCountForStudent(roll: String): Int
+
     @Query("SELECT COUNT(*) FROM attendance_records WHERE session_date = :date")
     fun getCountForDateFlow(date: String): Flow<Int>
 
     @Query("SELECT * FROM attendance_records WHERE is_synced = 0")
     suspend fun getUnsyncedRecords(): List<AttendanceRecordEntity>
+
+    @Query("SELECT * FROM attendance_records WHERE is_synced = 0 LIMIT :limit")
+    suspend fun getUnsyncedRecordsPaged(limit: Int): List<AttendanceRecordEntity>
 
     @Query("UPDATE attendance_records SET is_synced = 1 WHERE record_id IN (:recordIds)")
     suspend fun markAsSynced(recordIds: List<String>)
@@ -101,10 +113,36 @@ interface AttendanceDao {
     suspend fun recordAttendanceIfNotExists(record: AttendanceRecordEntity): Boolean {
         val existing = getRecordForStudentOnDate(record.sessionDate, record.studentRoll)
         if (existing == null) {
-            insertRecord(record)
+            val prevHash = getLatestHash() ?: com.omniface.ai.security.AndroidSecurityUtils.AEGIS_GENESIS_HASH
+            val finalRecord = if (record.sha256Hash.isNotBlank() && record.sha256Hash != prevHash) {
+                record
+            } else {
+                val blockHash = com.omniface.ai.security.AndroidSecurityUtils.computeAegisBlockHash(
+                    previousHash = prevHash,
+                    studentRoll = record.studentRoll,
+                    timestamp = record.timestamp,
+                    confidencePct = record.confidencePct
+                )
+                record.copy(sha256Hash = blockHash)
+            }
+            insertRecord(finalRecord)
             return true
         }
         return false
+    }
+
+    @Transaction
+    suspend fun insertWithAegisChaining(record: AttendanceRecordEntity): Long {
+        val prevHash = getLatestHash() ?: com.omniface.ai.security.AndroidSecurityUtils.AEGIS_GENESIS_HASH
+        val blockHash = com.omniface.ai.security.AndroidSecurityUtils.computeAegisBlockHash(
+            previousHash = prevHash,
+            studentRoll = record.studentRoll,
+            timestamp = record.timestamp,
+            confidencePct = record.confidencePct
+        )
+        val finalRecord = record.copy(sha256Hash = blockHash)
+        insertRecord(finalRecord)
+        return 1L
     }
 }
 

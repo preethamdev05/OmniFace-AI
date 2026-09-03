@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.omniface.ai.ui.dashboard
 
 import android.content.Context
@@ -15,10 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.omniface.ai.i18n.LocalizationManager
+import com.omniface.ai.i18n.StringKey
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,20 +129,10 @@ class DashboardViewModel : ViewModel() {
     private fun benchmarkEngine() {
         viewModelScope.launch(Dispatchers.Default) {
             val context = OmniFaceApplication.instance.applicationContext
-            val engine = FaceRecognitionEngine(context)
+            val engine = FaceRecognitionEngine.getInstance(context)
             val latency = engine.benchmarkInferenceLatency()
             val npuInfo = engine.npuHardwareInfo
-            val tier = if (engine.activeHardwareTier == HardwareTier.NPU_NNAPI) {
-                if (npuInfo.isGenuineNpuDetected) {
-                    when {
-                        npuInfo.npuName.contains("Hexagon") -> "Hexagon NPU (${npuInfo.peakTops})"
-                        npuInfo.npuName.contains("Tensor") -> "Tensor TPU (${npuInfo.peakTops})"
-                        npuInfo.npuName.contains("APU") -> "NeuroPilot APU (${npuInfo.peakTops})"
-                        else -> "NPU Accelerated (${npuInfo.peakTops})"
-                    }
-                } else "NPU Accelerated"
-            } else engine.activeHardwareTier.label
-            engine.close()
+            val tier = engine.activeHardwareTier.getResolvedLabel(npuInfo)
 
             _uiState.update {
                 it.copy(
@@ -173,7 +166,7 @@ fun DashboardScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
-    val todayDateFormatted = remember { SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date()) }
+    val todayDateFormatted = remember { SimpleDateFormat("EEE, MMM d, yyyy", Locale.getDefault()).format(Date()) }
 
     val animatedEnrolledCount by animateIntAsState(
         targetValue = state.enrolledCount,
@@ -197,103 +190,67 @@ fun DashboardScreen(
         // Executive Header
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
-                            .shadow(if (isDark) 6.dp else 8.dp, RoundedCornerShape(15.dp), ambientColor = if (isDark) Color(0x660A84FF) else Color(0x330071E3))
-                            .clip(RoundedCornerShape(15.dp))
+                            .size(46.dp)
+                            .shadow(if (isDark) 6.dp else 8.dp, RoundedCornerShape(14.dp), ambientColor = if (isDark) Color(0x660A84FF) else Color(0x330071E3))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(omniLiquidSurfaceBrush(isDark))
-                            .border(1.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(15.dp)),
+                            .border(1.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(14.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
                             painter = painterResource(id = com.omniface.ai.R.drawable.app_logo),
                             contentDescription = "OmniFace AI Logo",
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(13.dp))
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
                         )
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
                             text = todayDateFormatted.uppercase(),
                             color = omniTextMuted(isDark),
-                            fontSize = 10.5.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.8.sp,
+                            maxLines = 1
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "OmniFace AI",
                             color = omniTextPrimary(isDark),
-                            fontSize = 27.sp,
+                            fontSize = 21.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-0.5).sp
+                            letterSpacing = (-0.5).sp,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .shadow(4.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x3330D158), spotColor = Color(0x2630D158))
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(omniEmerald(isDark).copy(alpha = if (isDark) 0.16f else 0.12f))
-                            .border(0.75.dp, omniEmerald(isDark).copy(alpha = if (isDark) 0.45f else 0.30f), RoundedCornerShape(999.dp))
-                            .padding(horizontal = 11.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(omniEmerald(isDark))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "OPERATIONAL",
-                            color = omniEmerald(isDark),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.6.sp
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .shadow(if (isDark) 4.dp else 6.dp, CircleShape, ambientColor = if (isDark) Color(0x66000000) else Color(0x1F000000))
-                            .clip(CircleShape)
-                            .background(omniLiquidSurfaceBrush(isDark))
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                            .clickable { onOpenSettings() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = omniTextPrimary(isDark),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
+                IOSGlassPill(
+                    text = LocalizationManager.get(StringKey.STATUS_ACTIVE).uppercase(),
+                    showPulsingDot = true,
+                    accentColor = omniEmerald(isDark)
+                )
             }
         }
 
         // Refined Neural Engine Hero Card (Luxury Titanium Glass)
         item {
             IOSCard(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenSettings
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -306,75 +263,65 @@ fun DashboardScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .shadow(4.dp, RoundedCornerShape(13.dp), ambientColor = Color(0x330A84FF))
-                                .clip(RoundedCornerShape(13.dp))
-                                .background(omniCyan(isDark).copy(alpha = if (isDark) 0.18f else 0.12f))
-                                .border(0.75.dp, omniCyan(isDark).copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(13.dp)),
+                                .size(48.dp)
+                                .shadow(
+                                    elevation = if (isDark) 6.dp else 8.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    ambientColor = if (isDark) Color(0x660A84FF) else Color(0x330071E3),
+                                    spotColor = if (isDark) Color(0x4D0A84FF) else Color(0x260071E3)
+                                )
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        if (isDark) listOf(Color(0xFF0A84FF), Color(0xFF0055B3))
+                                        else listOf(Color(0xFF0071E3), Color(0xFF0050A5))
+                                    )
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Memory,
-                                contentDescription = null,
-                                tint = omniCyan(isDark),
-                                modifier = Modifier.size(24.dp)
+                                contentDescription = LocalizationManager.get(StringKey.CAT_NEURAL),
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "NEURAL ENGINE",
-                                    color = omniTextMuted(isDark),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.6.sp
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(omniCyan(isDark).copy(alpha = 0.20f))
-                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                                ) {
-                                    Text(
-                                        text = "${state.benchmarkLatencyMs}ms",
-                                        color = omniCyan(isDark),
-                                        fontSize = 9.5.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(3.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = LocalizationManager.get(StringKey.CAT_NEURAL).uppercase(),
+                                color = omniTextMuted(isDark),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = state.hardwareTierLabel,
                                 color = omniTextPrimary(isDark),
                                 fontSize = 14.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = (-0.2).sp
+                                letterSpacing = (-0.2).sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "ArcFace 512-D • Hardware KeyStore AES-256",
+                                text = "ArcFace 512-D • AES-256 GCM",
                                 color = omniTextSecondary(isDark),
-                                fontSize = 11.5.sp
+                                fontSize = 11.5.sp,
+                                maxLines = 1
                             )
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(omniCyan(isDark).copy(alpha = 0.12f))
-                            .border(0.5.dp, omniCyan(isDark).copy(alpha = 0.30f), RoundedCornerShape(999.dp))
-                            .padding(horizontal = 9.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "Specs →",
-                            color = omniCyan(isDark),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IOSGlassPill(
+                        text = "${state.benchmarkLatencyMs}ms",
+                        accentColor = omniCyan(isDark),
+                        showPulsingDot = true
+                    )
                 }
             }
         }
@@ -388,18 +335,18 @@ fun DashboardScreen(
                 ) {
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Enrolled",
+                        title = LocalizationManager.get(StringKey.TAB_STUDENTS),
                         value = "$animatedEnrolledCount",
-                        subtitle = "Identities",
+                        subtitle = LocalizationManager.get(StringKey.STUDENTS_ENROLLED),
                         icon = Icons.Default.People,
                         accentColor = omniCyan(isDark),
                         onClick = { onNavigate(Screen.Enrollment) }
                     )
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Today",
+                        title = LocalizationManager.get(StringKey.ATTENDANCE_TODAY),
                         value = "$animatedTodayCount",
-                        subtitle = "Verified",
+                        subtitle = LocalizationManager.get(StringKey.VERIFIED_BADGE),
                         icon = Icons.Default.CheckCircle,
                         accentColor = omniEmerald(isDark),
                         onClick = { onNavigate(Screen.Ledger) }
@@ -412,21 +359,25 @@ fun DashboardScreen(
                 ) {
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Cloud State",
-                        value = "Sync",
-                        subtitle = "Aegis Chain",
+                        title = LocalizationManager.get(StringKey.CLOUD_SYNC_INTEGRATION),
+                        value = LocalizationManager.get(StringKey.COMING_SOON),
+                        subtitle = LocalizationManager.get(StringKey.OFFLINE_FIRST_MODE),
                         icon = Icons.Default.CloudQueue,
                         accentColor = omniCyan(isDark),
-                        onClick = { viewModel.triggerCloudSync(context) }
+                        onClick = { onNavigate(Screen.Settings) }
                     )
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Security Gate",
-                        value = state.selectedTier.name.lowercase().replaceFirstChar { it.uppercase() },
-                        subtitle = "Active Gate",
+                        title = LocalizationManager.get(StringKey.DECISION_TIER_SETTING),
+                        value = when (state.selectedTier) {
+                            SecurityTier.STANDARD -> LocalizationManager.get(StringKey.TIER_STANDARD)
+                            SecurityTier.HIGH -> LocalizationManager.get(StringKey.TIER_HIGH)
+                            SecurityTier.STRICT -> LocalizationManager.get(StringKey.TIER_STRICT)
+                        },
+                        subtitle = LocalizationManager.get(StringKey.STATUS_ACTIVE),
                         icon = Icons.Default.Security,
                         accentColor = if (isDark) AmberCore else LightAmberCore,
-                        onClick = onOpenSettings
+                        onClick = { onNavigate(Screen.Settings) }
                     )
                 }
             }
@@ -445,7 +396,7 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "HOURLY CHECK-IN VELOCITY",
+                        text = LocalizationManager.get(StringKey.VERIFICATION_SPEED).uppercase(),
                         color = omniTextMuted(isDark),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -476,7 +427,7 @@ fun DashboardScreen(
 
                 if (totalActivity == 0) {
                     EmptyState(
-                        icon = Icons.AutoMirrored.Filled.ShowChart,
+                        icon = Icons.Default.ShowChart,
                         title = "No attendance activity yet",
                         subtitle = "Your first verification will appear here."
                     )
@@ -545,7 +496,7 @@ fun DashboardScreen(
                             drawPath(
                                 path = fillPath,
                                 brush = Brush.verticalGradient(
-                                    listOf(cyanColor.copy(alpha = 0.35f), Color.Transparent)
+                                    listOf(cyanColor.copy(alpha = if (isDark) 0.35f else 0.22f), Color.Transparent)
                                 )
                             )
 
@@ -622,13 +573,15 @@ fun DashboardScreen(
             ) {
                 Box(modifier = Modifier.weight(1.2f)) {
                     CupertinoButton(
-                        text = "📹 Scan Attendance",
+                        text = LocalizationManager.get(StringKey.TAB_SCANNER),
+                        icon = Icons.Default.Videocam,
                         onClick = { onNavigate(Screen.Scanner) }
                     )
                 }
                 Box(modifier = Modifier.weight(1f)) {
                     CupertinoButton(
-                        text = "➕ Enroll",
+                        text = LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT),
+                        icon = Icons.Default.PersonAdd,
                         isSecondary = true,
                         onClick = { onNavigate(Screen.Enrollment) }
                     )
@@ -640,8 +593,8 @@ fun DashboardScreen(
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeader(
-                    text = "RECENT VERIFICATIONS",
-                    actionText = "Full Ledger →",
+                    text = LocalizationManager.get(StringKey.RECENT_VERIFICATIONS).uppercase(),
+                    actionText = "${LocalizationManager.get(StringKey.TAB_LEDGER)} →",
                     onAction = { onNavigate(Screen.Ledger) }
                 )
 

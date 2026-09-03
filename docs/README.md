@@ -73,12 +73,12 @@ python3 /storage/emulated/0/AI-HUB/FR/verify_models.py
 ### 5. Android APK Integration
 Copy the generated `.tflite` models into your Android app's `app/src/main/assets/` directory and include [`AndroidFaceRecognitionDelegate.kt`](file:///storage/emulated/0/AI-HUB/FR/AndroidFaceRecognitionDelegate.kt) in your codebase.
 
-Add the following dependencies to `app/build.gradle`:
-```groovy
+Add the following LiteRT dependencies to `app/build.gradle.kts`:
+```kotlin
 dependencies {
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
-    implementation 'org.tensorflow:tensorflow-lite-gpu:2.14.0'
-    implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.14.0'
-    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    // LiteRT (Google's official successor to TensorFlow Lite)
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-gpu:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-api:1.4.2")
 }
 ```

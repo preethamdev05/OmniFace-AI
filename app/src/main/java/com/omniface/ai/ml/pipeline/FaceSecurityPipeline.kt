@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.PointF
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceLandmark
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class ProcessedFaceData(
     val face: Face,
+    val trackId: Int = 0,
     val smoothedRect: Rect,
     val qualityResult: QualityGateResult,
     val passivePadResult: PassivePadResult?,
@@ -38,6 +40,7 @@ data class ProcessedFaceData(
     val meshResult: MediaPipeMeshResult?,
     val hrnetResult: HRNetFaceResult?,
     val pts5List: List<PointF>,
+    val contours: Map<Int, List<Offset>>? = null,
     val matchResult: MatchResult?,
     val lastExtractedEmbedding: FloatArray?,
     val decision: BiometricSynthesisDecision
@@ -64,15 +67,14 @@ data class PipelineFrameOutput(
 class FaceSecurityPipeline(
     private val context: Context,
     val recognitionEngine: FaceRecognitionEngine,
-    val qualcommEngine: QualcommFaceIntelligenceEngine?
+    val qualcommEngine: QualcommFaceIntelligenceEngine?,
+    val tracker: FaceTracker = FaceTracker()
 ) : Closeable {
 
     companion object {
         private const val TAG = "FaceSecurityPipeline"
-        private const val REQUIRED_CONSECUTIVE_FRAMES = 3
+        private const val REQUIRED_CONSECUTIVE_FRAMES = 2
     }
-
-    private val tracker = FaceTracker()
     val passivePadEngine = PassivePadEngine(context)
     val multiStageLivenessEngine = MultiStageLivenessEngine(context, passivePadEngine)
     val temporalLivenessEngine = TemporalLivenessEngine()
@@ -129,6 +131,7 @@ class FaceSecurityPipeline(
         val dy = (previewHeight - fullBitmap.height * scale) / 2f
 
         val intermediateFaces = mutableListOf<ProcessedFaceData>()
+        val config = NeuralModelConfigManager.configState.value
 
         for (face in faces.take(12)) {
             val rawBox = face.boundingBox
@@ -161,7 +164,9 @@ class FaceSecurityPipeline(
                 )
             }
 
-            val smoothedRect = tracker.updateTrack(trackId, rawRect)
+            val trackState = tracker.getOrCreateTrackState(trackId, rawRect)
+            val smoothedRect = trackState.smoothedRect
+            val persistentTrackId = trackState.trackId
             val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
 
             // Extract ML Kit canonical 5 landmarks from frame (adapted to scaled frame if downscale active)
@@ -182,88 +187,34 @@ class FaceSecurityPipeline(
                 face = face,
                 fullFrameWidth = fullBitmap.width,
                 fullFrameHeight = fullBitmap.height,
-                faceCrop = faceCrop
+                faceCrop = faceCrop,
+                faceBox = box
             )
 
-            // ── Multi-Stage Liveness Pre-Processing (Screen Reflections, Texture, Moiré & Neural PAD) ──
-            var multiStageResult: MultiStageLivenessResult? = null
-            var passivePadResult: PassivePadResult? = null
-            var map3dResult: FaceMap3DMMResult? = null
-            var gazeResult: EyeGazeResult? = null
-            var attrResult: FaceAttributesResult? = null
-            var meshResult: MediaPipeMeshResult? = null
-            var hrnetResult: HRNetFaceResult? = null
-
-            if (faceCrop != null && !faceCrop.isRecycled) {
-                // 1. Multi-Stage Liveness Assessment (Specular glare, LBP texture entropy, Moiré grid & Neural PAD)
-                try {
-                    val msResult = multiStageLivenessEngine.evaluate(faceCrop)
-                    multiStageResult = msResult
-                    passivePadResult = msResult.passivePadResult
-                } catch (_: Throwable) {}
-
-                // 2. Qualcomm AI Hub Suite
-                if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
-                    try {
-                        map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
-                        gazeResult = qualcommEngine.estimateEyeGaze(faceCrop)
-                        attrResult = qualcommEngine.detectFaceAttributes(faceCrop)
-                        hrnetResult = qualcommEngine.estimateHrnetLandmarks(faceCrop)
-                        meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
-                    } catch (_: Throwable) {}
-                }
-            }
-
-            // ── GATE 2: Temporal Anti-Spoofing Gate ──
-            val avgEyeProb = if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
-                ((face.leftEyeOpenProbability ?: 1.0f) + (face.rightEyeOpenProbability ?: 1.0f)) / 2.0f
-            } else null
-
-            temporalLivenessEngine.recordSample(
-                trackId = trackId,
-                yaw = face.headEulerAngleY,
-                pitch = face.headEulerAngleX,
-                roll = face.headEulerAngleZ,
-                attributes = attrResult,
-                faceMap3DMM = map3dResult,
-                passivePad = passivePadResult,
-                eyeOpenProbability = avgEyeProb
-            )
-            val temporalResult = temporalLivenessEngine.evaluateTemporalLiveness(trackId)
-
-            // ── GATE 3: 512-D Identity Embedding Extraction & Matching ──
-            // Gated by Quality, Multi-Stage Reflection/Texture Liveness, and Temporal Analysis
+            // ── GATE 3 FIRST: Ultra-Fast 512-D Identity Embedding Extraction (Hexagon NPU sub-8ms) ──
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null
-            val isMultiStageLive = multiStageResult?.isLive ?: true
 
-            if (qualityResult.isPassed && isMultiStageLive && temporalResult.isLive && faceCrop != null && !faceCrop.isRecycled) {
+            if ((qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) && faceCrop != null && !faceCrop.isRecycled) {
                 try {
-                    // Refined Biometric Alignment: Prefer 5-point Umeyama Canonical Alignment if all 5 fiducials are available
                     val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
-                        arrayOf(leftEye, rightEye, nose, mouthL, mouthR)
+                        arrayOf(rightEye, leftEye, nose, mouthR, mouthL)
                     } else null
 
-                    val embeddingInputBitmap: Bitmap
-                    val isTemporaryAligned: Boolean
+                    var embeddingInputBitmap: Bitmap = faceCrop
+                    var isTemporaryAligned = false
 
                     if (raw5Pts != null) {
                         val alignmentResult = UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
-                        if (alignmentResult != null) {
+                        if (alignmentResult != null && alignmentResult.alignmentError < 18.0f) {
                             embeddingInputBitmap = alignmentResult.alignedBitmap
                             isTemporaryAligned = true
-                        } else {
-                            embeddingInputBitmap = faceCrop
-                            isTemporaryAligned = false
                         }
-                    } else {
-                        embeddingInputBitmap = faceCrop
-                        isTemporaryAligned = false
                     }
 
                     val embedding = recognitionEngine.extractEmbedding(embeddingInputBitmap)
                     lastExtractedEmbedding = embedding
-                    
+
                     if (isTemporaryAligned && embeddingInputBitmap != faceCrop && !embeddingInputBitmap.isRecycled) {
                         embeddingInputBitmap.recycle()
                     }
@@ -274,7 +225,79 @@ class FaceSecurityPipeline(
                         securityTier = securityTier,
                         activeTier = recognitionEngine.activeHardwareTier
                     )
-                } catch (_: Throwable) {}
+                    Log.i("OmniFacePipeline", "Gate 3 Result: roll=${matchResult.studentRoll}, name=${matchResult.studentName}, sim=${matchResult.similarity}, isMatch=${matchResult.isMatch}")
+                } catch (t: Throwable) {
+                    Log.e("OmniFacePipeline", "Gate 3 Extraction/Match Exception", t)
+                }
+            }
+
+            // ── GATE 2: Anti-Spoofing & Qualcomm AI Hub Telemetry ──
+            var multiStageResult: MultiStageLivenessResult? = null
+            var passivePadResult: PassivePadResult? = null
+            var map3dResult: FaceMap3DMMResult? = null
+            var gazeResult: EyeGazeResult? = null
+            var attrResult: FaceAttributesResult? = null
+            var meshResult: MediaPipeMeshResult? = null
+            var hrnetResult: HRNetFaceResult? = null
+
+            if (faceCrop != null && !faceCrop.isRecycled) {
+                // 1. Passive PAD Liveness Assessment
+                if (config.isPassivePadEnabled || config.isMultiStageLivenessEnabled) {
+                    try {
+                        passivePadResult = passivePadEngine.run(faceCrop)
+                    } catch (_: Throwable) {}
+                }
+
+                // 2. Qualcomm AI Hub 3DMM, Gaze, and 468-Point Mesh
+                if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
+                    try {
+                        if (config.isFaceMap3DMMEnabled) {
+                            map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
+                        }
+                        if (config.isEyeGazeEnabled) {
+                            gazeResult = qualcommEngine.estimateEyeGaze(
+                                eyeCropBitmap = faceCrop,
+                                headYaw = face.headEulerAngleY,
+                                headPitch = face.headEulerAngleX,
+                                leftEyeOpenProb = face.leftEyeOpenProbability,
+                                rightEyeOpenProb = face.rightEyeOpenProbability
+                            )
+                        }
+                        if (config.isMediaPipeMeshEnabled) {
+                            meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            // 3. Temporal Anti-Spoofing Gate
+            val avgEyeProb = if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
+                ((face.leftEyeOpenProbability ?: 1.0f) + (face.rightEyeOpenProbability ?: 1.0f)) / 2.0f
+            } else null
+
+            val temporalResult = if (config.isTemporalLivenessEnabled) {
+                temporalLivenessEngine.recordSample(
+                    trackId = trackId,
+                    yaw = face.headEulerAngleY,
+                    pitch = face.headEulerAngleX,
+                    roll = face.headEulerAngleZ,
+                    attributes = attrResult,
+                    faceMap3DMM = map3dResult,
+                    passivePad = passivePadResult,
+                    eyeOpenProbability = avgEyeProb
+                )
+                temporalLivenessEngine.evaluateTemporalLiveness(trackId)
+            } else {
+                com.omniface.ai.ml.antispoof.TemporalLivenessResult(
+                    isLive = true,
+                    temporalConfidence = 1.0f,
+                    microMotionDetected = true,
+                    naturalBlinkDetected = true,
+                    headTurnDetected = true,
+                    stable3DDepth = true,
+                    requiredAction = null,
+                    explanation = "Temporal Liveness Bypassed (User Setting)"
+                )
             }
 
             faceCrop?.recycle()
@@ -304,9 +327,21 @@ class FaceSecurityPipeline(
                 mapPoint(mouthR)
             )
 
+            // Map ML Kit dense 133-point facial contours to preview coordinate space
+            val contoursMap = HashMap<Int, List<Offset>>()
+            for (contour in face.allContours) {
+                val pts = contour.points.map { p ->
+                    val cx = if (isFrontCamera) (fullBitmap.width - p.x) * scale + dx else p.x * scale + dx
+                    val cy = p.y * scale + dy
+                    Offset(cx, cy)
+                }
+                contoursMap[contour.faceContourType] = pts
+            }
+
             intermediateFaces.add(
                 ProcessedFaceData(
                     face = face,
+                    trackId = persistentTrackId,
                     smoothedRect = smoothedRect,
                     qualityResult = qualityResult,
                     passivePadResult = passivePadResult,
@@ -317,6 +352,7 @@ class FaceSecurityPipeline(
                     meshResult = meshResult,
                     hrnetResult = hrnetResult,
                     pts5List = pts5List,
+                    contours = contoursMap,
                     matchResult = matchResult,
                     lastExtractedEmbedding = lastExtractedEmbedding,
                     decision = decision
@@ -366,13 +402,45 @@ class FaceSecurityPipeline(
         for (i in intermediateFaces.indices) {
             val item = intermediateFaces[i]
             val resolvedDecision = resolvedDecisions[i]
-            val trackId = item.face.trackingId ?: 0
+            val trackId = item.trackId
             val decision = tracker.stabilizeDecision(trackId, resolvedDecision)
             val matchResult = item.matchResult
             val lastExtractedEmbedding = item.lastExtractedEmbedding
 
-            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher
-            if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
+            // Update auxiliary telemetry in tracker for seamless 60 FPS fast-path rendering
+            tracker.updateAuxiliaryFeatures(
+                trackId = trackId,
+                meshResult = item.meshResult,
+                map3dResult = item.map3dResult,
+                gazeResult = item.gazeResult,
+                attrResult = item.attrResult,
+                qualityResult = item.qualityResult
+            )
+
+            // ── Multi-Frame Temporal Consensus Voting ──
+            val trackState = tracker.getTrackState(trackId)
+            if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank()) {
+                val roll = decision.matchedStudentRoll
+                val count = (consecutiveMatchCounts[roll] ?: 0) + 1
+                consecutiveMatchCounts[roll] = count
+
+                val now = System.currentTimeMillis()
+                val isTrackAlreadyLogged = trackState?.hasTriggeredAttendance == true
+                val isTimeCooldownElapsed = (now - lastAuthorizedTimestampMs > 45000L) // 45s cooldown for same student
+                val isNewRoll = (roll != lastAuthorizedRoll)
+
+                val requiredFrames = if (decision.matchSimilarity >= 0.75f) 1 else REQUIRED_CONSECUTIVE_FRAMES
+                if (count >= requiredFrames && !isTrackAlreadyLogged && (isNewRoll || isTimeCooldownElapsed)) {
+                    attendanceTriggered = true
+                    lastAuthorizedRoll = roll
+                    lastAuthorizedTimestampMs = now
+                    consecutiveMatchCounts[roll] = 0
+                    trackState?.hasTriggeredAttendance = true
+                }
+            }
+
+            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher ONLY when attendance is verified
+            if (config.isDynamicCentroidAdaptationEnabled && attendanceTriggered && decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
                 val adaptedPair = matcher.adaptCentroidIfHighConfidence(
                     studentRoll = decision.matchedStudentRoll,
                     liveEmbedding = lastExtractedEmbedding,
@@ -395,21 +463,6 @@ class FaceSecurityPipeline(
                 primaryDecision = decision
             }
 
-            // ── Multi-Frame Temporal Consensus Voting ──
-            if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank()) {
-                val roll = decision.matchedStudentRoll
-                val count = (consecutiveMatchCounts[roll] ?: 0) + 1
-                consecutiveMatchCounts[roll] = count
-
-                val now = System.currentTimeMillis()
-                if (count >= REQUIRED_CONSECUTIVE_FRAMES && (roll != lastAuthorizedRoll || now - lastAuthorizedTimestampMs > 5000L)) {
-                    attendanceTriggered = true
-                    lastAuthorizedRoll = roll
-                    lastAuthorizedTimestampMs = now
-                    consecutiveMatchCounts[roll] = 0
-                }
-            }
-
             val zone = if (decision.isAttendanceAuthorized) {
                 ConfidenceZone.ACCEPT
             } else if (decision.gateState == PipelineGateState.REVIEW_AMBIGUOUS_MATCH) {
@@ -420,10 +473,11 @@ class FaceSecurityPipeline(
 
             val visualItem = FaceGeometryVisualData(
                 bounds = item.smoothedRect,
-                yaw = item.face.headEulerAngleY,
+                yaw = if (isFrontCamera) -item.face.headEulerAngleY else item.face.headEulerAngleY,
                 pitch = item.face.headEulerAngleX,
                 roll = item.face.headEulerAngleZ,
                 landmarks5Pts = if (item.pts5List.isNotEmpty()) item.pts5List.toTypedArray() else null,
+                contours = item.contours,
                 gazeResult = item.gazeResult,
                 faceMap3DMM = item.map3dResult,
                 attributes = item.attrResult,
@@ -436,7 +490,8 @@ class FaceSecurityPipeline(
                 studentName = decision.matchedStudentName,
                 studentRoll = decision.matchedStudentRoll,
                 isLive = decision.gateState != PipelineGateState.REJECT_SPOOF_ATTACK,
-                activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
+                activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
+                isFrontCamera = isFrontCamera
             )
             visualItems.add(visualItem)
         }

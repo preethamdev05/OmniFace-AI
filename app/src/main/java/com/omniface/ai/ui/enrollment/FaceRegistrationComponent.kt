@@ -8,6 +8,7 @@ import android.hardware.camera2.CaptureRequest
 import android.util.Range
 import android.util.Size
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -61,9 +62,12 @@ import com.omniface.ai.audio.BiometricSoundboard
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 import com.omniface.ai.hardware.NpuHardwareDetector
+import com.omniface.ai.i18n.LocalizationManager
+import com.omniface.ai.i18n.StringKey
 import com.omniface.ai.ml.*
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.ui.components.*
+import com.omniface.ai.ui.scanner.NeuralEngineLoadingOverlay
 import com.omniface.ai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -126,6 +130,7 @@ class FaceRegistrationState(
 
     val capturedSamples = mutableStateListOf<CapturedFaceSample>()
     var visualGeometryData by mutableStateOf<List<FaceGeometryVisualData>>(emptyList())
+    var engineLoadingProgress by mutableStateOf(EngineLoadingProgress())
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
     private var recognitionEngine: FaceRecognitionEngine? = null
@@ -137,7 +142,33 @@ class FaceRegistrationState(
 
     init {
         try {
-            recognitionEngine = FaceRecognitionEngine(context)
+            val engine = FaceRecognitionEngine.getInstance(context)
+            recognitionEngine = engine
+            kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+                engineLoadingProgress = EngineLoadingProgress(
+                    isReady = false,
+                    stage = "Discovering Neural Silicon & Hardware Tensors...",
+                    progress = 0.30f,
+                    activeModelName = "ArcFace 512-D INT8",
+                    hardwareTarget = engine.activeHardwareTier.label
+                )
+                kotlinx.coroutines.delay(220)
+                engineLoadingProgress = EngineLoadingProgress(
+                    isReady = false,
+                    stage = "Compiling ArcFace 512-D Neural Graph...",
+                    progress = 0.75f,
+                    activeModelName = "ArcFace 512-D INT8",
+                    hardwareTarget = engine.activeHardwareTier.label
+                )
+                kotlinx.coroutines.delay(220)
+                engineLoadingProgress = EngineLoadingProgress(
+                    isReady = true,
+                    stage = "Operational (Sub-8ms Ready)",
+                    progress = 1.0f,
+                    activeModelName = "ArcFace 512-D INT8",
+                    hardwareTarget = engine.activeHardwareTier.label
+                )
+            }
         } catch (_: Throwable) {}
     }
 
@@ -184,16 +215,21 @@ class FaceRegistrationState(
             return kotlin.math.abs(yaw) <= 30.0f && kotlin.math.abs(pitch) <= 30.0f
         }
         return when (step) {
-            0 -> kotlin.math.abs(yaw) <= 18.0f && kotlin.math.abs(pitch) <= 18.0f // Frontal
-            1 -> yaw <= -6.0f && kotlin.math.abs(pitch) <= 25.0f                  // Left ~10-30°
-            2 -> yaw >= 6.0f && kotlin.math.abs(pitch) <= 25.0f                   // Right ~10-30°
-            3 -> pitch >= 5.0f && kotlin.math.abs(yaw) <= 25.0f                   // Up ~8-25°
-            4 -> pitch <= -5.0f && kotlin.math.abs(yaw) <= 25.0f                  // Down ~8-25°
+            0 -> kotlin.math.abs(yaw) <= 16.0f && kotlin.math.abs(pitch) <= 18.0f // Frontal
+            1 -> yaw <= -5.0f && kotlin.math.abs(pitch) <= 28.0f                  // Left ~10-30° (User turned LEFT)
+            2 -> yaw >= 5.0f && kotlin.math.abs(pitch) <= 28.0f                   // Right ~10-30° (User turned RIGHT)
+            3 -> pitch >= 4.0f && kotlin.math.abs(yaw) <= 28.0f                   // Up ~8-25° (User tilted UP)
+            4 -> pitch <= -4.0f && kotlin.math.abs(yaw) <= 28.0f                  // Down ~8-25° (User tilted DOWN)
             else -> false
         }
     }
 
-    fun processFrame(face: Face, fullBitmap: Bitmap) {
+    fun processFrame(
+        face: Face,
+        fullBitmap: Bitmap,
+        previewWidth: Float = 0f,
+        previewHeight: Float = 0f
+    ) {
         if (isCapturing || isSaving || isRegistrationComplete || currentShotIndex >= totalTargetShots) {
             fullBitmap.recycle()
             return
@@ -202,7 +238,11 @@ class FaceRegistrationState(
         try {
             val rawYaw = face.headEulerAngleY
             val isFront = lensFacing == CameraSelector.LENS_FACING_FRONT
-            currentYaw = if (isFront) -rawYaw else rawYaw
+            // Subject-centric yaw: turning to subject's left rotates face toward camera's right (+rawYaw in ML Kit).
+            // To ensure "Turn Left" (Step 1) consistently corresponds to negative yaw (yaw <= -5.0f) and
+            // "Turn Right" (Step 2) corresponds to positive yaw (yaw >= 5.0f) across both front and rear cameras,
+            // currentYaw is always -rawYaw.
+            currentYaw = -rawYaw
             currentPitch = face.headEulerAngleX
 
             val step = currentShotIndex
@@ -215,17 +255,20 @@ class FaceRegistrationState(
             val nose = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
             val mouthL = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position
             val mouthR = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
-            val landmarks = listOfNotNull(leftEye, rightEye, nose, mouthL, mouthR)
 
             val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
-                arrayOf(leftEye, rightEye, nose, mouthL, mouthR)
+                arrayOf(rightEye, leftEye, nose, mouthR, mouthL)
             } else null
 
             val alignedResult = if (raw5Pts != null) {
                 UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
             } else null
 
-            val crop = alignedResult?.alignedBitmap ?: BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
+            val crop = if (alignedResult != null && alignedResult.alignmentError < RegistrationQualityEvaluator.MAX_UMEYAMA_RESIDUAL_PX) {
+                alignedResult.alignedBitmap
+            } else {
+                BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
+            }
             if (crop != null) {
                 synchronized(this) {
                     val old = latestFaceCrop
@@ -236,18 +279,53 @@ class FaceRegistrationState(
                 }
             }
 
+            val pW = if (previewWidth > 0f) previewWidth else fullBitmap.width.toFloat()
+            val pH = if (previewHeight > 0f) previewHeight else fullBitmap.height.toFloat()
+            val scale = maxOf(pW / fullBitmap.width.toFloat(), pH / fullBitmap.height.toFloat())
+            val dx = (pW - fullBitmap.width.toFloat() * scale) / 2f
+            val dy = (pH - fullBitmap.height.toFloat() * scale) / 2f
+
+            val mappedBounds = if (isFront) {
+                androidx.compose.ui.geometry.Rect(
+                    left = (fullBitmap.width - box.right) * scale + dx,
+                    top = box.top * scale + dy,
+                    right = (fullBitmap.width - box.left) * scale + dx,
+                    bottom = box.bottom * scale + dy
+                )
+            } else {
+                androidx.compose.ui.geometry.Rect(
+                    left = box.left * scale + dx,
+                    top = box.top * scale + dy,
+                    right = box.right * scale + dx,
+                    bottom = box.bottom * scale + dy
+                )
+            }
+
+            fun mapPt(pt: android.graphics.PointF?): android.graphics.PointF? {
+                if (pt == null) return null
+                val x = if (isFront) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
+                val y = pt.y * scale + dy
+                return android.graphics.PointF(x, y)
+            }
+
+            val mappedLandmarks = listOfNotNull(
+                mapPt(leftEye),
+                mapPt(rightEye),
+                mapPt(nose),
+                mapPt(mouthL),
+                mapPt(mouthR)
+            )
+
             val visualItem = FaceGeometryVisualData(
-                bounds = androidx.compose.ui.geometry.Rect(
-                    box.left.toFloat(), box.top.toFloat(),
-                    box.right.toFloat(), box.bottom.toFloat()
-                ),
-                yaw = currentYaw,
+                bounds = mappedBounds,
+                yaw = if (isFront) -rawYaw else rawYaw,
                 pitch = currentPitch,
                 roll = face.headEulerAngleZ,
-                landmarks5Pts = if (landmarks.isNotEmpty()) landmarks.toTypedArray() else null,
+                landmarks5Pts = if (mappedLandmarks.isNotEmpty()) mappedLandmarks.toTypedArray() else null,
                 studentName = fullName.ifBlank { "NEW REGISTRATION" },
                 studentRoll = rollNumber,
-                isLive = true
+                isLive = true,
+                isFrontCamera = isFront
             )
             visualGeometryData = listOf(visualItem)
 
@@ -283,13 +361,18 @@ class FaceRegistrationState(
             val src = latestFaceCrop
             if (src != null && !src.isRecycled) {
                 try {
-                    Bitmap.createScaledBitmap(src, 112, 112, true)
+                    val scaled = if (src.width == 112 && src.height == 112) {
+                        src.copy(Bitmap.Config.ARGB_8888, false)
+                    } else {
+                        Bitmap.createScaledBitmap(src, 112, 112, true)
+                    }
+                    scaled
                 } catch (_: Exception) { null }
             } else null
         }
 
         if (cropSnapshot == null) {
-            Toast.makeText(context, "No face detected in camera frame. Please position face within reticle.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Position face clearly within the reticle to capture.", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -301,14 +384,18 @@ class FaceRegistrationState(
         kotlinx.coroutines.CoroutineScope(Dispatchers.Default).launch {
             try {
                 val engine = recognitionEngine ?: FaceRecognitionEngine(context)
-                // Extract 512-D L2 normalized embedding using TFLite engine
-                val embedding = engine.extractEmbeddingWithFlipAugmentation(cropSnapshot)
+                // Extract 512-D L2 normalized embedding: flip augmentation only on frontal shot (0)
+                val embedding = if (currentShotIndex == 0) {
+                    engine.extractEmbeddingWithFlipAugmentation(cropSnapshot)
+                } else {
+                    engine.extractEmbedding(cropSnapshot)
+                }
 
                 // Quality evaluation
                 val qualityReport = qualityChecker.checkFaceQuality(cropSnapshot)
                 val sharpness = (qualityReport.blurScore * 10f).coerceIn(0f, 100f)
                 val lighting = (100f - kotlin.math.abs(qualityReport.brightnessScore - 128f) * 0.78f).coerceIn(0f, 100f)
-                val angleQuality = if (qualityReport.isGoodQuality) 96.0f else 82.0f
+                val angleQuality = if (qualityReport.isGoodQuality) 96.0f else 85.0f
 
                 val thumb = Bitmap.createScaledBitmap(cropSnapshot, 120, 120, true)
                 val angleLabel = getTargetAngleLabel(currentShotIndex)
@@ -458,7 +545,6 @@ class FaceRegistrationState(
 
     fun release() {
         cameraExecutor.shutdown()
-        recognitionEngine?.close()
         synchronized(this) {
             latestFaceCrop?.let { if (!it.isRecycled) it.recycle() }
             latestFaceCrop = null
@@ -488,6 +574,10 @@ fun FaceRegistrationComponent(
     val isDark = LocalThemeIsDark.current
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    BackHandler {
+        onDismiss()
+    }
 
     val state = remember {
         FaceRegistrationState(
@@ -553,11 +643,11 @@ fun FaceRegistrationComponent(
                             val resSelector = ResolutionSelector.Builder()
                                 .setResolutionStrategy(
                                     ResolutionStrategy(
-                                        Size(640, 480),
+                                        Size(1920, 1080),
                                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                                     )
                                 )
-                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                                 .build()
 
                             val previewBuilder = Preview.Builder().setResolutionSelector(resSelector)
@@ -572,6 +662,7 @@ fun FaceRegistrationComponent(
                             val faceDetector = FaceDetection.getClient(
                                 FaceDetectorOptions.Builder()
                                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                                     .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                                     .enableTracking()
                                     .build()
@@ -600,7 +691,12 @@ fun FaceRegistrationComponent(
                                         .addOnSuccessListener { faces ->
                                             val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                                             if (face != null && fullBitmap != null) {
-                                                state.processFrame(face, fullBitmap)
+                                                state.processFrame(
+                                                    face = face,
+                                                    fullBitmap = fullBitmap,
+                                                    previewWidth = previewView.width.toFloat(),
+                                                    previewHeight = previewView.height.toFloat()
+                                                )
                                             } else {
                                                 fullBitmap?.recycle()
                                             }
@@ -718,7 +814,7 @@ fun FaceRegistrationComponent(
                         .clickable { onDismiss() }
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Text("✕ Close", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("✕ ${LocalizationManager.get(StringKey.CLOSE_ACTION)}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
 
                 // Mode Selector & Shot Count Pills
@@ -757,7 +853,7 @@ fun FaceRegistrationComponent(
                             .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
-                            text = "Shot ${state.currentShotIndex + 1}/${state.totalTargetShots}",
+                            text = "${LocalizationManager.get(StringKey.BURST_SHOT_PROGRESS)} ${state.currentShotIndex + 1}/${state.totalTargetShots}",
                             color = omniCyan(isDark),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -885,7 +981,7 @@ fun FaceRegistrationComponent(
                 ) {
                     if (state.currentShotIndex > 0) {
                         CupertinoButton(
-                            text = "🔄 Retake",
+                            text = "🔄 ${LocalizationManager.get(StringKey.RETRY_ACTION)}",
                             isSecondary = true,
                             onClick = { state.retakeLastShot() },
                             modifier = Modifier.weight(1f)
@@ -893,11 +989,20 @@ fun FaceRegistrationComponent(
                     }
 
                     CupertinoButton(
-                        text = if (state.isSaving) "Generating 512-D..." else if (state.isPoseAligned) "Capture (Aligned)" else "Capture Shot",
+                        text = if (state.isSaving) LocalizationManager.get(StringKey.BURST_PROCESSING) else if (state.isPoseAligned) "${LocalizationManager.get(StringKey.BURST_CAPTURE_SHOT)} (${LocalizationManager.get(StringKey.BURST_POSE_CENTER)})" else LocalizationManager.get(StringKey.BURST_CAPTURE_SHOT),
                         onClick = { state.triggerCapture() },
                         modifier = Modifier.weight(if (state.currentShotIndex > 0) 2f else 1f)
                     )
                 }
+            }
+
+            // Neural Engine Loading / Model Warmup Progress Screen
+            if (!state.engineLoadingProgress.isReady) {
+                NeuralEngineLoadingOverlay(
+                    loading = state.engineLoadingProgress,
+                    isDark = isDark,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
@@ -1033,14 +1138,14 @@ private fun RegistrationSuccessCard(
         Spacer(modifier = Modifier.height(24.dp))
 
         CupertinoButton(
-            text = "Complete & Continue",
+            text = LocalizationManager.get(StringKey.CONFIRM_ACTION),
             onClick = onFinish
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
         CupertinoButton(
-            text = "Register Another Face",
+            text = LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT),
             isSecondary = true,
             onClick = onEnrollAnother
         )

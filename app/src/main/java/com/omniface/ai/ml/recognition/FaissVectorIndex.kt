@@ -121,6 +121,9 @@ class FaissVectorIndex(
 
     /**
      * Batch inserts multiple embeddings into the FAISS index.
+     * IVF K-Means training is gated to run ONLY at defined growth checkpoints
+     * (first crossing of ivfNList*4, then doubling) instead of on every batch,
+     * preventing multi-second exclusive-lock stalls during bulk enrollment.
      */
     fun addBatch(items: List<FaissIndexItem>) {
         lock.write {
@@ -134,11 +137,19 @@ class FaissVectorIndex(
                 }
             }
 
-            if (indexType == IndexType.IVF_FLAT && rawItems.size >= ivfNList * 4) {
-                trainIvf()
+            if (indexType == IndexType.IVF_FLAT) {
+                val trainingThreshold = ivfNList * 4
+                val shouldTrain =
+                    (!isTrained && rawItems.size >= trainingThreshold) ||
+                    (isTrained && rawItems.size >= lastTrainedSize * 2)
+                if (shouldTrain) {
+                    trainIvf()
+                }
             }
         }
     }
+
+    private var lastTrainedSize: Int = 0
 
     /**
      * Trains the IVF-FLAT index via K-Means clustering on the accumulated vector dataset.
@@ -187,6 +198,7 @@ class FaissVectorIndex(
                 ivfInvertedLists.getOrPut(cellIdx) { mutableListOf() }.add(id)
             }
             isTrained = true
+            lastTrainedSize = rawItems.size
         }
     }
 
@@ -206,12 +218,14 @@ class FaissVectorIndex(
         val t0 = System.nanoTime()
         val normalizedQuery = l2Normalize(queryVector.copyOf(dimension))
 
+        // Guard against pathological k values from external callers (heap OOM)
+        val safeK = k.coerceIn(1, 256)
         val candidates: List<FaissCandidate> = lock.read {
             if (rawItems.isEmpty()) {
                 return@read emptyList()
             }
 
-            val topKCount = min(k, rawItems.size)
+            val topKCount = min(safeK, rawItems.size)
 
             when (indexType) {
                 IndexType.HNSW_FLAT -> {

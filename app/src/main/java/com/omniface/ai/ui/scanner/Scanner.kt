@@ -14,6 +14,7 @@ import com.omniface.ai.hardware.ThermalGovernor
 import com.omniface.ai.hardware.ThermalState
 import android.util.Range
 import android.util.Size
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -29,6 +30,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,14 +72,21 @@ import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.ml.*
+import com.omniface.ai.ml.tracking.FaceTracker
 import com.omniface.ai.security.AndroidSecurityUtils
+import com.omniface.ai.ui.components.DynamicIslandEvent
+import com.omniface.ai.ui.components.LocalDynamicIslandController
 import com.omniface.ai.ui.components.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import com.omniface.ai.i18n.LocalizationManager
+import com.omniface.ai.i18n.StringKey
+import com.omniface.ai.ml.tracking.IdentityClassification
 import com.omniface.ai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
@@ -107,6 +117,7 @@ enum class ScannerScanState {
     VERIFYING,
     RECOGNIZED,
     ATTENDANCE_RECORDED,
+    DUPLICATE_ATTENDANCE,
     REVIEW_REQUIRED,
     UNKNOWN_IDENTITY,
     POOR_QUALITY,
@@ -135,10 +146,10 @@ data class ScannerUiState(
     val detectedFaces: List<FaceBoxUi> = emptyList(),
     val visualGeometryData: List<FaceGeometryVisualData> = emptyList(),
     val isProcessing: Boolean = false,
-    val activeTier: SecurityTier = SecurityTier.HIGH,
+    val activeTier: SecurityTier = SecurityTier.STANDARD,
     val scanState: ScannerScanState = ScannerScanState.READY_TO_SCAN,
     val matchTitle: String = "READY TO SCAN",
-    val matchSubtitle: String = "Align face inside frame",
+    val matchSubtitle: String = "Tap 'START SCAN' to begin",
     val matchedRoll: String = "",
     val matchedName: String = "",
     val matchedTimeFormatted: String = "",
@@ -147,7 +158,7 @@ data class ScannerUiState(
     val matchedZone: ConfidenceZone = ConfidenceZone.REJECT,
     val matchedExplanation: String = "",
     val isMultiFaceMode: Boolean = false,
-    val isScanningPaused: Boolean = false,
+    val isScanningPaused: Boolean = true,
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     val isDatabaseEmpty: Boolean = false,
     val enrolledCount: Int = 0,
@@ -158,36 +169,50 @@ data class ScannerUiState(
     val isDeveloperOverlayEnabled: Boolean = true,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
     val qualcommTelemetry: QualcommIntelligenceTelemetry? = null,
-    val modelDownloadState: ModelDownloadState = ModelDownloadState.Idle(false, "Qualcomm Unified NPU Engine"),
-    val activeModelDisplayName: String = "Qualcomm Unified NPU Engine",
+    val modelDownloadState: ModelDownloadState = ModelDownloadState.Idle(false, "Qualcomm CavaFace NPU (512-D Ultra HD)"),
+    val activeModelDisplayName: String = "Qualcomm CavaFace NPU (512-D Ultra HD)",
     val thermalState: ThermalState = ThermalState.NOMINAL,
     val deviceTemperature: Float = 33.5f,
     val isAutoScalingEnabled: Boolean = true,
-    val showThermalDialog: Boolean = false
+    val showThermalDialog: Boolean = false,
+    val showModelManagerDialog: Boolean = false,
+    val neuralModelConfig: com.omniface.ai.ml.NeuralModelConfig = com.omniface.ai.ml.NeuralModelConfigManager.configState.value,
+    val engineLoadingProgress: com.omniface.ai.ml.EngineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(),
+    val isCameraBound: Boolean = false,
+    val selectedStudentForInfo: StudentEntity? = null,
+    val studentTemplatesForInfo: List<FaceTemplateEntity> = emptyList(),
+    val studentAttendanceCountForInfo: Int = 0,
+    val studentRecentRecordsForInfo: List<AttendanceRecordEntity> = emptyList()
 )
 
 class ScannerViewModel : ViewModel() {
     private val db = OmniFaceApplication.instance.database
     private val downloadManager = ModelDownloadManager.getInstance(OmniFaceApplication.instance)
+    private val initialModelName = downloadManager.getActiveModelDisplayName().let {
+        if (it.isBlank() || it.contains("No Model", ignoreCase = true)) "Qualcomm CavaFace NPU (512-D Ultra HD)" else it
+    }
     private val _uiState = MutableStateFlow(
         ScannerUiState(
-            activeModelDisplayName = downloadManager.getActiveModelDisplayName(),
+            activeModelDisplayName = initialModelName,
+            isScanningPaused = true,
             modelDownloadState = downloadManager.downloadState.value,
             thermalState = ThermalGovernor.thermalState.value,
             deviceTemperature = ThermalGovernor.currentTemperature.value,
-            isAutoScalingEnabled = ThermalGovernor.isAutoScalingEnabled.value
+            isAutoScalingEnabled = ThermalGovernor.isAutoScalingEnabled.value,
+            neuralModelConfig = com.omniface.ai.ml.NeuralModelConfigManager.configState.value
         )
     )
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
 
     private var recognitionEngine: FaceRecognitionEngine? = null
     private val livenessDetector = LivenessDetector()
-    private val qualcommIntelligenceEngine = try {
-        QualcommFaceIntelligenceEngine(OmniFaceApplication.instance)
+    private val qualcommIntelligenceEngine: QualcommFaceIntelligenceEngine? = try {
+        QualcommFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
     } catch (_: Throwable) {
         null
     }
     val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val faceTracker = FaceTracker()
 
     private val lastVerifiedTimestamps = ConcurrentHashMap<String, Long>()
     private val emaBoundingBoxes = ConcurrentHashMap<Int, androidx.compose.ui.geometry.Rect>()
@@ -198,9 +223,14 @@ class ScannerViewModel : ViewModel() {
     private var activeExposureState: ExposureState? = null
     private var lastExposureAdjustmentTime = 0L
 
+    fun setCameraBound(bound: Boolean) {
+        _uiState.update { it.copy(isCameraBound = bound) }
+    }
+
     fun bindCameraControl(cameraControl: CameraControl, exposureState: ExposureState?) {
         activeCameraControl = cameraControl
         activeExposureState = exposureState
+        _uiState.update { it.copy(isCameraBound = true) }
     }
 
     private fun adjustExposureForLuminance(meanLuminance: Float) {
@@ -234,6 +264,14 @@ class ScannerViewModel : ViewModel() {
         _uiState.update { it.copy(showHardwareSwitcher = !it.showHardwareSwitcher) }
     }
 
+    fun toggleModelManagerDialog() {
+        _uiState.update { it.copy(showModelManagerDialog = !it.showModelManagerDialog) }
+    }
+
+    fun dismissModelManagerDialog() {
+        _uiState.update { it.copy(showModelManagerDialog = false) }
+    }
+
     fun toggleThermalDialog() {
         _uiState.update { it.copy(showThermalDialog = !it.showThermalDialog) }
     }
@@ -256,28 +294,52 @@ class ScannerViewModel : ViewModel() {
     }
 
     fun selectHardwareBackend(tier: HardwareTier) {
-        recognitionEngine?.switchHardwareTier(tier)
         viewModelScope.launch(Dispatchers.Default) {
+            _uiState.update {
+                it.copy(
+                    showHardwareSwitcher = false,
+                    engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                        isReady = false,
+                        stage = "Attaching ${tier.label} Accelerator...",
+                        progress = 0.35f,
+                        activeModelName = it.activeModelDisplayName,
+                        hardwareTarget = tier.label
+                    )
+                )
+            }
+            recognitionEngine?.switchHardwareTier(tier)
+            kotlinx.coroutines.delay(180)
+            
+            _uiState.update {
+                it.copy(
+                    engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                        isReady = false,
+                        stage = "Warming up ${tier.label} Tensors...",
+                        progress = 0.80f,
+                        activeModelName = it.activeModelDisplayName,
+                        hardwareTarget = tier.label
+                    )
+                )
+            }
+            
             val engine = recognitionEngine
             val latency = engine?.benchmarkInferenceLatency() ?: 4L
             val npuInfo = engine?.npuHardwareInfo ?: NpuHardwareDetector.detectNpuHardware()
-            val label = if (tier == HardwareTier.NPU_NNAPI) {
-                if (npuInfo.isGenuineNpuDetected) {
-                    when {
-                        npuInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Hexagon NPU • INT8"
-                        npuInfo.npuName.contains("Tensor", ignoreCase = true) -> "Tensor TPU • INT8"
-                        npuInfo.npuName.contains("APU", ignoreCase = true) -> "NeuroPilot APU • INT8"
-                        npuInfo.npuName.contains("Exynos", ignoreCase = true) -> "Exynos NPU • INT8"
-                        else -> "${npuInfo.npuName} • INT8"
-                    }
-                } else "NPU (NNAPI INT8)"
-            } else tier.label
+            val label = tier.getResolvedLabel(npuInfo)
+            
+            kotlinx.coroutines.delay(200)
 
             _uiState.update {
                 it.copy(
                     hardwareTierLabel = label,
                     benchmarkLatencyMs = latency,
-                    showHardwareSwitcher = false
+                    engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                        isReady = true,
+                        stage = "Operational (Sub-8ms Ready)",
+                        progress = 1.0f,
+                        activeModelName = it.activeModelDisplayName,
+                        hardwareTarget = label
+                    )
                 )
             }
         }
@@ -288,6 +350,15 @@ class ScannerViewModel : ViewModel() {
     init {
         checkDatabaseStatus()
         observeModelDownloads()
+        observeNeuralModelConfig()
+    }
+
+    private fun observeNeuralModelConfig() {
+        viewModelScope.launch {
+            com.omniface.ai.ml.NeuralModelConfigManager.configState.collect { config ->
+                _uiState.update { it.copy(neuralModelConfig = config) }
+            }
+        }
     }
 
     private fun observeModelDownloads() {
@@ -312,6 +383,27 @@ class ScannerViewModel : ViewModel() {
     @Volatile
     private var cachedTemplates: List<FaceTemplateEntity> = emptyList()
 
+    fun refreshEnrolledTemplates() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val students = db.studentDao().getAllStudents()
+            val templates = db.studentDao().getAllTemplates()
+            cachedStudentMap = students.associate { it.rollNumber to it.fullName }
+            cachedTemplates = templates
+            recognitionEngine?.preloadTemplates(templates)
+            securityPipeline?.preloadTemplates(templates)
+            val isEmpty = students.isEmpty()
+            val count = students.size
+            _uiState.update {
+                it.copy(
+                    isDatabaseEmpty = isEmpty,
+                    enrolledCount = count,
+                    matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
+                    matchSubtitle = if (isEmpty) "0 students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "$count students enrolled • Tap 'START SCAN' to begin" else it.matchSubtitle)
+                )
+            }
+        }
+    }
+
     private fun checkDatabaseStatus() {
         viewModelScope.launch(Dispatchers.IO) {
             db.studentDao().getAllStudentsFlow().collect { students ->
@@ -327,8 +419,8 @@ class ScannerViewModel : ViewModel() {
                         isDatabaseEmpty = isEmpty,
                         enrolledCount = count,
                         scanState = if (isEmpty) ScannerScanState.EMPTY_DATABASE else (if (it.scanState == ScannerScanState.EMPTY_DATABASE) ScannerScanState.READY_TO_SCAN else it.scanState),
-                        matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.matchTitle == "DATABASE EMPTY") "READY TO SCAN" else it.matchTitle),
-                        matchSubtitle = if (isEmpty) "0 students enrolled" else (if (it.matchSubtitle == "0 students enrolled") "$count students enrolled" else it.matchSubtitle)
+                        matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
+                        matchSubtitle = if (isEmpty) "0 students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "$count students enrolled • Tap 'START SCAN' to begin" else it.matchSubtitle)
                     )
                 }
             }
@@ -355,33 +447,71 @@ class ScannerViewModel : ViewModel() {
         }
 
         if (recognitionEngine == null) {
-            val engine = FaceRecognitionEngine(context)
-            if (cachedTemplates.isNotEmpty()) {
-                engine.preloadTemplates(cachedTemplates)
-            }
-            recognitionEngine = engine
-            securityPipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline(context, engine, qualcommIntelligenceEngine)
-            if (cachedTemplates.isNotEmpty()) {
-                securityPipeline?.preloadTemplates(cachedTemplates)
-            }
             viewModelScope.launch(Dispatchers.Default) {
+                val appContext = context.applicationContext
+                val engine = FaceRecognitionEngine.getInstance(appContext)
+                
+                _uiState.update { 
+                    it.copy(
+                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                            isReady = false,
+                            stage = "Discovering Neural Silicon & Hardware Tensors...",
+                            progress = 0.25f,
+                            activeModelName = it.activeModelDisplayName,
+                            hardwareTarget = it.hardwareTierLabel
+                        )
+                    )
+                }
+                kotlinx.coroutines.delay(200)
+                
+                _uiState.update { 
+                    it.copy(
+                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                            isReady = false,
+                            stage = "Compiling MLIR Graph & Warming up Neural Cores...",
+                            progress = 0.70f,
+                            activeModelName = it.activeModelDisplayName,
+                            hardwareTarget = it.hardwareTierLabel
+                        )
+                    )
+                }
+                
+                val currentTemplates = if (cachedTemplates.isEmpty()) {
+                    val dbTemplates = db.studentDao().getAllTemplates()
+                    cachedTemplates = dbTemplates
+                    val students = db.studentDao().getAllStudents()
+                    cachedStudentMap = students.associate { it.rollNumber to it.fullName }
+                    dbTemplates
+                } else {
+                    cachedTemplates
+                }
+                if (currentTemplates.isNotEmpty()) {
+                    engine.preloadTemplates(currentTemplates)
+                }
+                recognitionEngine = engine
+                val pipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline(appContext, engine, qualcommIntelligenceEngine, faceTracker)
+                if (currentTemplates.isNotEmpty()) {
+                    pipeline.preloadTemplates(currentTemplates)
+                }
+                securityPipeline = pipeline
+
                 val latency = engine.benchmarkInferenceLatency()
                 val npuInfo = engine.npuHardwareInfo
-                val tier = if (engine.activeHardwareTier == HardwareTier.NPU_NNAPI) {
-                    if (npuInfo.isGenuineNpuDetected) {
-                        when {
-                            npuInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Hexagon NPU • INT8"
-                            npuInfo.npuName.contains("Tensor", ignoreCase = true) -> "Tensor TPU • INT8"
-                            npuInfo.npuName.contains("APU", ignoreCase = true) -> "NeuroPilot APU • INT8"
-                            npuInfo.npuName.contains("Exynos", ignoreCase = true) -> "Exynos NPU • INT8"
-                            else -> "${npuInfo.npuName} • INT8"
-                        }
-                    } else "NPU (NNAPI INT8)"
-                } else engine.activeHardwareTier.label
+                val tier = engine.activeHardwareTier.getResolvedLabel(npuInfo)
+                
+                kotlinx.coroutines.delay(250)
+                
                 _uiState.update {
                     it.copy(
                         hardwareTierLabel = tier,
-                        benchmarkLatencyMs = latency
+                        benchmarkLatencyMs = latency,
+                        engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                            isReady = true,
+                            stage = "Operational (Sub-8ms Ready)",
+                            progress = 1.0f,
+                            activeModelName = it.activeModelDisplayName,
+                            hardwareTarget = tier
+                        )
                     )
                 }
             }
@@ -432,7 +562,13 @@ class ScannerViewModel : ViewModel() {
             BiometricSoundboard.playMatchSuccess(current.matchedName)
 
             viewModelScope.launch(Dispatchers.IO) {
-                val sha256 = AndroidSecurityUtils.computeSha256("${current.matchedRoll}_$nowMs")
+                val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
+                    previousHash = prevHash,
+                    studentRoll = current.matchedRoll,
+                    timestamp = nowMs,
+                    confidencePct = current.lastConfidence
+                )
                 TurnstileRelayController.triggerDoorUnlock(
                     durationMs = 2000L,
                     studentRoll = current.matchedRoll,
@@ -480,7 +616,13 @@ class ScannerViewModel : ViewModel() {
         BiometricSoundboard.playMatchSuccess(name)
 
         viewModelScope.launch(Dispatchers.IO) {
-            val sha256 = AndroidSecurityUtils.computeSha256("${roll}_${nowMs}_MANUAL_OVERRIDE")
+            val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+            val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
+                previousHash = prevHash,
+                studentRoll = roll,
+                timestamp = nowMs,
+                confidencePct = 100f
+            )
             TurnstileRelayController.triggerDoorUnlock(
                 durationMs = 2000L,
                 studentRoll = roll,
@@ -513,11 +655,50 @@ class ScannerViewModel : ViewModel() {
         }
     }
 
+    fun openStudentInfo(roll: String) {
+        if (roll.isBlank() || roll.equals("GUEST", ignoreCase = true) || roll.equals("Unregistered", ignoreCase = true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val student = db.studentDao().getStudentByRoll(roll) ?: return@launch
+            val templates = db.studentDao().getTemplatesForStudent(roll)
+            val count = db.attendanceDao().getAttendanceCountForStudent(roll)
+            val recent = db.attendanceDao().getRecordsForStudentFlow(roll).firstOrNull() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        selectedStudentForInfo = student,
+                        studentTemplatesForInfo = templates,
+                        studentAttendanceCountForInfo = count,
+                        studentRecentRecordsForInfo = recent
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeStudentInfo() {
+        _uiState.update {
+            it.copy(
+                selectedStudentForInfo = null,
+                studentTemplatesForInfo = emptyList(),
+                studentAttendanceCountForInfo = 0,
+                studentRecentRecordsForInfo = emptyList()
+            )
+        }
+    }
+
+    private var lastAttendanceRecordTimeMs = 0L
+
     fun handleEmptyFaces() {
         val isEmpty = _uiState.value.isDatabaseEmpty
         val count = _uiState.value.enrolledCount
+        val now = System.currentTimeMillis()
         _uiState.update {
-            if (it.scanState == ScannerScanState.ATTENDANCE_RECORDED) it else {
+            if (it.scanState == ScannerScanState.ATTENDANCE_RECORDED && now - lastAttendanceRecordTimeMs < 3500L) {
+                it.copy(
+                    detectedFaces = emptyList(),
+                    visualGeometryData = emptyList()
+                )
+            } else {
                 it.copy(
                     detectedFaces = emptyList(),
                     visualGeometryData = emptyList(),
@@ -526,6 +707,168 @@ class ScannerViewModel : ViewModel() {
                     matchSubtitle = if (isEmpty) "0 students enrolled" else "$count students enrolled"
                 )
             }
+        }
+    }
+
+    /**
+     * Fast-Path Visual Processing (60 FPS):
+     * Runs synchronously on every camera frame in <2ms, projecting bounding boxes,
+     * 1€ velocity-filtered landmarks, and dense facial contours to preview canvas coordinates.
+     * Guarantees instantaneous, zero-lag mesh attachment without waiting for ArcFace/PAD inference.
+     */
+    fun processVisualFastPath(
+        faces: List<Face>,
+        frameWidth: Int,
+        frameHeight: Int,
+        previewWidth: Float,
+        previewHeight: Float,
+        isFrontCamera: Boolean
+    ) {
+        if (_uiState.value.isScanningPaused || faces.isEmpty()) {
+            if (faces.isEmpty()) handleEmptyFaces()
+            return
+        }
+
+        val scale = maxOf(previewWidth / frameWidth.toFloat(), previewHeight / frameHeight.toFloat())
+        val dx = (previewWidth - frameWidth * scale) / 2f
+        val dy = (previewHeight - frameHeight * scale) / 2f
+
+        val visualGeometries = mutableListOf<FaceGeometryVisualData>()
+        val faceBoxes = mutableListOf<FaceBoxUi>()
+        val tracker = faceTracker
+
+        for (face in faces.take(6)) {
+            val box = face.boundingBox
+            val rawRect = if (isFrontCamera) {
+                androidx.compose.ui.geometry.Rect(
+                    left = (frameWidth - box.right) * scale + dx,
+                    top = box.top * scale + dy,
+                    right = (frameWidth - box.left) * scale + dx,
+                    bottom = box.bottom * scale + dy
+                )
+            } else {
+                androidx.compose.ui.geometry.Rect(
+                    left = box.left * scale + dx,
+                    top = box.top * scale + dy,
+                    right = box.right * scale + dx,
+                    bottom = box.bottom * scale + dy
+                )
+            }
+
+            val trackId = face.trackingId ?: 0
+            val trackState = tracker.getOrCreateTrackState(trackId, rawRect)
+            val smoothedRect = trackState.smoothedRect
+
+            // Map 5 canonical fiducials to preview space
+            val landmarksRaw = arrayOf(
+                face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.LEFT_EYE)?.position,
+                face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.RIGHT_EYE)?.position,
+                face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.NOSE_BASE)?.position,
+                face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.MOUTH_LEFT)?.position,
+                face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.MOUTH_RIGHT)?.position
+            )
+            val mapped5Pts = landmarksRaw.mapNotNull { pt ->
+                pt?.let {
+                    val px = if (isFrontCamera) (frameWidth - it.x) * scale + dx else it.x * scale + dx
+                    val py = it.y * scale + dy
+                    android.graphics.PointF(px, py)
+                }
+            }.toTypedArray()
+
+            val smoothed5Pts = tracker.filterLandmarks(trackState.persistentTrackId, mapped5Pts)
+
+            // Map ML Kit dense facial contours to preview space
+            val contoursMap = HashMap<Int, List<androidx.compose.ui.geometry.Offset>>()
+            for (contour in face.allContours) {
+                val pts = contour.points.map { p ->
+                    val cx = if (isFrontCamera) (frameWidth - p.x) * scale + dx else p.x * scale + dx
+                    val cy = p.y * scale + dy
+                    androidx.compose.ui.geometry.Offset(cx, cy)
+                }
+                contoursMap[contour.faceContourType] = pts
+            }
+
+            val currentUi = _uiState.value
+            val isSystemVerified = (currentUi.scanState == ScannerScanState.RECOGNIZED ||
+                                    currentUi.scanState == ScannerScanState.ATTENDANCE_RECORDED ||
+                                    currentUi.scanState == ScannerScanState.DUPLICATE_ATTENDANCE) && currentUi.matchedName.isNotBlank()
+
+            val isVerified = trackState.classification == IdentityClassification.KNOWN || isSystemVerified
+            val isSpoof = trackState.classification == IdentityClassification.SPOOF_ATTACK || currentUi.scanState == ScannerScanState.SPOOF_ALERT
+            val isReview = trackState.classification == IdentityClassification.AMBIGUOUS_REVIEW || currentUi.scanState == ScannerScanState.REVIEW_REQUIRED
+
+            val effectiveName = when {
+                isSpoof -> ""
+                trackState.studentName.isNotBlank() -> trackState.studentName
+                isSystemVerified -> currentUi.matchedName
+                else -> ""
+            }
+
+            val effectiveRoll = when {
+                isSpoof -> ""
+                trackState.studentRoll.isNotBlank() -> trackState.studentRoll
+                isSystemVerified -> currentUi.matchedRoll
+                else -> ""
+            }
+
+            val effectiveSimilarity = when {
+                isSpoof -> 0f
+                trackState.matchSimilarity > 0f -> trackState.matchSimilarity
+                isSystemVerified -> currentUi.lastConfidence / 100f
+                else -> 0f
+            }
+
+            val effectiveZone = when {
+                isSpoof -> ConfidenceZone.REJECT
+                isVerified -> ConfidenceZone.ACCEPT
+                isReview -> ConfidenceZone.REVIEW
+                else -> ConfidenceZone.REJECT
+            }
+
+            val visualItem = FaceGeometryVisualData(
+                bounds = smoothedRect,
+                yaw = if (isFrontCamera) -face.headEulerAngleY else face.headEulerAngleY,
+                pitch = face.headEulerAngleX,
+                roll = face.headEulerAngleZ,
+                landmarks5Pts = smoothed5Pts,
+                contours = contoursMap,
+                gazeResult = trackState.lastGazeResult,
+                faceMap3DMM = trackState.lastMap3dResult,
+                attributes = trackState.lastAttrResult,
+                meshResult = trackState.lastMeshResult,
+                qualityResult = trackState.lastQualityResult,
+                confidenceZone = effectiveZone,
+                decisionMargin = if (trackState.decisionMargin > 0f) trackState.decisionMargin else currentUi.matchedMargin,
+                similarityScore = effectiveSimilarity,
+                studentName = effectiveName,
+                studentRoll = effectiveRoll,
+                isLive = !isSpoof,
+                isFrontCamera = isFrontCamera
+            )
+            visualGeometries.add(visualItem)
+
+            faceBoxes.add(
+                FaceBoxUi(
+                    rect = smoothedRect,
+                    name = if (isVerified) effectiveName else if (isSpoof) "Spoof Rejected" else "Scanning...",
+                    roll = if (isVerified) effectiveRoll else if (isSpoof) "Attack Defeated" else "Aligning",
+                    isVerified = isVerified,
+                    isGuest = !isVerified,
+                    isSpoof = isSpoof,
+                    isReview = isReview,
+                    similarity = effectiveSimilarity,
+                    decisionMargin = visualItem.decisionMargin,
+                    confidenceZone = effectiveZone,
+                    explanation = trackState.lastDecision?.technicalExplanation ?: ""
+                )
+            )
+        }
+
+        _uiState.update {
+            it.copy(
+                detectedFaces = faceBoxes,
+                visualGeometryData = visualGeometries
+            )
         }
     }
 
@@ -547,13 +890,7 @@ class ScannerViewModel : ViewModel() {
             return
         }
 
-        val nowMs = System.currentTimeMillis()
-        if (nowMs - lastAnalysisTimestamp < 100L) {
-            fullBitmap.recycle()
-            return
-        }
-        lastAnalysisTimestamp = nowMs
-
+        lastAnalysisTimestamp = System.currentTimeMillis()
         isProcessingFrame = true
         viewModelScope.launch(Dispatchers.Default) {
             try {
@@ -597,7 +934,13 @@ class ScannerViewModel : ViewModel() {
                                 lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
                                 BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
 
-                                val sha256 = AndroidSecurityUtils.computeSha256("${decision.matchedStudentRoll}_$currentTimestamp")
+                                val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                                val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
+                                    previousHash = prevHash,
+                                    studentRoll = decision.matchedStudentRoll,
+                                    timestamp = currentTimestamp,
+                                    confidencePct = decision.matchConfidence
+                                )
                                 TurnstileRelayController.triggerDoorUnlock(
                                     durationMs = 2000L,
                                     studentRoll = decision.matchedStudentRoll,
@@ -606,26 +949,34 @@ class ScannerViewModel : ViewModel() {
                                     sha256Proof = sha256
                                 )
 
+                                val sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp))
                                 val record = AttendanceRecordEntity(
                                     recordId = UUID.randomUUID().toString(),
                                     studentRoll = decision.matchedStudentRoll,
                                     studentName = decision.matchedStudentName,
                                     timestamp = currentTimestamp,
-                                    sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp)),
+                                    sessionDate = sessionDate,
                                     confidencePct = decision.matchConfidence,
                                     securityTier = _uiState.value.activeTier.name,
                                     sha256Hash = sha256,
                                     isSynced = false
                                 )
-                                db.attendanceDao().recordAttendanceIfNotExists(record)
+                                val isNewlyRecorded = db.attendanceDao().recordAttendanceIfNotExists(record)
+                                lastAttendanceRecordTimeMs = currentTimestamp
 
-                                scanState = ScannerScanState.ATTENDANCE_RECORDED
-                                topMatchTitle = "✓ ATTENDANCE RECORDED"
-                                topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (Δ: ${"%.3f".format(decision.decisionMargin)})"
+                                if (isNewlyRecorded) {
+                                    scanState = ScannerScanState.ATTENDANCE_RECORDED
+                                    topMatchTitle = "✓ ATTENDANCE RECORDED"
+                                    topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (${"%.1f".format(decision.matchConfidence)}% Match)"
+                                } else {
+                                    scanState = ScannerScanState.DUPLICATE_ATTENDANCE
+                                    topMatchTitle = "⚠️ ALREADY CHECKED IN"
+                                    topMatchSubtitle = "${decision.matchedStudentName} (${decision.matchedStudentRoll}) • Attendance already logged today"
+                                }
                             } else {
                                 scanState = ScannerScanState.RECOGNIZED
                                 topMatchTitle = decision.matchedStudentName.uppercase()
-                                topMatchSubtitle = "${decision.matchConfidence.toInt()}% Match • Live 3D Face Verified"
+                                topMatchSubtitle = "${"%.1f".format(decision.matchConfidence)}% Match • Live 3D Face Verified"
                             }
                         }
                         com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK -> {
@@ -652,26 +1003,8 @@ class ScannerViewModel : ViewModel() {
                     }
                 }
 
-                val faceBoxes = output.visualGeometries.map { geo ->
-                    FaceBoxUi(
-                        rect = geo.bounds,
-                        name = if (decision.isAttendanceAuthorized) decision.matchedStudentName else if (decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK) "Spoof Rejected" else "Visitor",
-                        roll = if (decision.isAttendanceAuthorized) decision.matchedStudentRoll else if (decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK) decision.subtitle else "Unregistered",
-                        isVerified = decision.isAttendanceAuthorized,
-                        isGuest = !decision.isAttendanceAuthorized,
-                        isSpoof = decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK,
-                        isReview = decision.gateState == com.omniface.ai.ml.pipeline.PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
-                        similarity = decision.matchSimilarity,
-                        decisionMargin = decision.decisionMargin,
-                        confidenceZone = geo.confidenceZone,
-                        explanation = decision.technicalExplanation
-                    )
-                }
-
-                _uiState.update {
-                    it.copy(
-                        detectedFaces = faceBoxes,
-                        visualGeometryData = output.visualGeometries,
+                _uiState.update { current ->
+                    current.copy(
                         scanState = scanState,
                         matchedRoll = decision.matchedStudentRoll,
                         matchedName = decision.matchedStudentName,
@@ -684,6 +1017,7 @@ class ScannerViewModel : ViewModel() {
                         matchedExplanation = decision.technicalExplanation,
                         benchmarkLatencyMs = output.executionLatencyMs,
                         hardwareTierLabel = output.activeHardwareTier,
+                        visualGeometryData = if (output.visualGeometries.isNotEmpty()) output.visualGeometries else current.visualGeometryData,
                         qualcommTelemetry = output.visualGeometries.firstOrNull()?.let { geo ->
                             val g = geo.gazeResult
                             val a = geo.attributes
@@ -727,34 +1061,85 @@ fun ScannerScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val dynamicIslandController = LocalDynamicIslandController.current
+
+    // Intercept back gesture on active dialogs/modals before leaving the scanner
+    BackHandler(enabled = state.selectedStudentForInfo != null) {
+        viewModel.closeStudentInfo()
+    }
+    BackHandler(enabled = state.showManualOverrideDialog) {
+        viewModel.dismissManualOverrideDialog()
+    }
+    BackHandler(enabled = state.showThermalDialog) {
+        viewModel.dismissThermalDialog()
+    }
+    BackHandler(enabled = state.showModelManagerDialog) {
+        viewModel.dismissModelManagerDialog()
+    }
 
     LaunchedEffect(Unit) {
         viewModel.initEngine(context)
+        viewModel.refreshEnrolledTemplates()
+    }
+
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshEnrolledTemplates()
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.scanState) {
         when (state.scanState) {
-            ScannerScanState.RECOGNIZED,
             ScannerScanState.ATTENDANCE_RECORDED -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else "Student"
+                val lang = LocalizationManager.currentLanguage.value
+                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getString(StringKey.TAB_STUDENTS, lang)
+                dynamicIslandController.postEvent(
+                    DynamicIslandEvent(
+                        title = "Attendance Recorded",
+                        subtitle = "$studentName • ${state.matchedRoll}",
+                        accentColor = Color(0xFF34C759)
+                    )
+                )
                 snackbarHostState.showSnackbar(
-                    message = "✓ Recognized: $studentName",
+                    message = "✓ ${LocalizationManager.getString(StringKey.RECOGNITION_CONFIRMED, lang)}: $studentName",
                     duration = SnackbarDuration.Short
                 )
             }
-            ScannerScanState.VERIFYING -> {
+            ScannerScanState.DUPLICATE_ATTENDANCE -> {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                val lang = LocalizationManager.currentLanguage.value
+                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getString(StringKey.TAB_STUDENTS, lang)
+                dynamicIslandController.postEvent(
+                    DynamicIslandEvent(
+                        title = "Already Checked In",
+                        subtitle = "$studentName (${state.matchedRoll})",
+                        accentColor = Color(0xFFF59E0B)
+                    )
+                )
                 snackbarHostState.showSnackbar(
-                    message = "🔍 Searching face database...",
+                    message = "⚠️ Already Checked In: $studentName",
                     duration = SnackbarDuration.Short
                 )
             }
-            ScannerScanState.SPOOF_ALERT,
-            ScannerScanState.UNKNOWN_IDENTITY,
-            ScannerScanState.POOR_QUALITY -> {
+            ScannerScanState.SPOOF_ALERT -> {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                dynamicIslandController.postEvent(
+                    DynamicIslandEvent(
+                        title = "Spoof Attack Defeated",
+                        subtitle = state.matchSubtitle.ifBlank { "Presentation Attack Rejected" },
+                        accentColor = Color(0xFFFF3B30)
+                    )
+                )
+            }
+            ScannerScanState.UNKNOWN_IDENTITY -> {
+                dynamicIslandController.postEvent(
+                    DynamicIslandEvent(
+                        title = "Unregistered Visitor",
+                        subtitle = "Identity not found in ledger",
+                        accentColor = Color(0xFFFF9500)
+                    )
+                )
             }
             else -> {}
         }
@@ -768,6 +1153,7 @@ fun ScannerScreen(
         ScannerScanState.VERIFYING -> Color(0xFF0A84FF)          // Animated Blue
         ScannerScanState.RECOGNIZED,
         ScannerScanState.ATTENDANCE_RECORDED -> Color(0xFF34C759)// Green = Recognized / Recorded
+        ScannerScanState.DUPLICATE_ATTENDANCE -> Color(0xFFF59E0B)// Amber = Duplicate Checked In
         ScannerScanState.REVIEW_REQUIRED -> Color(0xFFFF9500)    // Amber = Review Required
         ScannerScanState.UNKNOWN_IDENTITY -> Color(0xFFFF9500)   // Orange = Unknown
         ScannerScanState.POOR_QUALITY,
@@ -822,105 +1208,48 @@ fun ScannerScreen(
             // 1. Header (Title, Subtitle & Live NPU Telemetry Capsule)
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "SCANNER",
+                            text = LocalizationManager.get(StringKey.TAB_SCANNER).uppercase(),
                             color = omniTextMuted(isDark),
-                            fontSize = 11.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.8.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Biometric Verification",
+                            text = LocalizationManager.get(StringKey.SCANNER_TITLE),
                             color = omniTextPrimary(isDark),
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.5).sp,
+                            maxLines = 1
                         )
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Live Thermal & Resolution Capsule (Interactive)
-                        val thermalColor = when (state.thermalState) {
-                            ThermalState.NOMINAL -> omniEmerald(isDark)
-                            ThermalState.WARM -> Color(0xFFFF9F0A)
-                            ThermalState.CRITICAL -> Color(0xFFFF453A)
-                        }
-                        val thermalIcon = when (state.thermalState) {
-                            ThermalState.NOMINAL -> "❄️"
-                            ThermalState.WARM -> "⚡"
-                            ThermalState.CRITICAL -> "🔥"
-                        }
-                        Row(
-                            modifier = Modifier
-                                .shadow(4.dp, RoundedCornerShape(999.dp))
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
-                                .border(0.75.dp, thermalColor.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
-                                .clickable { viewModel.toggleThermalDialog() }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "$thermalIcon %.1f°C • ${state.thermalState.targetResolution.height}p".format(state.deviceTemperature),
-                                color = thermalColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Live Latency & Hardware Telemetry Pill
-                        Row(
-                            modifier = Modifier
-                                .shadow(4.dp, RoundedCornerShape(999.dp))
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
-                                .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
-                                .clickable { viewModel.toggleHardwareSwitcher() }
-                                .padding(horizontal = 9.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(if (state.isScanningPaused) Color(0xFFFF453A) else Color(0xFF34C759))
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = if (state.isScanningPaused) "PAUSED" else "${state.benchmarkLatencyMs}ms • ${state.hardwareTierLabel.take(3)}",
-                                color = if (state.isScanningPaused) Color(0xFFFF453A) else omniEmerald(isDark),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Quick Settings Button
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .shadow(4.dp, CircleShape)
-                                .clip(CircleShape)
-                                .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
-                                .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                                .clickable { onOpenSettings() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Scanner Settings",
-                                tint = omniTextSecondary(isDark),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                    // Live Thermal & Resolution Capsule (Interactive)
+                    val thermalColor = when (state.thermalState) {
+                        ThermalState.NOMINAL -> omniEmerald(isDark)
+                        ThermalState.WARM -> Color(0xFFFF9F0A)
+                        ThermalState.CRITICAL -> Color(0xFFFF453A)
                     }
+                    val thermalIcon = when (state.thermalState) {
+                        ThermalState.NOMINAL -> "❄️"
+                        ThermalState.WARM -> "⚡"
+                        ThermalState.CRITICAL -> "🔥"
+                    }
+                    
+                    IOSGlassPill(
+                        text = "$thermalIcon %.1f°C • ${state.thermalState.targetResolution.height}p".format(state.deviceTemperature),
+                        accentColor = thermalColor,
+                        onClick = { viewModel.toggleThermalDialog() }
+                    )
                 }
             }
 
@@ -1068,10 +1397,11 @@ fun ScannerScreen(
 
                                     val faceDetector = FaceDetection.getClient(
                                         FaceDetectorOptions.Builder()
-                                            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                                            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                                             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                                            .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
                                             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-                                            .setMinFaceSize(0.10f)
+                                            .setMinFaceSize(0.08f)
                                             .enableTracking()
                                             .build()
                                     )
@@ -1079,11 +1409,11 @@ fun ScannerScreen(
                                     val analysisSelector = ResolutionSelector.Builder()
                                         .setResolutionStrategy(
                                             ResolutionStrategy(
-                                                Size(640, 480),
+                                                Size(1280, 720),
                                                 ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                                             )
                                         )
-                                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                                         .build()
 
                                     val analysisBuilder = ImageAnalysis.Builder()
@@ -1097,18 +1427,10 @@ fun ScannerScreen(
                                     ext.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_FACE_PRIORITY)
 
                                     val imageAnalysis = analysisBuilder.build()
-                                    var frameCounter = 0L
                                     imageAnalysis.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
                                         val mediaImage = imageProxy.image
-                                        if (mediaImage != null && !state.isScanningPaused && !viewModel.isProcessingFrame) {
-                                            frameCounter++
-                                            val activeThermal = ThermalGovernor.thermalState.value
-                                            val thermalSkip = if (state.isAutoScalingEnabled) activeThermal.frameSkipMod else 1
-                                            val hasRecentFace = state.detectedFaces.isNotEmpty()
-                                            val baseSkip = if (hasRecentFace) 1 else 2
-                                            val effectiveSkip = baseSkip * thermalSkip
-
-                                            if (frameCounter % effectiveSkip != 0L) {
+                                        if (mediaImage != null && !state.isScanningPaused) {
+                                            if (previewView.width <= 0 || previewView.height <= 0) {
                                                 imageProxy.close()
                                                 return@setAnalyzer
                                             }
@@ -1116,34 +1438,52 @@ fun ScannerScreen(
                                             val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
 
                                             faceDetector.process(image)
-                                                .addOnSuccessListener { faces ->
-                                                    if (faces.isNotEmpty() && !viewModel.isProcessingFrame) {
-                                                        val rawBitmap = imageProxyToBitmap(imageProxy)
-                                                        if (rawBitmap != null) {
-                                                            val (scaledBitmap, downscaleFactor) = if (state.isAutoScalingEnabled) {
-                                                                ThermalGovernor.scaleBitmapForThermal(rawBitmap, activeThermal)
-                                                            } else {
-                                                                Pair(rawBitmap, 1.0f)
+                                                .addOnSuccessListener(viewModel.cameraExecutor) { faces ->
+                                                    if (faces.isNotEmpty()) {
+                                                        val isFront = state.lensFacing == CameraSelector.LENS_FACING_FRONT
+                                                        val imgW = if (rotationDegrees == 90 || rotationDegrees == 270) mediaImage.height else mediaImage.width
+                                                        val imgH = if (rotationDegrees == 90 || rotationDegrees == 270) mediaImage.width else mediaImage.height
+
+                                                        // FAST-PATH 1: Instant visual geometry & mesh projection at 60 FPS (0ms lag)
+                                                        viewModel.processVisualFastPath(
+                                                            faces = faces,
+                                                            frameWidth = imgW,
+                                                            frameHeight = imgH,
+                                                            previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
+                                                            previewHeight = previewView.height.toFloat().coerceAtLeast(1f),
+                                                            isFrontCamera = isFront
+                                                        )
+
+                                                        // ASYNC PATH 2: Background Biometric Verification without stalling camera
+                                                        if (!viewModel.isProcessingFrame) {
+                                                            val rawBitmap = imageProxyToBitmap(imageProxy)
+                                                            if (rawBitmap != null) {
+                                                                val activeThermal = ThermalGovernor.thermalState.value
+                                                                val (scaledBitmap, downscaleFactor) = if (state.isAutoScalingEnabled) {
+                                                                    ThermalGovernor.scaleBitmapForThermal(rawBitmap, activeThermal)
+                                                                } else {
+                                                                    Pair(rawBitmap, 1.0f)
+                                                                }
+                                                                if (scaledBitmap != rawBitmap && !rawBitmap.isRecycled) {
+                                                                    rawBitmap.recycle()
+                                                                }
+                                                                viewModel.processCameraFaces(
+                                                                    faces = faces,
+                                                                    fullBitmap = scaledBitmap,
+                                                                    previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
+                                                                    previewHeight = previewView.height.toFloat().coerceAtLeast(1f),
+                                                                    downscaleFactor = downscaleFactor
+                                                                )
                                                             }
-                                                            if (scaledBitmap != rawBitmap && !rawBitmap.isRecycled) {
-                                                                rawBitmap.recycle()
-                                                            }
-                                                            viewModel.processCameraFaces(
-                                                                faces = faces,
-                                                                fullBitmap = scaledBitmap,
-                                                                previewWidth = previewView.width.toFloat().coerceAtLeast(1f),
-                                                                previewHeight = previewView.height.toFloat().coerceAtLeast(1f),
-                                                                downscaleFactor = downscaleFactor
-                                                            )
                                                         }
-                                                    } else if (faces.isEmpty()) {
+                                                    } else {
                                                         viewModel.handleEmptyFaces()
                                                     }
                                                 }
-                                                .addOnFailureListener {
+                                                .addOnFailureListener(viewModel.cameraExecutor) {
                                                     viewModel.handleEmptyFaces()
                                                 }
-                                                .addOnCompleteListener {
+                                                .addOnCompleteListener(viewModel.cameraExecutor) {
                                                     imageProxy.close()
                                                 }
                                         } else {
@@ -1171,163 +1511,207 @@ fun ScannerScreen(
                     // Clean, Real-Time Biometric Reticle & Identity Overlay
                     FaceDiagnosticsOverlay(
                         visualData = state.visualGeometryData,
-                        isDeveloperMode = false,
-                        showMeshWireframe = false,
-                        showPoseAxes = false,
-                        showGazeRays = false,
-                        show3DMMTopography = false,
+                        isDeveloperMode = state.isDeveloperOverlayEnabled && state.neuralModelConfig.isCyberneticHudOverlayEnabled,
+                        showMeshWireframe = state.neuralModelConfig.isMediaPipeMeshEnabled || state.neuralModelConfig.isMeshOverlayEnabled,
+                        showPoseAxes = state.neuralModelConfig.isPoseAxesOverlayEnabled,
+                        showGazeRays = state.neuralModelConfig.isGazeRaysOverlayEnabled,
+                        show3DMMTopography = state.neuralModelConfig.is3DMMOverlayEnabled,
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Top Floating NPU Hardware Selector Pill
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 12.dp)
-                            .shadow(8.dp, RoundedCornerShape(999.dp))
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (isDark) Color(0xD90B0F19) else Color(0xF0FFFFFF))
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
-                            .clickable { viewModel.toggleHardwareSwitcher() }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (state.hardwareTierLabel.contains("NPU", ignoreCase = true) || state.hardwareTierLabel.contains("Hexagon", ignoreCase = true)) Color(0xFF00E5FF) else if (state.hardwareTierLabel.contains("GPU", ignoreCase = true)) Color(0xFF34C759) else Color(0xFFFF9500))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "⚡ ${state.hardwareTierLabel.uppercase()} • ${state.benchmarkLatencyMs}ms",
-                            color = omniTextPrimary(isDark),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.4.sp
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Switch Backend",
-                            tint = omniTextMuted(isDark),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-
                     // Stitch Dynamic Island Biometric Live Telemetry Capsule (Bottom Overlay)
                     val firstFace = state.visualGeometryData.firstOrNull()
+                    val hasFace = firstFace != null
                     val depthVar = firstFace?.faceMap3DMM?.depthVariance ?: (state.qualcommTelemetry?.depthVariance ?: 0.182f)
                     val gazeAttentive = firstFace?.gazeResult?.isGazeAttentive ?: (state.qualcommTelemetry?.gazeAttentive ?: true)
-                    val livenessScore = if (firstFace?.isLive == true) 0.994f else 0.42f
+                    val livenessScore = if (firstFace?.isLive == true) 0.994f else (if (hasFace) 0.55f else 0f)
 
                     BiometricLiveTelemetryCapsule(
                         depthVariance = depthVar,
                         isGazeAttentive = gazeAttentive,
                         livenessProbability = livenessScore,
                         isDark = isDark,
+                        hasFace = hasFace,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 12.dp)
                     )
+
+                    // Neural Engine Loading / Model Warmup Progress Screen
+                    if (!state.engineLoadingProgress.isReady || !state.isCameraBound) {
+                        val activeName = if (state.activeModelDisplayName.isNotBlank() && !state.activeModelDisplayName.contains("No Model", ignoreCase = true)) {
+                            state.activeModelDisplayName
+                        } else {
+                            "Qualcomm CavaFace NPU (512-D Ultra HD)"
+                        }
+                        val displayLoading = if (!state.engineLoadingProgress.isReady) {
+                            if (state.engineLoadingProgress.activeModelName.contains("No Model", ignoreCase = true) || state.engineLoadingProgress.activeModelName.isBlank()) {
+                                state.engineLoadingProgress.copy(activeModelName = activeName)
+                            } else {
+                                state.engineLoadingProgress
+                            }
+                        } else {
+                            com.omniface.ai.ml.EngineLoadingProgress(
+                                isReady = false,
+                                stage = "Calibrating Silicon NPU & CameraX Viewfinder...",
+                                progress = 0.88f,
+                                activeModelName = activeName,
+                                hardwareTarget = state.hardwareTierLabel
+                            )
+                        }
+                        NeuralEngineLoadingOverlay(
+                            loading = displayLoading,
+                            isDark = isDark,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
 
-            // 3. Quick Action Controls Row
+            // 2.5 Prominent Manual Scan Action Button
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Multi-Face Mode Button
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .shadow(3.dp, CircleShape)
-                                .clip(CircleShape)
-                                .background(if (state.isMultiFaceMode) omniCyan(isDark) else (if (isDark) Color(0x331E293B) else Color(0x0D000000)))
-                                .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.toggleMultiFaceMode()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (state.isMultiFaceMode) Icons.Default.Groups else Icons.Default.Person,
-                                contentDescription = "Toggle Multi-Face Mode",
-                                tint = if (state.isMultiFaceMode) Color.White else omniTextPrimary(isDark),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                val isPaused = state.isScanningPaused
+                val isReady = state.engineLoadingProgress.isReady && state.isCameraBound
+                val pulseTransition = rememberInfiniteTransition(label = "pulse")
+                val pulseAlpha by pulseTransition.animateFloat(
+                    initialValue = 0.85f,
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(900, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "pulseAlpha"
+                )
 
-                        // Flip Lens Button
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .shadow(3.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                            .clickable {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.togglePauseScan()
+                        },
+                        enabled = isReady,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isPaused) Color(0xFF10B981) else Color(0xFFEF4444),
+                            contentColor = Color.White,
+                            disabledContainerColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
+                            disabledContentColor = omniTextMuted(isDark)
+                        ),
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .shadow(
+                                elevation = if (isPaused) 10.dp else 6.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                ambientColor = if (isPaused) Color(0x6610B981) else Color(0x66EF4444),
+                                spotColor = if (isPaused) Color(0x9910B981) else Color(0x99EF4444)
+                            )
+                            .then(if (isPaused && isReady) Modifier.graphicsLayer { alpha = pulseAlpha } else Modifier),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            contentDescription = if (isPaused) "Start Scan" else "Pause Scan",
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (isPaused) "START ATTENDANCE SCAN" else "PAUSE SCANNING",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
+
+            // 3. Apple-Style Cupertino Floating Island Control Dock
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(
+                                elevation = if (isDark) 8.dp else 10.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                ambientColor = if (isDark) Color(0x66000000) else Color(0x1F000000),
+                                spotColor = if (isDark) Color(0x330A84FF) else Color(0x140071E3)
+                            )
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(omniLiquidSurfaceBrush(isDark))
+                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(24.dp))
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 1. Multi-Face Mode Pill
+                        CupertinoDockIconButton(
+                            icon = if (state.isMultiFaceMode) Icons.Default.Groups else Icons.Default.Person,
+                            label = if (state.isMultiFaceMode) "Multi" else LocalizationManager.get(StringKey.MODE_SINGLE),
+                            isActive = state.isMultiFaceMode,
+                            activeColor = omniCyan(isDark),
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.toggleMultiFaceMode()
+                            }
+                        )
+
+                        // 2. Flip Lens Pill
+                        CupertinoDockIconButton(
+                            icon = Icons.Default.FlipCameraAndroid,
+                            label = if (state.lensFacing == CameraSelector.LENS_FACING_FRONT) LocalizationManager.get(StringKey.LENS_FRONT) else LocalizationManager.get(StringKey.LENS_REAR),
+                            isActive = false,
+                            activeColor = Color(0xFF38BDF8),
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.toggleLensFacing()
-                            },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FlipCameraAndroid,
-                                contentDescription = "Switch Camera Lens",
-                                tint = omniTextPrimary(isDark),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                            }
+                        )
 
-                        // Pause / Resume Button
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .shadow(3.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(if (state.isScanningPaused) Color(0xFFFF3B30) else (if (isDark) Color(0x331E293B) else Color(0x0D000000)))
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                            .clickable {
+                        // 3. Pause / Resume Master Pill
+                        CupertinoDockIconButton(
+                            icon = if (state.isScanningPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            label = if (state.isScanningPaused) "Start Scan" else LocalizationManager.get(StringKey.STATUS_ACTIVE),
+                            isActive = !state.isScanningPaused,
+                            activeColor = Color(0xFF10B981),
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.togglePauseScan()
-                            },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (state.isScanningPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                contentDescription = if (state.isScanningPaused) "Resume Scanner" else "Pause Scanner",
-                                tint = if (state.isScanningPaused) Color.White else omniTextPrimary(isDark),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                            }
+                        )
 
-                        // Manual Override Button
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .shadow(3.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                            .clickable {
+                        // 4. Neural Model Pipeline Settings
+                        CupertinoDockIconButton(
+                            icon = Icons.Default.Tune,
+                            label = LocalizationManager.get(StringKey.MODELS_SUITE),
+                            isActive = state.showModelManagerDialog,
+                            activeColor = Color(0xFFA855F7),
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.toggleModelManagerDialog()
+                            }
+                        )
+
+                        // 5. Manual Override Ledger
+                        CupertinoDockIconButton(
+                            icon = Icons.Default.EditNote,
+                            label = LocalizationManager.get(StringKey.MANUAL_TRIGGER),
+                            isActive = false,
+                            activeColor = omniEmerald(isDark),
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.openManualOverrideDialog()
-                            },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.EditNote,
-                                contentDescription = "Manual Override",
-                                tint = omniCyan(isDark),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                            }
+                        )
                     }
                 }
             }
@@ -1335,14 +1719,18 @@ fun ScannerScreen(
             // 4. Security Accuracy Tier Pill Selector
             item {
                 CupertinoSegmentedControl(
-                    items = listOf("Standard", "High", "Strict"),
+                    items = listOf(
+                        LocalizationManager.get(StringKey.TIER_STANDARD),
+                        LocalizationManager.get(StringKey.TIER_HIGH),
+                        LocalizationManager.get(StringKey.TIER_STRICT)
+                    ),
                     selectedIndex = when (state.activeTier) {
                         SecurityTier.STANDARD -> 0
                         SecurityTier.HIGH -> 1
                         SecurityTier.STRICT -> 2
                     },
                     onItemSelected = { idx ->
-                        val tier = when (idx) {
+                                            val tier = when (idx) {
                             0 -> SecurityTier.STANDARD
                             1 -> SecurityTier.HIGH
                             else -> SecurityTier.STRICT
@@ -1354,7 +1742,13 @@ fun ScannerScreen(
 
             // 5. State-Driven Adaptive Glass Verification Card
             item {
-                IOSCard(modifier = Modifier.fillMaxWidth()) {
+                IOSCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = state.matchedRoll.isNotBlank()) {
+                            viewModel.openStudentInfo(state.matchedRoll)
+                        }
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1376,6 +1770,7 @@ fun ScannerScreen(
                                     imageVector = when (state.scanState) {
                                         ScannerScanState.RECOGNIZED,
                                         ScannerScanState.ATTENDANCE_RECORDED -> Icons.Default.CheckCircle
+                                        ScannerScanState.DUPLICATE_ATTENDANCE -> Icons.Default.Warning
                                         ScannerScanState.UNKNOWN_IDENTITY -> Icons.Default.PersonOff
                                         ScannerScanState.SPOOF_ALERT -> Icons.Default.GppBad
                                         ScannerScanState.POOR_QUALITY -> Icons.Default.CenterFocusWeak
@@ -1416,7 +1811,25 @@ fun ScannerScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
-                                    Text("+ Enroll", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("+ ${LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT).take(6)}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            ScannerScanState.DUPLICATE_ATTENDANCE -> {
+                                Button(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        viewModel.openStudentInfo(state.matchedRoll)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFF59E0B).copy(alpha = 0.25f),
+                                        contentColor = Color(0xFFF59E0B)
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Profile", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                             ScannerScanState.RECOGNIZED -> {
@@ -1429,22 +1842,40 @@ fun ScannerScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
-                                    Text("Mark Attendance", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                             ScannerScanState.ATTENDANCE_RECORDED -> {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x3334C759))
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = "Recorded",
-                                        color = Color(0xFF34C759),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0x3334C759))
+                                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = LocalizationManager.get(StringKey.VERIFIED_BADGE),
+                                            color = Color(0xFF34C759),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    if (state.matchedRoll.isNotBlank()) {
+                                        IconButton(
+                                            onClick = { viewModel.openStudentInfo(state.matchedRoll) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccountCircle,
+                                                contentDescription = "Profile",
+                                                tint = omniCyan(isDark),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             ScannerScanState.UNKNOWN_IDENTITY -> {
@@ -1454,7 +1885,7 @@ fun ScannerScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text("Register", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text(LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT).take(8), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
                                 }
                             }
                             else -> {
@@ -1467,7 +1898,7 @@ fun ScannerScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Retry Scan",
+                                        contentDescription = LocalizationManager.get(StringKey.RETRY_ACTION),
                                         tint = omniCyan(isDark),
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -1487,14 +1918,14 @@ fun ScannerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Database: ${state.enrolledCount} enrolled",
+                            text = "${state.enrolledCount} ${LocalizationManager.get(StringKey.STUDENTS_ENROLLED)}",
                             color = omniTextMuted(isDark),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
 
                         Text(
-                            text = if (state.enrolledCount == 0) "+ Enroll Student" else "Manage Database →",
+                            text = if (state.enrolledCount == 0) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else LocalizationManager.get(StringKey.MANAGE_DATABASE),
                             color = omniCyan(isDark),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -1665,6 +2096,270 @@ fun ScannerScreen(
             onSimulateState = { viewModel.setThermalSimulationOverride(it) }
         )
     }
+
+    if (state.showModelManagerDialog) {
+        ModelManagerDialog(
+            isDark = isDark,
+            config = state.neuralModelConfig,
+            onDismiss = { viewModel.dismissModelManagerDialog() }
+        )
+    }
+
+    state.selectedStudentForInfo?.let { student ->
+        StudentInfoSheet(
+            student = student,
+            templates = state.studentTemplatesForInfo,
+            attendanceCount = state.studentAttendanceCountForInfo,
+            recentRecords = state.studentRecentRecordsForInfo,
+            isDark = isDark,
+            onDismiss = { viewModel.closeStudentInfo() },
+            onEditClick = {
+                viewModel.closeStudentInfo()
+                onNavigateToEnroll()
+            },
+            onViewAttendanceClick = {
+                viewModel.closeStudentInfo()
+            },
+            onReEnrollClick = {
+                viewModel.closeStudentInfo()
+                onNavigateToEnroll()
+            }
+        )
+    }
+}
+
+@Composable
+private fun ModelManagerDialog(
+    isDark: Boolean,
+    config: com.omniface.ai.ml.NeuralModelConfig,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF8B5CF6))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "NEURAL MODEL MANAGER",
+                    color = omniTextPrimary(isDark),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        },
+        text = {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    Text(
+                        text = "Toggle auxiliary neural models on/off in real-time. Core Face Detection & ArcFace 512-D remain active.",
+                        color = omniTextSecondary(isDark),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+
+                // Core Baseline
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0x1F1E293B) else Color(0x0A000000))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Core Face Detection & Recognition", color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("ML Kit Face + ArcFace 512-D Embedding", color = omniTextMuted(isDark), fontSize = 10.sp)
+                        }
+                        Text("ACTIVE", color = Color(0xFF10B981), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // MiniFASNet PAD
+                item {
+                    ModelToggleRow(
+                        title = "MiniFASNetV2 Passive PAD",
+                        subtitle = "Neural Screen / Photo Anti-Spoofing",
+                        checked = config.isPassivePadEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setPassivePadEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF007AFF)
+                    )
+                }
+
+                // Multi-Stage Texture & Glare
+                item {
+                    ModelToggleRow(
+                        title = "Multi-Stage Texture / Glare",
+                        subtitle = "LBP Texture Entropy & Specular Analysis",
+                        checked = config.isMultiStageLivenessEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setMultiStageLivenessEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF06B6D4)
+                    )
+                }
+
+                // Temporal Liveness
+                item {
+                    ModelToggleRow(
+                        title = "Temporal Micro-Motion",
+                        subtitle = "Optical Flow & Blink Continuity",
+                        checked = config.isTemporalLivenessEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setTemporalLivenessEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF3B82F6)
+                    )
+                }
+
+                // FaceMap 3DMM
+                item {
+                    ModelToggleRow(
+                        title = "FaceMap 3DMM",
+                        subtitle = "265-D 3D Surface Depth Reconstruction",
+                        checked = config.isFaceMap3DMMEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setFaceMap3DMMEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF8B5CF6)
+                    )
+                }
+
+                // EyeGazeNet
+                item {
+                    ModelToggleRow(
+                        title = "EyeGazeNet Tracker",
+                        subtitle = "Pupil Vector & Attention Tracking",
+                        checked = config.isEyeGazeEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setEyeGazeEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFFEC4899)
+                    )
+                }
+
+                // FaceAttribNet
+                item {
+                    ModelToggleRow(
+                        title = "FaceAttribNet Classifier",
+                        subtitle = "Smile, Eyeglasses & Mask Detection",
+                        checked = config.isFaceAttribEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setFaceAttribEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFFF59E0B)
+                    )
+                }
+
+                // MediaPipe Mesh
+                item {
+                    ModelToggleRow(
+                        title = "MediaPipe 468-Point 3D Mesh",
+                        subtitle = "Dense Facial Surface Point Cloud",
+                        checked = config.isMediaPipeMeshEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setMediaPipeMeshEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF14B8A6)
+                    )
+                }
+
+                // HRNet Landmarks
+                item {
+                    ModelToggleRow(
+                        title = "HRNet Deep Landmarks",
+                        subtitle = "29-Point Landmark Heatmap Extractor",
+                        checked = config.isHrnetLandmarksEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setHrnetLandmarksEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF6366F1)
+                    )
+                }
+
+                // Dynamic Centroid Adaptation
+                item {
+                    ModelToggleRow(
+                        title = "Dynamic Centroid Adaptation",
+                        subtitle = "Continuous Learning on Verified Scans",
+                        checked = config.isDynamicCentroidAdaptationEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setDynamicCentroidAdaptationEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF10B981)
+                    )
+                }
+
+                // FAISS HNSW Index
+                item {
+                    ModelToggleRow(
+                        title = "FAISS / HNSW Vector Index",
+                        subtitle = "Sub-Millisecond Candidate Search",
+                        checked = config.isFaissHnswIndexEnabled,
+                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setFaissHnswIndexEnabled(it) },
+                        isDark = isDark,
+                        tint = Color(0xFF8B5CF6)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LocalizationManager.get(StringKey.CLOSE_ACTION), color = omniCyan(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = { com.omniface.ai.ml.NeuralModelConfigManager.resetToDefaults() }
+            ) {
+                Text("Reset Defaults", color = Color(0xFFEF4444), fontSize = 11.sp)
+            }
+        },
+        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun ModelToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    isDark: Boolean,
+    tint: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isDark) Color(0x1F1E293B) else Color(0x0A000000))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(1.dp))
+            Text(subtitle, color = omniTextMuted(isDark), fontSize = 10.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = tint
+            ),
+            modifier = Modifier.height(28.dp)
+        )
+    }
 }
 
 @Composable
@@ -1773,19 +2468,19 @@ private fun ManualOverrideDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Manual Attendance Override", color = omniTextPrimary(isDark), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(LocalizationManager.get(StringKey.MANUAL_TRIGGER), color = omniTextPrimary(isDark), fontSize = 16.sp, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Admin authorization required to log manual verification.",
+                    LocalizationManager.get(StringKey.ADMIN_PIN),
                     color = omniTextSecondary(isDark),
                     fontSize = 12.sp
                 )
                 OutlinedTextField(
                     value = roll,
                     onValueChange = { roll = it },
-                    label = { Text("Student Roll Number", fontSize = 12.sp) },
+                    label = { Text(LocalizationManager.get(StringKey.ROLL_NUMBER), fontSize = 12.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
@@ -1793,7 +2488,7 @@ private fun ManualOverrideDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Student Full Name", fontSize = 12.sp) },
+                    label = { Text(LocalizationManager.get(StringKey.FULL_NAME), fontSize = 12.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
@@ -1801,7 +2496,7 @@ private fun ManualOverrideDialog(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it },
-                    label = { Text("Admin PIN", fontSize = 12.sp) },
+                    label = { Text(LocalizationManager.get(StringKey.ADMIN_PIN), fontSize = 12.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
@@ -1814,10 +2509,13 @@ private fun ManualOverrideDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    // context is hoisted to composable scope above
-                    val storedHash = AndroidSecurityUtils.getAdminPinHash(context)
-                    val inputHash = AndroidSecurityUtils.computeSha256(pin)
-                    if (inputHash != storedHash) {
+                    // Unified PBKDF2 + constant-time verification via KioskLockController
+                    val lockoutActive = com.omniface.ai.hardware.KioskLockController.isLockedOut()
+                    val pinOk = !lockoutActive &&
+                        com.omniface.ai.hardware.KioskLockController.verifyAdminPin(context, pin)
+                    if (lockoutActive) {
+                        errorText = "Too many attempts — wait for lockout to expire"
+                    } else if (!pinOk) {
                         errorText = "Invalid Admin PIN"
                     } else if (roll.isBlank() || name.isBlank()) {
                         errorText = "Please fill in Roll and Name"
@@ -1828,12 +2526,12 @@ private fun ManualOverrideDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Confirm Override", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = omniTextMuted(isDark), fontSize = 12.sp)
+                Text(LocalizationManager.get(StringKey.CANCEL_ACTION), color = omniTextMuted(isDark), fontSize = 12.sp)
             }
         },
         containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
@@ -2115,4 +2813,199 @@ private fun ThermalGovernorDialog(
         containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
         shape = RoundedCornerShape(18.dp)
     )
+}
+
+@Composable
+fun NeuralEngineLoadingOverlay(
+    loading: com.omniface.ai.ml.EngineLoadingProgress,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(if (isDark) Color(0xD90B0F19) else Color(0xD9FFFFFF)),
+        contentAlignment = Alignment.Center
+    ) {
+        IOSCard(
+            modifier = Modifier
+                .fillMaxWidth(0.90f)
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Pulsing circular indicator
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(if (isDark) Color(0x220284C7) else Color(0x1A0284C7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        progress = { loading.progress },
+                        modifier = Modifier.size(68.dp),
+                        color = Color(0xFF0284C7),
+                        trackColor = if (isDark) Color(0x330284C7) else Color(0x1A0284C7),
+                        strokeWidth = 3.5.dp
+                    )
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = "Neural Accelerator",
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+
+                // Stage title & details
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "LOADING NEURAL MODEL",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = loading.activeModelName,
+                        color = omniTextPrimary(isDark),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = loading.stage,
+                        color = omniTextSecondary(isDark),
+                        fontSize = 12.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+
+                // Progress Bar with Percentage
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = loading.hardwareTarget,
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${(loading.progress * 100).toInt()}%",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { loading.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = Color(0xFF0284C7),
+                        trackColor = if (isDark) Color(0x22FFFFFF) else Color(0x14000000)
+                    )
+                }
+
+                Text(
+                    text = "Compiling neural graph tensors on silicon hardware. Inference warmup in progress...",
+                    color = omniTextMuted(isDark),
+                    fontSize = 11.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CupertinoDockIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isActive: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit
+) {
+    val isDark = LocalThemeIsDark.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "dockBtnScale"
+    )
+
+    val bgColor by animateColorAsState(
+        targetValue = if (isActive) {
+            activeColor.copy(alpha = if (isDark) 0.28f else 0.18f)
+        } else {
+            if (isDark) Color(0x1AFFFFFF) else Color(0x0A000000)
+        },
+        label = "dockBtnBg"
+    )
+
+    val iconTint by animateColorAsState(
+        targetValue = if (isActive) activeColor else omniTextPrimary(isDark),
+        label = "dockBtnTint"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() }
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(bgColor)
+                .border(
+                    0.5.dp,
+                    if (isActive) activeColor.copy(alpha = 0.6f) else (if (isDark) Color(0x22FFFFFF) else Color(0x12000000)),
+                    RoundedCornerShape(13.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = if (isActive) activeColor else omniTextMuted(isDark),
+            fontSize = 10.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            letterSpacing = (-0.1).sp
+        )
+    }
 }

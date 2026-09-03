@@ -42,37 +42,37 @@ enum class ThermalState(
         maxFps = 30,
         frameSkipMod = 1L,
         downscaleFactor = 1.0f,
-        targetResolution = Size(640, 480),
+        targetResolution = Size(1920, 1080),
         performanceMode = FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE,
         minFaceSize = 0.10f,
-        label = "NOMINAL (<38°C)",
-        resolutionLabel = "640×480 (Full Res)",
+        label = "NOMINAL (<45°C)",
+        resolutionLabel = "1080p (Full HD)",
         colorHex = 0xFF34C759,
-        description = "Optimal silicon temperature. Full 640p resolution, sub-8ms NPU inference, 30 FPS."
+        description = "Optimal silicon temperature. Full HD 1080p resolution, sub-8ms NPU inference, 30 FPS."
     ),
     WARM(
         maxFps = 20,
         frameSkipMod = 2L,
         downscaleFactor = 0.75f,
-        targetResolution = Size(480, 360),
-        performanceMode = FaceDetectorOptions.PERFORMANCE_MODE_FAST,
-        minFaceSize = 0.15f,
-        label = "WARM (38-42°C)",
-        resolutionLabel = "480×360 (Throttled)",
+        targetResolution = Size(1920, 1080),
+        performanceMode = FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE,
+        minFaceSize = 0.10f,
+        label = "WARM (45-52°C)",
+        resolutionLabel = "1080p (FPS Regulated)",
         colorHex = 0xFFFF9500,
-        description = "Elevated temperature. Detector downscaled to 480p, 20 FPS throttling, 45% lower thermal load."
+        description = "Elevated temperature. Full 1080p resolution preserved, 20 FPS throttling to allow silicon cooling."
     ),
     CRITICAL(
         maxFps = 10,
         frameSkipMod = 3L,
         downscaleFactor = 0.50f,
-        targetResolution = Size(320, 240),
-        performanceMode = FaceDetectorOptions.PERFORMANCE_MODE_FAST,
-        minFaceSize = 0.20f,
-        label = "CRITICAL (>42°C)",
-        resolutionLabel = "320×240 (Eco Guard)",
+        targetResolution = Size(1920, 1080),
+        performanceMode = FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE,
+        minFaceSize = 0.12f,
+        label = "CRITICAL (>52°C)",
+        resolutionLabel = "1080p (Eco Cooldown)",
         colorHex = 0xFFFF3B30,
-        description = "Critical thermal ceiling. Detector downscaled to 320p, 10 FPS eco mode to allow silicon cooling."
+        description = "Critical thermal ceiling. Full 1080p resolution preserved, 10 FPS cooldown mode to protect battery."
     )
 }
 
@@ -212,8 +212,8 @@ object ThermalGovernor {
             }
 
             _thermalState.value = when {
-                tempCelsius > 42.0f || isSystemThrottled -> ThermalState.CRITICAL
-                tempCelsius > 38.0f -> ThermalState.WARM
+                tempCelsius > 52.0f || isSystemThrottled -> ThermalState.CRITICAL
+                tempCelsius > 45.0f -> ThermalState.WARM
                 else -> ThermalState.NOMINAL
             }
         } catch (_: Exception) {
@@ -226,19 +226,10 @@ object ThermalGovernor {
 
     /**
      * Downscales the full resolution camera frame bitmap dynamically based on active thermal state.
-     * Returns the downscaled bitmap or original if NOMINAL.
+     * Returns the original bitmap (1.0f factor) to preserve crystal-clear biometric recognition clarity.
      */
     fun scaleBitmapForThermal(sourceBitmap: Bitmap, state: ThermalState): Pair<Bitmap, Float> {
-        val factor = state.downscaleFactor
-        if (factor >= 0.99f || sourceBitmap.isRecycled) {
-            return sourceBitmap to 1.0f
-        }
-
-        val targetWidth = (sourceBitmap.width * factor).toInt().coerceAtLeast(160)
-        val targetHeight = (sourceBitmap.height * factor).toInt().coerceAtLeast(120)
-
-        val scaled = Bitmap.createScaledBitmap(sourceBitmap, targetWidth, targetHeight, true)
-        return scaled to factor
+        return sourceBitmap to 1.0f
     }
 
     /**

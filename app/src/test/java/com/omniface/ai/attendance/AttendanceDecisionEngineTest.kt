@@ -13,15 +13,15 @@ class AttendanceDecisionEngineTest {
         val matchResult = MatchResult(
             studentRoll = "CS2024-001",
             studentName = "John Doe",
-            confidence = 96.5f,
-            similarity = 0.68f,
+            confidence = 85.0f,
+            similarity = 0.85f,
             isMatch = true,
             hardwareTier = HardwareTier.GPU_DELEGATE,
             confidenceZone = ConfidenceZone.ACCEPT,
             decisionMargin = 0.25f,
             secondBestRoll = "CS2024-002",
-            secondBestSimilarity = 0.43f,
-            explanation = "Verified: Cosine sim 0.680 >= 0.158, Decision margin Δ=0.250"
+            secondBestSimilarity = 0.60f,
+            explanation = "Verified: Cosine sim 0.850 >= 0.720, Decision margin Δ=0.250"
         )
 
         assertEquals(ConfidenceZone.ACCEPT, matchResult.confidenceZone)
@@ -31,18 +31,18 @@ class AttendanceDecisionEngineTest {
 
     @Test
     fun testConfidenceZone_ReviewZone_whenNarrowMargin() {
-        // Person A scored 0.450 and Person B scored 0.435 (margin 0.015 < 0.035) -> Ambiguous!
+        // Person A scored 0.750 and Person B scored 0.735 (margin 0.015 < 0.035) -> Ambiguous!
         val matchResult = MatchResult(
             studentRoll = "CS2024-001",
             studentName = "Alice Doe",
-            confidence = 82.0f,
-            similarity = 0.45f,
+            confidence = 75.0f,
+            similarity = 0.75f,
             isMatch = false,
             hardwareTier = HardwareTier.GPU_DELEGATE,
             confidenceZone = ConfidenceZone.REVIEW,
             decisionMargin = 0.015f,
             secondBestRoll = "CS2024-002",
-            secondBestSimilarity = 0.435f,
+            secondBestSimilarity = 0.735f,
             explanation = "Ambiguous Identity: Top-1 vs Top-2 has narrow margin Δ=0.015 < 0.035"
         )
 
@@ -61,7 +61,7 @@ class AttendanceDecisionEngineTest {
             hardwareTier = HardwareTier.CPU_XNNPACK,
             confidenceZone = ConfidenceZone.REJECT,
             decisionMargin = 0.08f,
-            explanation = "Unrecognized: Cosine sim 0.080 < threshold 0.158"
+            explanation = "Unrecognized: Cosine sim 0.080 < threshold 0.720"
         )
 
         assertEquals(ConfidenceZone.REJECT, matchResult.confidenceZone)

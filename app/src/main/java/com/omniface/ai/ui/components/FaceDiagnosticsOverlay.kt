@@ -45,6 +45,7 @@ data class FaceGeometryVisualData(
     val pitch: Float,
     val roll: Float,
     val landmarks5Pts: Array<PointF>? = null,
+    val contours: Map<Int, List<Offset>>? = null,
     val gazeResult: EyeGazeResult? = null,
     val faceMap3DMM: FaceMap3DMMResult? = null,
     val attributes: FaceAttributesResult? = null,
@@ -58,7 +59,8 @@ data class FaceGeometryVisualData(
     val studentName: String = "",
     val studentRoll: String = "",
     val isLive: Boolean = true,
-    val activeHardwareNpu: String = "Qualcomm Hexagon NPU"
+    val activeHardwareNpu: String = "Qualcomm Hexagon NPU",
+    val isFrontCamera: Boolean = true
 )
 
 /**
@@ -95,11 +97,11 @@ fun FaceDiagnosticsOverlay(
         }
     }
 
-    // Smooth fade-in / fade-out alpha transition based on current detection state
+    // Smooth fade-in / fade-out alpha transition based on current detection state (60ms fast lock)
     val overlayAlpha by animateFloatAsState(
         targetValue = if (hasFaces) 1.0f else 0.0f,
         animationSpec = tween(
-            durationMillis = if (hasFaces) 220 else 300,
+            durationMillis = if (hasFaces) 60 else 180,
             easing = FastOutSlowInEasing
         ),
         label = "faceOverlayAlpha"
@@ -131,10 +133,10 @@ fun FaceDiagnosticsOverlay(
     val targetConfidence = when {
         primaryFace == null -> 0f
         !primaryFace.isLive -> 0f
-        primaryFace.similarityScore > 0f -> (primaryFace.similarityScore * 100f).coerceIn(1f, 99f)
-        primaryFace.qualityResult?.overallQualityScore != null -> primaryFace.qualityResult.overallQualityScore.coerceIn(1f, 99f)
-        primaryFace.qualityScore?.overallScore != null -> primaryFace.qualityScore.overallScore.coerceIn(1f, 99f)
-        else -> 92f
+        primaryFace.similarityScore > 0f -> (primaryFace.similarityScore * 100f).coerceIn(0f, 100f)
+        primaryFace.qualityResult?.overallQualityScore != null -> primaryFace.qualityResult.overallQualityScore.coerceIn(0f, 100f)
+        primaryFace.qualityScore?.overallScore != null -> primaryFace.qualityScore.overallScore.coerceIn(0f, 100f)
+        else -> 0f
     }
 
     val animatedConfidenceScore by animateFloatAsState(
@@ -178,42 +180,45 @@ fun FaceDiagnosticsOverlay(
             // 1. Core Bounding Box with Smooth Face ID Corner Brackets & Clean Highlight
             drawFaceBoundingBox(rect, faceHaloColor, overlayAlpha, pulseScale)
 
-            // 2. 3D Morphable Model (FaceMap 3DMM) Depth Contours
-            if (show3DMMTopography && face.faceMap3DMM != null) {
+            // 2. 3D Morphable Model (FaceMap 3DMM) Depth Contours (Only when 3D mesh is not active to prevent duplicate rings)
+            if (show3DMMTopography && face.faceMap3DMM != null && face.meshResult == null) {
                 drawFaceMap3DMMContours(rect, face.faceMap3DMM.depthVariance, faceHaloColor, overlayAlpha)
             }
 
-            // 3. MediaPipe 468-point 3D Mesh Wireframe & HRNet Keypoints
-            if (showMeshWireframe && face.meshResult != null) {
-                drawMediaPipeMeshTessellation(face.meshResult.landmarks468x3, rect, faceHaloColor, overlayAlpha)
+            // 3. Dense Facial Contour Wireframe & MediaPipe 468-point 3D Mesh (Mutually exclusive: only render ONE clean mesh)
+            if (showMeshWireframe) {
+                if (face.meshResult != null) {
+                    drawMediaPipeMeshTessellation(face.meshResult.landmarks468x3, rect, faceHaloColor, overlayAlpha, face.isFrontCamera)
+                } else if (face.contours != null && face.contours.isNotEmpty()) {
+                    drawDenseContourMesh(face.contours, rect, faceHaloColor, overlayAlpha)
+                }
             }
 
-            // 4. 3D Head Pose Coordinate Frame Axes (Pitch, Yaw, Roll)
+            // 4. Real-Time 5-Point Canonical Landmark Fiducials (Fallback when no 3D mesh is active to avoid duplicate dots)
+            if (face.meshResult == null && face.landmarks5Pts != null && face.landmarks5Pts.isNotEmpty()) {
+                drawLandmarkFiducials(face.landmarks5Pts, rect, faceHaloColor, overlayAlpha, face.isFrontCamera)
+            }
+
+            // 5. 3D Head Pose Coordinate Frame Axes (Pitch, Yaw, Roll)
             if (showPoseAxes) {
-                drawHeadPoseAxes(cx, cy, faceRadius, face.yaw, face.pitch, face.roll, overlayAlpha)
+                drawHeadPoseAxes(cx, cy, faceRadius, face.yaw, face.pitch, face.roll, overlayAlpha, face.isFrontCamera)
             }
 
-            // 5. Optical Eye Gaze Subpixel Vectors
+            // 6. Optical Eye Gaze Subpixel Vectors
             if (showGazeRays && face.gazeResult != null) {
-                drawEyeGazeRays(cx, cy, faceRadius, face.gazeResult, overlayAlpha)
+                drawEyeGazeRays(cx, cy, faceRadius, face.gazeResult, overlayAlpha, face.isFrontCamera, face.landmarks5Pts)
             }
 
-            // 6. Cybernetic Attribute HUD Tags
+            // 7. Cybernetic Attribute HUD Tags (Developer mode only)
             if (isDeveloperMode && face.attributes != null) {
                 drawQualcommAttributeTags(rect, face, overlayAlpha)
             }
 
-            // 7. Real-Time Floating Identity / Status Capsule on Canvas
+            // 8. Real-Time Floating Identity / Status Capsule on Canvas
             drawFaceIdentityPill(rect, face, faceHaloColor, overlayAlpha)
 
-            // 8. Floating Confidence & Scan Quality Percentage Overlay with smooth score transition
-            drawFaceConfidenceOverlay(
-                rect = rect,
-                face = face,
-                haloColor = faceHaloColor,
-                alpha = overlayAlpha,
-                animatedScore = animatedConfidenceScore
-            )
+            // 9. Real-Time Floating Confidence & Scan Quality Score Glass Badge
+            drawFaceConfidenceOverlay(rect, face, faceHaloColor, overlayAlpha, animatedConfidenceScore)
         }
     }
 }
@@ -283,18 +288,19 @@ private fun DrawScope.drawFaceIdentityPill(
     if (alpha <= 0.01f) return
     val nativeCanvas = drawContext.canvas.nativeCanvas
 
+    val isMatched = face.studentName.isNotBlank() || face.confidenceZone == ConfidenceZone.ACCEPT
     val titleText = when {
         !face.isLive -> "SPOOF ATTACK DETECTED"
-        face.studentName.isNotBlank() -> face.studentName.uppercase()
-        face.confidenceZone == ConfidenceZone.ACCEPT -> "VERIFIED MATCH"
+        isMatched && face.studentName.isNotBlank() -> "✓ ${face.studentName.uppercase()}"
+        face.confidenceZone == ConfidenceZone.ACCEPT -> "✓ VERIFIED MATCH"
         face.confidenceZone == ConfidenceZone.REVIEW -> "REVIEW REQUIRED"
         else -> "FACE DETECTED"
     }
 
     val subtitleText = when {
         !face.isLive -> "Presentation Attack Rejected"
-        face.similarityScore > 0f -> "${(face.similarityScore * 100).toInt()}% Confidence • ${face.studentRoll.ifBlank { "Live 3D" }}"
-        face.studentRoll.isNotBlank() -> "${face.studentRoll} • Live"
+        isMatched && face.similarityScore > 0f -> "${(face.similarityScore * 100).toInt()}% Match • Live 3D Face Verified"
+        face.studentRoll.isNotBlank() -> "${face.studentRoll} • Live 3D"
         else -> "Real-time Tracking Active"
     }
 
@@ -302,16 +308,16 @@ private fun DrawScope.drawFaceIdentityPill(
 
     val titlePaint = android.graphics.Paint().apply {
         isAntiAlias = true
-        textSize = 26f
+        textSize = 28f
         typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD)
         color = android.graphics.Color.argb(aInt, 255, 255, 255)
     }
 
     val subPaint = android.graphics.Paint().apply {
         isAntiAlias = true
-        textSize = 19f
-        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
-        color = android.graphics.Color.argb((aInt * 0.82f).toInt(), 203, 213, 225)
+        textSize = 20f
+        typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.NORMAL)
+        color = android.graphics.Color.argb((aInt * 0.85f).toInt(), 226, 232, 240)
     }
 
     val dotPaint = android.graphics.Paint().apply {
@@ -328,7 +334,7 @@ private fun DrawScope.drawFaceIdentityPill(
     val bgPaint = android.graphics.Paint().apply {
         isAntiAlias = true
         style = android.graphics.Paint.Style.FILL
-        color = android.graphics.Color.argb((aInt * 0.90f).toInt(), 15, 23, 42) // Frosted Slate 900
+        color = android.graphics.Color.argb((aInt * 0.92f).toInt(), 11, 15, 25) // Frosted Obsidian Slate
     }
 
     val borderPaint = android.graphics.Paint().apply {
@@ -336,7 +342,7 @@ private fun DrawScope.drawFaceIdentityPill(
         style = android.graphics.Paint.Style.STROKE
         strokeWidth = 2.0f
         color = android.graphics.Color.argb(
-            (aInt * 0.70f).toInt(),
+            (aInt * 0.75f).toInt(),
             (haloColor.red * 255).toInt(),
             (haloColor.green * 255).toInt(),
             (haloColor.blue * 255).toInt()
@@ -346,8 +352,8 @@ private fun DrawScope.drawFaceIdentityPill(
     val titleWidth = titlePaint.measureText(titleText)
     val subWidth = subPaint.measureText(subtitleText)
     val contentWidth = maxOf(titleWidth, subWidth)
-    val pillWidth = contentWidth + 50f
-    val pillHeight = 56f
+    val pillWidth = contentWidth + 56f
+    val pillHeight = 58f
 
     val pillLeft = (rect.center.x - pillWidth / 2f).coerceIn(8f, size.width - pillWidth - 8f)
     val pillTop = (rect.top - pillHeight - 12f).let { if (it < 8f) rect.bottom + 12f else it }
@@ -355,15 +361,15 @@ private fun DrawScope.drawFaceIdentityPill(
     val pillRect = android.graphics.RectF(pillLeft, pillTop, pillLeft + pillWidth, pillTop + pillHeight)
 
     // Draw Frosted Capsule Background & Specular Border
-    nativeCanvas.drawRoundRect(pillRect, 14f, 14f, bgPaint)
-    nativeCanvas.drawRoundRect(pillRect, 14f, 14f, borderPaint)
+    nativeCanvas.drawRoundRect(pillRect, 16f, 16f, bgPaint)
+    nativeCanvas.drawRoundRect(pillRect, 16f, 16f, borderPaint)
 
     // Status Indicator Dot
-    nativeCanvas.drawCircle(pillLeft + 18f, pillTop + 20f, 5.5f, dotPaint)
+    nativeCanvas.drawCircle(pillLeft + 20f, pillTop + 21f, 6.0f, dotPaint)
 
     // Title & Subtitle Text Lines
-    nativeCanvas.drawText(titleText, pillLeft + 32f, pillTop + 27f, titlePaint)
-    nativeCanvas.drawText(subtitleText, pillLeft + 32f, pillTop + 47f, subPaint)
+    nativeCanvas.drawText(titleText, pillLeft + 36f, pillTop + 28f, titlePaint)
+    nativeCanvas.drawText(subtitleText, pillLeft + 36f, pillTop + 49f, subPaint)
 }
 
 /** Draws liquid glassmorphic Confidence & Scan Quality percentage score with smooth transition animation. */
@@ -380,19 +386,21 @@ private fun DrawScope.drawFaceConfidenceOverlay(
     val aInt = (alpha * 255).toInt().coerceIn(0, 255)
 
     // Animated confidence percentage & smooth display score
-    val confidencePct = animatedScore.toInt().coerceIn(0, 99)
+    val isMatched = face.studentName.isNotBlank() || face.confidenceZone == ConfidenceZone.ACCEPT || face.similarityScore > 0f
+    val displayScore = if (face.similarityScore > 0f) (face.similarityScore * 100f).toInt() else animatedScore.toInt().coerceIn(0, 99)
 
     val scoreLabel = when {
         !face.isLive -> "0% (SPOOF)"
-        face.similarityScore > 0f -> "$confidencePct% MATCH"
-        else -> "$confidencePct% SCAN"
+        isMatched -> "$displayScore% MATCH"
+        else -> "$displayScore% SCAN"
     }
 
     val subLabel = when {
         !face.isLive -> "UNRELIABLE"
-        confidencePct >= 80 -> "EXCELLENT"
-        confidencePct >= 65 -> "GOOD"
-        else -> "LOW QUALITY"
+        displayScore >= 80 -> "EXCELLENT"
+        displayScore >= 65 -> "GOOD"
+        isMatched -> "VERIFIED"
+        else -> "SCANNING"
     }
 
     val r = (haloColor.red * 255).toInt()
@@ -464,19 +472,27 @@ private fun DrawScope.drawFaceConfidenceOverlay(
     nativeCanvas.drawText(subLabel, badgeLeft + 24f, badgeTop + 41f, labelPaint)
 }
 
-/** Draws dense MediaPipe 468-point 3D facial mesh tessellation wireframe & HRNet fiducials. */
+/** Draws dense MediaPipe 468-point 3D facial mesh tessellation wireframe & HRNet fiducials with geometric precision. */
 private fun DrawScope.drawMediaPipeMeshTessellation(
     mesh: Array<FloatArray>,
     bounds: androidx.compose.ui.geometry.Rect,
     themeColor: Color,
-    alpha: Float = 1.0f
+    alpha: Float = 1.0f,
+    isFrontCamera: Boolean = true
 ) {
     if (alpha <= 0.01f) return
+
+    // Accurately map normalized [0, 1] mesh points from the 1.25x square face crop to preview canvas coordinates
+    val maxDim = maxOf(bounds.width, bounds.height) * 1.25f
+    val cropLeft = bounds.center.x - maxDim / 2f
+    val cropTop = bounds.center.y - maxDim / 2f
+    val cropRight = bounds.center.x + maxDim / 2f
+
     fun meshPointToOffset(idx: Int): Offset? {
         if (idx !in mesh.indices) return null
         val p = mesh[idx]
-        val x = bounds.left + p[0] * bounds.width
-        val y = bounds.top + p[1] * bounds.height
+        val x = if (isFrontCamera) cropRight - p[0] * maxDim else cropLeft + p[0] * maxDim
+        val y = cropTop + p[1] * maxDim
         return Offset(x, y)
     }
 
@@ -542,6 +558,128 @@ private fun DrawScope.drawMediaPipeMeshTessellation(
         val pt = meshPointToOffset(idx) ?: continue
         drawCircle(haloColor, radius = 5.0f, center = pt)
         drawCircle(Color.White.copy(alpha = alpha), radius = 2.2f, center = pt)
+    }
+}
+
+/**
+ * Draws real-time dense facial contour wireframe & landmark tessellation (133+ contour vertices).
+ * Connected along jaw, eyebrows, eyes, nose bridge, and lips with cybernetic triangulation.
+ */
+private fun DrawScope.drawDenseContourMesh(
+    contours: Map<Int, List<Offset>>,
+    bounds: androidx.compose.ui.geometry.Rect,
+    themeColor: Color,
+    alpha: Float = 1.0f
+) {
+    if (alpha <= 0.01f || contours.isEmpty()) return
+
+    val wireColor = Color.White.copy(alpha = 0.55f * alpha)
+    val meshGlowColor = themeColor.copy(alpha = 0.70f * alpha)
+    val triColor = themeColor.copy(alpha = 0.30f * alpha)
+
+    // 1. Draw connected contour loops (Face oval, Left Eye, Right Eye, Upper Lip, Lower Lip, Nose Bridge, Eyebrows)
+    for ((type, pts) in contours) {
+        if (pts.size < 2) continue
+        for (i in 0 until pts.size - 1) {
+            drawLine(
+                color = wireColor,
+                start = pts[i],
+                end = pts[i + 1],
+                strokeWidth = 1.5f,
+                cap = StrokeCap.Round
+            )
+        }
+        // Close eyes and lip loops
+        if ((type == 6 || type == 7 || type == 8 || type == 9 || type == 10 || type == 11) && pts.size > 2) {
+            drawLine(
+                color = wireColor,
+                start = pts.last(),
+                end = pts.first(),
+                strokeWidth = 1.5f,
+                cap = StrokeCap.Round
+            )
+        }
+        // Draw fiducial points
+        for (pt in pts) {
+            drawCircle(meshGlowColor, radius = 2.5f, center = pt)
+            drawCircle(Color.White.copy(alpha = alpha), radius = 1.2f, center = pt)
+        }
+    }
+
+    // 2. Cybernetic Cross-Triangulation Wireframe
+    val leftEye = contours[6]
+    val rightEye = contours[7]
+    val noseBridge = contours[12]
+    val noseBottom = contours[13]
+    val upperLip = contours[8]
+    val leftEyebrow = contours[2]
+    val rightEyebrow = contours[4]
+
+    // Eyebrows to Eyes Triangulation
+    if (leftEyebrow != null && leftEye != null && leftEyebrow.isNotEmpty() && leftEye.isNotEmpty()) {
+        val midEb = leftEyebrow[leftEyebrow.size / 2]
+        val midEye = leftEye[leftEye.size / 2]
+        drawLine(triColor, midEb, midEye, strokeWidth = 1.0f, cap = StrokeCap.Round)
+    }
+    if (rightEyebrow != null && rightEye != null && rightEyebrow.isNotEmpty() && rightEye.isNotEmpty()) {
+        val midEb = rightEyebrow[rightEyebrow.size / 2]
+        val midEye = rightEye[rightEye.size / 2]
+        drawLine(triColor, midEb, midEye, strokeWidth = 1.0f, cap = StrokeCap.Round)
+    }
+
+    // Eyes to Nose Bridge Triangulation
+    if (noseBridge != null && noseBridge.isNotEmpty()) {
+        val noseTop = noseBridge.first()
+        if (leftEye != null && leftEye.isNotEmpty()) {
+            drawLine(triColor, leftEye.first(), noseTop, strokeWidth = 1.0f, cap = StrokeCap.Round)
+        }
+        if (rightEye != null && rightEye.isNotEmpty()) {
+            drawLine(triColor, rightEye.last(), noseTop, strokeWidth = 1.0f, cap = StrokeCap.Round)
+        }
+    }
+
+    // Nose Bottom to Upper Lip Triangulation
+    if (noseBottom != null && upperLip != null && noseBottom.isNotEmpty() && upperLip.isNotEmpty()) {
+        val noseMid = noseBottom[noseBottom.size / 2]
+        val lipMid = upperLip[upperLip.size / 2]
+        drawLine(triColor, noseMid, lipMid, strokeWidth = 1.1f, cap = StrokeCap.Round)
+    }
+}
+
+/** Draws real-time 5-point canonical facial landmarks with instant subpixel locking. */
+private fun DrawScope.drawLandmarkFiducials(
+    landmarks: Array<android.graphics.PointF>,
+    bounds: androidx.compose.ui.geometry.Rect,
+    themeColor: Color,
+    alpha: Float = 1.0f,
+    isFrontCamera: Boolean = true
+) {
+    if (alpha <= 0.01f || landmarks.isEmpty()) return
+
+    val ptColor = themeColor.copy(alpha = 0.85f * alpha)
+    val ringColor = Color.White.copy(alpha = 0.70f * alpha)
+
+    // Landmarks are already projected into preview canvas space
+    val offsets = landmarks.map { pt -> Offset(pt.x, pt.y) }
+
+    // Connect eye-to-eye and nose-to-mouth with subtle cybernetic constellation lines
+    if (offsets.size >= 5) {
+        val linePaint = Color.White.copy(alpha = 0.25f * alpha)
+        // Left Eye to Right Eye
+        drawLine(linePaint, offsets[0], offsets[1], strokeWidth = 1.2f, cap = StrokeCap.Round)
+        // Eyes to Nose Base
+        drawLine(linePaint, offsets[0], offsets[2], strokeWidth = 1.0f, cap = StrokeCap.Round)
+        drawLine(linePaint, offsets[1], offsets[2], strokeWidth = 1.0f, cap = StrokeCap.Round)
+        // Nose to Mouth Corners
+        drawLine(linePaint, offsets[2], offsets[3], strokeWidth = 1.0f, cap = StrokeCap.Round)
+        drawLine(linePaint, offsets[2], offsets[4], strokeWidth = 1.0f, cap = StrokeCap.Round)
+        // Mouth Left to Mouth Right
+        drawLine(linePaint, offsets[3], offsets[4], strokeWidth = 1.2f, cap = StrokeCap.Round)
+    }
+
+    for (pt in offsets) {
+        drawCircle(color = ptColor, radius = 4.5f, center = pt)
+        drawCircle(color = ringColor, radius = 2.0f, center = pt)
     }
 }
 
@@ -648,12 +786,16 @@ private fun DrawScope.drawFaceMap3DMMContours(
 private fun DrawScope.drawHeadPoseAxes(
     cx: Float, cy: Float, radius: Float,
     yaw: Float, pitch: Float, roll: Float,
-    alpha: Float = 1.0f
+    alpha: Float = 1.0f,
+    isFrontCamera: Boolean = true
 ) {
     if (alpha <= 0.01f) return
-    val yawRad = Math.toRadians(yaw.toDouble()).toFloat()
+    // Visual yaw is already normalized to preview coordinate space (negative = screen left, positive = screen right)
+    val effectiveYaw = yaw
+    val effectiveRoll = if (isFrontCamera) -roll else roll
+    val yawRad = Math.toRadians(effectiveYaw.toDouble()).toFloat()
     val pitchRad = Math.toRadians(pitch.toDouble()).toFloat()
-    val rollRad = Math.toRadians(roll.toDouble()).toFloat()
+    val rollRad = Math.toRadians(effectiveRoll.toDouble()).toFloat()
     val axisLen = radius * 0.70f
 
     // X-Axis (Yaw / Lateral Direction) - RED
@@ -672,7 +814,7 @@ private fun DrawScope.drawHeadPoseAxes(
 
     // Z-Axis (Optical Normal / Depth Vector) - CYAN
     val zEnd = Offset(
-        x = cx - axisLen * 0.55f * sin(yawRad),
+        x = cx + axisLen * 0.55f * sin(yawRad),
         y = cy - axisLen * 0.55f * sin(pitchRad)
     )
     drawLine(Color(0xFF00E5FF).copy(alpha = alpha), Offset(cx, cy), zEnd, strokeWidth = 4.0f, cap = StrokeCap.Round)
@@ -682,15 +824,26 @@ private fun DrawScope.drawHeadPoseAxes(
 private fun DrawScope.drawEyeGazeRays(
     cx: Float, cy: Float, radius: Float,
     gaze: EyeGazeResult,
-    alpha: Float = 1.0f
+    alpha: Float = 1.0f,
+    isFrontCamera: Boolean = true,
+    landmarks5Pts: Array<PointF>? = null
 ) {
     if (alpha <= 0.01f) return
     val gazeLen = radius * 0.65f
-    val gazeYawRad = Math.toRadians(gaze.yaw.toDouble()).toFloat()
+    val effectiveGazeYaw = if (isFrontCamera) -gaze.yaw else gaze.yaw
+    val gazeYawRad = Math.toRadians(effectiveGazeYaw.toDouble()).toFloat()
     val gazePitchRad = Math.toRadians(gaze.pitch.toDouble()).toFloat()
 
-    val leftEyeOrigin = Offset(cx - radius * 0.32f, cy - radius * 0.20f)
-    val rightEyeOrigin = Offset(cx + radius * 0.32f, cy - radius * 0.20f)
+    val leftEyeOrigin = if (landmarks5Pts != null && landmarks5Pts.isNotEmpty()) {
+        Offset(landmarks5Pts[0].x, landmarks5Pts[0].y)
+    } else {
+        Offset(cx - radius * 0.32f, cy - radius * 0.20f)
+    }
+    val rightEyeOrigin = if (landmarks5Pts != null && landmarks5Pts.size > 1) {
+        Offset(landmarks5Pts[1].x, landmarks5Pts[1].y)
+    } else {
+        Offset(cx + radius * 0.32f, cy - radius * 0.20f)
+    }
 
     val rayColor = if (gaze.isGazeAttentive) Color(0xFF0A84FF).copy(alpha = alpha) else Color(0xFFFF9500).copy(alpha = alpha)
 

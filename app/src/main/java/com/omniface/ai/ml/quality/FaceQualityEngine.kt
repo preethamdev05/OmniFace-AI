@@ -7,14 +7,47 @@ import kotlin.math.abs
 
 data class QualityGateResult(
     val isPassed: Boolean,
-    val overallQualityScore: Float, // 0.0 to 100.0
-    val sharpnessScore: Float,      // 0.0 to 100.0
-    val exposureScore: Float,       // 0.0 to 100.0
-    val poseScore: Float,           // 0.0 to 100.0
-    val sizeScore: Float,           // 0.0 to 100.0
-    val rejectionReason: String,
-    val meanLuminance: Float = 128.0f
-)
+    val overallQualityScore: Float = 100.0f, // 0.0 to 100.0
+    val sharpnessScore: Float = 100.0f,      // 0.0 to 100.0
+    val exposureScore: Float = 100.0f,       // 0.0 to 100.0
+    val poseScore: Float = 100.0f,           // 0.0 to 100.0
+    val sizeScore: Float = 100.0f,           // 0.0 to 100.0
+    val rejectionReason: String = "",
+    val meanLuminance: Float = 128.0f,
+    val lightingScore: Float = exposureScore,
+    val poseYawScore: Float = poseScore,
+    val posePitchScore: Float = poseScore,
+    val poseRollScore: Float = poseScore,
+    val scaleScore: Float = sizeScore,
+    val overallScore: Float = overallQualityScore,
+    val blurScore: Float = sharpnessScore,
+    val failureReason: String = rejectionReason
+) {
+    constructor(
+        isPassed: Boolean,
+        overallScore: Float,
+        blurScore: Float,
+        lightingScore: Float,
+        failureReason: String
+    ) : this(
+        isPassed = isPassed,
+        overallQualityScore = overallScore,
+        sharpnessScore = blurScore,
+        exposureScore = lightingScore,
+        poseScore = 100.0f,
+        sizeScore = 100.0f,
+        rejectionReason = failureReason,
+        meanLuminance = 128.0f,
+        lightingScore = lightingScore,
+        poseYawScore = 100.0f,
+        posePitchScore = 100.0f,
+        poseRollScore = 100.0f,
+        scaleScore = 100.0f,
+        overallScore = overallScore,
+        blurScore = blurScore,
+        failureReason = failureReason
+    )
+}
 
 /**
  * Multi-Factor Biometric Quality Gate Engine (Gate 1).
@@ -37,9 +70,10 @@ object FaceQualityEngine {
         face: Face,
         fullFrameWidth: Int,
         fullFrameHeight: Int,
-        faceCrop: Bitmap?
+        faceCrop: Bitmap?,
+        faceBox: Rect = face.boundingBox
     ): QualityGateResult {
-        val box = face.boundingBox
+        val box = faceBox
 
         // 1. Face Size Fraction
         val widthFraction = box.width().toFloat() / fullFrameWidth.toFloat().coerceAtLeast(1f)

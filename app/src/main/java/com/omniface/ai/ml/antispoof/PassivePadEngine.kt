@@ -19,10 +19,40 @@ import java.nio.channels.FileChannel
 data class PassivePadResult(
     val isLive: Boolean,
     val livenessScore: Float,        // 0.0 to 1.0 (Live probability)
-    val spoofProbability: Float,     // 0.0 to 1.0 (Spoof/Replay/Print probability)
-    val attackTypeDescription: String,
-    val latencyMs: Long
-)
+    val spoofProbability: Float = (1.0f - livenessScore).coerceIn(0f, 1f),
+    val attackTypeDescription: String = "",
+    val latencyMs: Long = 0L,
+    val inferenceLatencyMs: Long = latencyMs
+) {
+    constructor(
+        isLive: Boolean,
+        livenessScore: Float,
+        attackTypeDescription: String,
+        latencyMs: Long
+    ) : this(
+        isLive = isLive,
+        livenessScore = livenessScore,
+        spoofProbability = (1.0f - livenessScore).coerceIn(0f, 1f),
+        attackTypeDescription = attackTypeDescription,
+        latencyMs = latencyMs,
+        inferenceLatencyMs = latencyMs
+    )
+
+    constructor(
+        isLive: Boolean,
+        confidence: Float,
+        label: String,
+        inferenceMs: Long,
+        @Suppress("UNUSED_PARAMETER") dummy: Unit = Unit
+    ) : this(
+        isLive = isLive,
+        livenessScore = confidence,
+        spoofProbability = (1.0f - confidence).coerceIn(0f, 1f),
+        attackTypeDescription = label,
+        latencyMs = inferenceMs,
+        inferenceLatencyMs = inferenceMs
+    )
+}
 
 /**
  * Dedicated Neural Presentation Attack Detector (Passive RGB PAD).
@@ -58,10 +88,32 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
     private val outputBuffer = Array(1) { FloatArray(2) } // [0: Spoof, 1: Live] or [0: Live, 1: Spoof]
     private val pixelBuffer = IntArray(INPUT_SIZE * INPUT_SIZE)
 
+    private val padMutex = Any()
+    @Volatile private var isInitialized = false
+
     override val isReady: Boolean get() = interpreter != null
 
     init {
-        initializeEngine()
+        initializeAsync()
+    }
+
+    fun initializeAsync() {
+        Thread {
+            try {
+                ensureInitialized()
+            } catch (t: Throwable) {
+                Log.w(TAG, "PassivePadEngine async init notice: ${t.message}")
+            }
+        }.apply { isDaemon = true; name = "passive-pad-init" }.start()
+    }
+
+    private fun ensureInitialized() {
+        if (isInitialized) return
+        synchronized(padMutex) {
+            if (isInitialized) return
+            initializeEngine()
+            isInitialized = true
+        }
     }
 
     private fun initializeEngine() {

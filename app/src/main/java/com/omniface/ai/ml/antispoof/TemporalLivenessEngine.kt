@@ -139,34 +139,33 @@ class TemporalLivenessEngine {
         }
 
         val avgMotionPerFrame = totalMotion / (samples.size - 1)
-        val hasMicroMotion = avgMotionPerFrame > 0.04f || samples.size >= 5
-        val headTurnOccurred = maxYawDiff >= 12.0f || maxPitchDiff >= 10.0f
+        val hasMicroMotion = avgMotionPerFrame > 0.01f || samples.size >= 3
+        val headTurnOccurred = maxYawDiff >= 10.0f || maxPitchDiff >= 8.0f
 
         // 4. Check Eye Openness Transition (Blink Detection)
         val minEye = samples.minOf { it.eyeOpenness }
         val maxEye = samples.maxOf { it.eyeOpenness }
         val eyeDelta = maxEye - minEye
-        val blinkOccurred = eyeDelta >= 0.30f || (minEye <= 0.25f && maxEye >= 0.65f)
+        val blinkOccurred = eyeDelta >= 0.25f || (minEye <= 0.30f && maxEye >= 0.60f)
 
-        // 5. Anti-Spoof Dynamic Action Requirement: If passive PAD or depth is borderline or static, require challenge (blink or head turn)
-        val isStaticReplay = avgMotionPerFrame < 0.015f && !blinkOccurred && !headTurnOccurred && samples.size >= 6
-        val dynamicChallengePassed = blinkOccurred || headTurnOccurred || (hasMicroMotion && avgPadScore >= 0.70f)
+        // 5. Anti-Spoof Dynamic Action Requirement: Flag static replay if strictly zero motion over 6+ frames
+        val isStrictStaticPhoto = avgMotionPerFrame < 0.005f && eyeDelta < 0.05f && !headTurnOccurred && samples.size >= 6
+        val isLive = (avgPadScore >= 0.35f) && stable3DDepth && !isStrictStaticPhoto
 
         val requiredAction = when {
-            isStaticReplay -> if (samples.size % 2 == 0) LivenessChallengeType.BLINK else LivenessChallengeType.TURN_LEFT
-            avgPadScore in 0.40f..0.65f && !blinkOccurred && !headTurnOccurred -> LivenessChallengeType.BLINK
+            isStrictStaticPhoto -> LivenessChallengeType.BLINK
+            avgPadScore in 0.30f..0.50f && !blinkOccurred && !headTurnOccurred -> LivenessChallengeType.BLINK
             else -> null
         }
 
         // 6. Final Temporal Synthesis
-        val isLive = (avgPadScore >= 0.45f) && stable3DDepth && !isStaticReplay
         val bonus = (if (blinkOccurred) 0.15f else 0f) + (if (headTurnOccurred) 0.15f else 0f)
-        val score = (avgPadScore * 0.50f + (if (stable3DDepth) 0.20f else 0f) + (if (hasMicroMotion) 0.15f else 0f) + bonus).coerceIn(0f, 1f)
+        val score = (avgPadScore * 0.50f + (if (stable3DDepth) 0.25f else 0f) + (if (hasMicroMotion) 0.15f else 0f) + bonus).coerceIn(0f, 1f)
 
         val explanation = when {
-            isStaticReplay -> "Static image detected — please blink or turn head slightly"
+            isStrictStaticPhoto -> "Static image detected — please blink or turn head slightly"
             !stable3DDepth -> "Planar 2D surface detected (Low 3D Topography)"
-            avgPadScore < 0.45f -> "Temporal PAD replay / print attack detected"
+            avgPadScore < 0.35f -> "Temporal PAD replay / print attack detected"
             blinkOccurred -> "Live subject verified (Natural eye blink detected)"
             headTurnOccurred -> "Live subject verified (3D head rotation confirmed)"
             else -> "Live 3D subject verified (${samples.size} frames consensus)"

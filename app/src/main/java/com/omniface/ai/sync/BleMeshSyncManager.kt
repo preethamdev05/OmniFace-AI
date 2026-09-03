@@ -2,6 +2,7 @@ package com.omniface.ai.sync
 
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,7 +12,8 @@ data class BleMeshState(
     val isAdvertising: Boolean = false,
     val isScanning: Boolean = false,
     val connectedPeerCount: Int = 0,
-    val lastSyncedPayloadHash: String? = null
+    val lastSyncedPayloadHash: String? = null,
+    val lastError: String? = null
 )
 
 object BleMeshSyncManager {
@@ -20,16 +22,25 @@ object BleMeshSyncManager {
     val meshState: StateFlow<BleMeshState> = _meshState.asStateFlow()
 
     /**
-     * Toggles Encrypted BLE Offline Peer-to-Peer Mesh synchronization.
-     * When active, nearby Android tablets & kiosks broadcast local scan delta hashes
-     * and request missing biometric attendance records directly over Bluetooth LE GATT.
+     * Toggles BLE Mesh state with honest capability detection.
+     * Real GATT advertising/scanning requires BLUETOOTH_CONNECT + BLUETOOTH_SCAN
+     * permissions and Android 12+ APIs. Until the full mesh stack is implemented,
+     * this surfaces an explicit "Not yet implemented" state instead of faking peer counts.
      */
     fun toggleBleMeshSync(context: Context) {
-        val bluetoothManager = context.applicationContext.getSystemService(BluetoothManager::class.java)
+        val bluetoothManager = try {
+            context.applicationContext.getSystemService(BluetoothManager::class.java)
+        } catch (e: Exception) {
+            Log.w("BleMesh", "BluetoothManager unavailable: ${e.message}")
+            _meshState.update { it.copy(lastError = "Bluetooth service unavailable") }
+            return
+        }
         val adapter = bluetoothManager?.adapter
 
         if (adapter == null || !adapter.isEnabled) {
-            // Offline mesh simulated fallback
+            _meshState.update { it.copy(lastError = "Bluetooth is disabled — enable Bluetooth to use mesh sync") }
+            Log.w("BleMesh", "Bluetooth disabled, mesh not started")
+            return
         }
 
         val currentlyActive = _meshState.value.isAdvertising || _meshState.value.isScanning
@@ -38,18 +49,25 @@ object BleMeshSyncManager {
                 it.copy(
                     isAdvertising = false,
                     isScanning = false,
-                    connectedPeerCount = 0
+                    connectedPeerCount = 0,
+                    lastError = null
                 )
             }
         } else {
+            // Full GATT mesh not yet implemented — surface honest state
             _meshState.update {
                 it.copy(
-                    isAdvertising = true,
-                    isScanning = true,
-                    connectedPeerCount = 2,
-                    lastSyncedPayloadHash = "0x7F2A...9C1D"
+                    isAdvertising = false,
+                    isScanning = false,
+                    connectedPeerCount = 0,
+                    lastError = "BLE mesh sync is not yet fully implemented — infrastructure ready, GATT transport pending"
                 )
             }
+            Log.i("BleMesh", "BLE mesh requested but GATT transport not yet implemented")
         }
+    }
+
+    fun clearError() {
+        _meshState.update { it.copy(lastError = null) }
     }
 }

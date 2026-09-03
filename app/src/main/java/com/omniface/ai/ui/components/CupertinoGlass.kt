@@ -14,8 +14,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +32,7 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -36,45 +40,158 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.omniface.ai.ui.theme.*
 
-private const val AGSL_LIQUID_SHADER = """
+private const val AGSL_KYANT_LIQUID_GLASS = """
 uniform shader composable;
-uniform float2 resolution;
-uniform float refractionDistortion;
+uniform float2 size;
+uniform float4 cornerRadii;
+uniform float refractionHeight;
+uniform float refractionAmount;
+uniform float depthEffect;
+uniform float chromaticAberration;
 
-half4 main(float2 fragCoord) {
-    float2 uv = fragCoord / resolution;
-    float2 centerOffset = uv - float2(0.5, 0.5);
-    float dist = length(centerOffset);
-    float2 displacement = centerOffset * (dist * dist * refractionDistortion);
+float radiusAt(float2 coord, float4 radii) {
+    if (coord.x >= 0.0) {
+        if (coord.y <= 0.0) return radii.y;
+        else return radii.z;
+    } else {
+        if (coord.y <= 0.0) return radii.x;
+        else return radii.w;
+    }
+}
+
+float sdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    float outside = length(max(cornerCoord, 0.0)) - radius;
+    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    return outside + inside;
+}
+
+float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
+    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));
+    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {
+        return sign(coord) * normalize(max(cornerCoord, 0.0));
+    } else {
+        float gradX = step(cornerCoord.y, cornerCoord.x);
+        return sign(coord) * float2(gradX, 1.0 - gradX);
+    }
+}
+
+float circleMap(float x) {
+    return 1.0 - sqrt(max(1.0 - x * x, 0.0));
+}
+
+half4 main(float2 coord) {
+    float2 halfSize = size * 0.5;
+    float2 centeredCoord = coord - halfSize;
+    float radius = radiusAt(centeredCoord, cornerRadii);
     
-    // Chromatic dispersion: evaluate R, G, B at slightly offset refraction angles
-    half4 colorR = composable.eval(fragCoord + displacement * 1.02);
-    half4 colorG = composable.eval(fragCoord + displacement);
-    half4 colorB = composable.eval(fragCoord + displacement * 0.98);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (-sd >= refractionHeight) {
+        return composable.eval(coord);
+    }
+    sd = min(sd, 0.0);
     
-    return half4(colorR.r, colorG.g, colorB.b, (colorR.a + colorG.a + colorB.a) / 3.0);
+    float d = circleMap(1.0 - -sd / max(refractionHeight, 1.0)) * refractionAmount;
+    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord + 0.001));
+    
+    float2 refractedCoord = coord + d * grad;
+    float dispersionIntensity = chromaticAberration * ((centeredCoord.x * centeredCoord.y) / max(halfSize.x * halfSize.y, 1.0));
+    float2 dispersedCoord = d * grad * dispersionIntensity;
+    
+    half4 color = half4(0.0);
+    
+    half4 red = composable.eval(refractedCoord + dispersedCoord);
+    color.r += red.r / 3.5;
+    color.a += red.a / 7.0;
+    
+    half4 orange = composable.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
+    color.r += orange.r / 3.5;
+    color.g += orange.g / 7.0;
+    color.a += orange.a / 7.0;
+    
+    half4 yellow = composable.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
+    color.r += yellow.r / 3.5;
+    color.g += yellow.g / 3.5;
+    color.a += yellow.a / 7.0;
+    
+    half4 green = composable.eval(refractedCoord);
+    color.g += green.g / 3.5;
+    color.a += green.a / 7.0;
+    
+    half4 cyan = composable.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
+    color.g += cyan.g / 3.5;
+    color.b += cyan.b / 3.0;
+    color.a += cyan.a / 7.0;
+    
+    half4 blue = composable.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
+    color.b += blue.b / 3.0;
+    color.a += blue.a / 7.0;
+    
+    half4 purple = composable.eval(refractedCoord - dispersedCoord);
+    color.r += purple.r / 7.0;
+    color.b += purple.b / 3.0;
+    color.a += purple.a / 7.0;
+    
+    return color;
 }
 """
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 private object AgslLiquidGlassShaderHolder {
-    val runtimeShader: android.graphics.RuntimeShader by lazy {
-        android.graphics.RuntimeShader(AGSL_LIQUID_SHADER).apply {
-            setFloatUniform("refractionDistortion", 0.06f)
+    fun createShader(width: Float, height: Float, cornerRadius: Float): android.graphics.RuntimeShader {
+        return android.graphics.RuntimeShader(AGSL_KYANT_LIQUID_GLASS).apply {
+            setFloatUniform("size", width, height)
+            setFloatUniform("cornerRadii", cornerRadius, cornerRadius, cornerRadius, cornerRadius)
+            setFloatUniform("refractionHeight", 24.0f)
+            setFloatUniform("refractionAmount", 14.0f)
+            setFloatUniform("depthEffect", 0.22f)
+            setFloatUniform("chromaticAberration", 0.16f)
         }
     }
 }
 
 /**
- * GPU Hardware Backdrop Diffusion Gating.
- * Prevents content-smearing by safely providing translucent depth rather than blurring child UI.
+ * GPU Hardware Backdrop Diffusion & Kyant Liquid Glass Refraction (Android 12+ API 31+ / Android 13+ API 33+).
  */
-@Suppress("UNUSED_PARAMETER")
 fun Modifier.liquidGlassBackdrop(
     blurRadius: Dp = 16.dp,
     shape: Shape = RoundedCornerShape(20.dp),
-    enableRefraction: Boolean = false
-): Modifier = this
+    enableRefraction: Boolean = true
+): Modifier = composed {
+    val isDark = LocalThemeIsDark.current
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val density = LocalDensity.current
+        val blurPx = remember(density, blurRadius) {
+            with(density) { blurRadius.toPx() }.coerceAtLeast(1f)
+        }
+        this
+            .clip(shape)
+            .graphicsLayer {
+                val w = size.width.coerceAtLeast(1f)
+                val h = size.height.coerceAtLeast(1f)
+                var effect = android.graphics.RenderEffect.createBlurEffect(
+                    blurPx, blurPx, android.graphics.Shader.TileMode.CLAMP
+                )
+                if (enableRefraction && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    try {
+                        val shader = AgslLiquidGlassShaderHolder.createShader(w, h, 20f * density.density)
+                        effect = android.graphics.RenderEffect.createChainEffect(
+                            android.graphics.RenderEffect.createRuntimeShaderEffect(shader, "composable"),
+                            effect
+                        )
+                    } catch (_: Throwable) {}
+                }
+                this.renderEffect = effect.asComposeRenderEffect()
+            }
+    } else {
+        // Legacy fallback: layered translucent diffusion
+        this
+            .clip(shape)
+            .background(omniLiquidSurfaceBrush(isDark), shape)
+            .border(0.75.dp, omniLiquidSpecularBorder(isDark), shape)
+    }
+}
 
 /**
  * Pure Apple iOS Specular Reflection Border Brush (Kyant & Philipp Lackner Tokens).
@@ -102,23 +219,26 @@ fun omniLiquidSpecularBorder(isDark: Boolean): Brush {
 }
 
 /**
- * Pure Apple iOS Inset Grouped Surface Diffusion Brush with luxury multi-tier depth.
+ * Layered Refraction Surface Diffusion Brush (AGENTS.md Liquid Glass Standard #2).
+ * Translucent multi-stop vertical gradients let camera viewfinders and canvas
+ * animations refract naturally through every glass surface.
+ * Dark: #381E293B → #3D0B0F19 · Light: #F0FFFFFF → #C8F1F5F9
  */
 fun omniLiquidSurfaceBrush(isDark: Boolean): Brush {
     return if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF161C28),
-                Color(0xFF111620),
-                Color(0xFF0C1018)
+                Color(0x401E293B),
+                Color(0x281E293B),
+                Color(0x4D0B0F19)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0xFFFFFFFF),
-                Color(0xFFFAFCFF),
-                Color(0xFFF1F5F9)
+                Color(0xF0FFFFFF),
+                Color(0xE6FFFFFF),
+                Color(0xC8F1F5F9)
             )
         )
     }
@@ -182,6 +302,155 @@ fun IOSCard(
             modifier = cardModifier.padding(18.dp),
             content = content
         )
+    }
+}
+
+/**
+ * Standardized Apple iOS Specular Glass Badge / Status Pill (non-wrapping, auto-pulsing)
+ */
+@Composable
+fun IOSGlassPill(
+    text: String,
+    modifier: Modifier = Modifier,
+    accentColor: Color = CyanCore,
+    showPulsingDot: Boolean = false,
+    icon: ImageVector? = null,
+    onClick: (() -> Unit)? = null
+) {
+    val isDark = LocalThemeIsDark.current
+    val haptic = LocalHapticFeedback.current
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val dotAlpha by if (showPulsingDot) {
+        infiniteTransition.animateFloat(
+            initialValue = 0.4f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dotAlpha"
+        )
+    } else {
+        remember { mutableFloatStateOf(1.0f) }
+    }
+
+    val pillShape = RoundedCornerShape(999.dp)
+    val pillModifier = if (onClick != null) {
+        modifier
+            .clip(pillShape)
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+    } else {
+        modifier.clip(pillShape)
+    }
+
+    Row(
+        modifier = pillModifier
+            .background(accentColor.copy(alpha = if (isDark) 0.16f else 0.10f))
+            .border(0.75.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), pillShape)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        if (showPulsingDot) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = dotAlpha))
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+        }
+        Text(
+            text = text,
+            color = accentColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.4.sp,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+/**
+ * Standardized Apple iOS Liquid Glass Search Input Field
+ */
+@Composable
+fun CupertinoSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String = "Search...",
+    modifier: Modifier = Modifier
+) {
+    val isDark = LocalThemeIsDark.current
+    val searchShape = RoundedCornerShape(16.dp)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(if (isDark) 4.dp else 6.dp, searchShape, ambientColor = Color(0x1F000000))
+            .clip(searchShape)
+            .background(if (isDark) Color(0x331E293B) else Color(0xF2FFFFFF))
+            .border(0.75.dp, omniLiquidSpecularBorder(isDark), searchShape)
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = omniTextMuted(isDark),
+                modifier = Modifier.size(19.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = omniTextPrimary(isDark),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                singleLine = true,
+                decorationBox = { innerTextField ->
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            color = omniTextMuted(isDark),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+            if (query.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = "Clear",
+                    tint = omniTextMuted(isDark),
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable { onQueryChange("") }
+                )
+            }
+        }
     }
 }
 
@@ -373,25 +642,30 @@ fun SettingRow(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
             }
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     color = omniTextPrimary(isDark),
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 if (subtitle != null) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
                         color = omniTextMuted(isDark),
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 3,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
         }
 
         if (trailing != null) {
+            Spacer(modifier = Modifier.width(8.dp))
             trailing()
         } else if (onClick != null) {
             Icon(
@@ -555,7 +829,7 @@ fun CupertinoMetricTile(
  */
 @Composable
 fun CupertinoButton(
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.fillMaxWidth(),
     text: String,
     icon: ImageVector? = null,
     brush: Brush? = null,
@@ -598,8 +872,7 @@ fun CupertinoButton(
     Box(
         modifier = modifier
             .scale(scale)
-            .fillMaxWidth()
-            .height(52.dp)
+            .height(50.dp)
             .shadow(
                 elevation = if (!isSecondary && enabled) (if (isDark) 6.dp else 8.dp) else (if (isDark) 2.dp else 3.dp),
                 shape = RoundedCornerShape(15.dp),
@@ -624,6 +897,7 @@ fun CupertinoButton(
         contentAlignment = Alignment.Center
     ) {
         Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -645,4 +919,29 @@ fun CupertinoButton(
             )
         }
     }
+}
+
+/**
+ * Cupertino-styled toggle switch with smooth iOS accent tinting.
+ */
+@Composable
+fun CupertinoSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val isDark = LocalThemeIsDark.current
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier,
+        enabled = enabled,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = Color.White,
+            checkedTrackColor = omniCyan(isDark),
+            uncheckedThumbColor = if (isDark) Color(0xFFCBD5E1) else Color.White,
+            uncheckedTrackColor = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
+        )
+    )
 }

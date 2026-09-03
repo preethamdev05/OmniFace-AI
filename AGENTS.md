@@ -78,26 +78,27 @@ This directory (`/storage/emulated/0/AI-HUB/FR`) hosts the sovereign **OmniFace 
 
 ---
 
-## 💎 Apple iOS & macOS Liquid Glassmorphic UI/UX Standards (Targets: Kyant0/AndroidLiquidGlass & philipplackner/LiquidGlassKMP)
+## 💎 Apple iOS & macOS Liquid Glassmorphic UI/UX Standards (Skill: `cupertino-liquid-glass-compose`)
 
-All UI components and screens in OmniFace AI must strictly adhere to the modern liquid glassmorphism design tokens inspired by [`Kyant0/AndroidLiquidGlass`](https://github.com/Kyant0/AndroidLiquidGlass/tree/kmp/androidApp) and [`philipplackner/LiquidGlassKMP`](https://github.com/philipplackner/LiquidGlassKMP.git):
+All UI components and screens in OmniFace AI must strictly adhere to the modern liquid glassmorphism design tokens inspired by [`Kyant0/AndroidLiquidGlass`](https://github.com/Kyant0/AndroidLiquidGlass/tree/kmp/androidApp) and [`philipplackner/LiquidGlassKMP`](https://github.com/philipplackner/LiquidGlassKMP.git) as codified in the `cupertino-liquid-glass-compose` skill:
 
-1. **Directional Specular Reflection Borders (`omniLiquidSpecularBorder`)**:
+1. **Signed Distance Field (SDF) & 7-Wavelength Chromatic Dispersion**:
+   - Every card, viewfinder overlay, and modal sheet utilizes Kyant SDF curvature (`sdRoundedRect`, `gradSdRoundedRect`) and AGSL 7-band spectral dispersion ($\text{Red} \to \text{Orange} \to \text{Yellow} \to \text{Green} \to \text{Cyan} \to \text{Blue} \to \text{Purple}$) with physical lens curvature mapping (`circleMap`).
+
+2. **Directional Specular Reflection Borders (`omniLiquidSpecularBorder`)**:
    - Every card, dialog, button, and navigation dock must feature multi-stop linear gradient borders simulating a top-left ambient light source (crisp white specular highlight at 0.0f transitioning to dark refraction shadows at 1.0f).
    - Never use solid opaque borders.
 
-2. **Layered Refraction Surface Diffusion (`omniLiquidSurfaceBrush`)**:
-   - Backgrounds and containers must utilize multi-layer vertical translucent gradients (`#381E293B` to `#3D0B0F19` in dark mode, `#F0FFFFFF` to `#C8F1F5F9` in light mode) allowing background camera viewfinders and canvas animations to refract naturally.
+3. **Layered Refraction Surface Diffusion (`omniLiquidSurfaceBrush`)**:
+   - Backgrounds and containers must utilize multi-layer vertical translucent gradients (`#401E293B` to `#4D0B0F19` in dark mode, `#F0FFFFFF` to `#C8F1F5F9` in light mode) allowing background camera viewfinders and canvas animations to refract naturally.
 
-3. **GPU Hardware Backdrop Blur & RuntimeShader Gating (`liquidGlassBackdrop`)**:
-   - On Android 12+ (API 31+ / Android S) & Android 13+ (API 33+ / Tiramisu AGSL), enable hardware-accelerated Skia `RenderEffect.createBlurEffect(16.dp, 16.dp, Shader.TileMode.CLAMP)` and runtime shader refraction overlays.
+4. **GPU Hardware Backdrop Blur & RuntimeShader Gating (`liquidGlassBackdrop`)**:
+   - On Android 12+ (API 31+ / Android S) & Android 13+ (API 33+ / Tiramisu AGSL), enable hardware-accelerated Skia `RenderEffect.createBlurEffect(16.dp, 16.dp, Shader.TileMode.CLAMP)` chained with runtime shader refraction overlays (`RenderEffect.createChainEffect`).
    - On legacy Android 8–11 (API 26–30), smoothly fall back to high-density translucent gradient layers (`omniLiquidSurfaceBrush`) to guarantee zero crashes.
 
-4. **Spring-Damped Elastic Interaction Physics**:
-   - Interactive components (`FrostedGlassCard`, `CupertinoButton`, `CupertinoSegmentedControl`, `CupertinoTabBar`, `DynamicIslandCapsule`) must incorporate tactile press scale animations (`1.0f` -> `0.97f`/`0.92f`) with `Spring.DampingRatioMediumBouncy` and `Spring.StiffnessLow`.
-
-5. **Chromatic Aberration & Specular Light Sheen**:
-   - High-contrast interactive badges and reticle borders must leverage subtle cyan/emerald chromatic edge illumination simulating optical glass refraction.
+5. **True 120Hz LTPO Refresh Rate Pacing & Spring-Damped Tactile Physics**:
+   - Windows must lock 120Hz display modes (`preferredDisplayModeId`, `preferredMinDisplayRefreshRate = 120.0f`, `preferredMaxDisplayRefreshRate = 120.0f`) and trigger SurfaceFlinger 120 FPS vsync pacing.
+   - Interactive components (`FrostedGlassCard`, `CupertinoButton`, `CupertinoSegmentedControl`, `CupertinoTabBar`, `DynamicIslandCapsule`) must incorporate tactile press scale animations (`1.0f` -> `0.965f`/`0.98f`) with `Spring.DampingRatioMediumBouncy` and `Spring.StiffnessLow`.
 
 ---
 
@@ -117,6 +118,26 @@ All UI components and screens in OmniFace AI must strictly adhere to the modern 
 
 ---
 
+## 🪟 Windows Host & Android CLI Cross-Platform Build Rules
+
+1. **Dual Host Support (Windows & Linux ARM64)**:
+   - **Windows Host**: Use standard PowerShell scripts `setup_windows.ps1` and `build_apk.ps1` (`.\build_apk.ps1 -BuildType debug|release`) and native `gradlew.bat`.
+   - **Linux ARM64 Host**: Use `setup_armdroid64.sh` and `bash build_apk.sh` with native ARM64 aapt2 overrides.
+
+2. **Windows SDK & `local.properties` Invariants**:
+   - On Windows, `local.properties` must point to the local SDK path using forward slashes or escaped backslashes (e.g. `sdk.dir=C\:/Users/ARAWIND07/AppData/Local/Android/Sdk`).
+   - Do NOT include `android.aapt2FromMavenOverride` on Windows x86_64, as AAPT2 is resolved natively via Maven.
+
+3. **Gradle Wrapper & AGP 9.1.1 Alignment**:
+   - AGP 9.1.1 requires Gradle 9.3.1+. Use Gradle 9.5.0 wrapper distribution (`gradle-9.5.0-bin.zip`) for fast, pre-cached local builds with `networkTimeout=60000`.
+
+4. **Android CLI (`android`) Integration**:
+   - Installed at `C:\Users\ARAWIND07\AppData\AndroidCLI\android.exe`.
+   - Use `android describe --project_dir="."` to verify project metadata and build targets.
+   - Use `android layout --pretty` and `android screen capture --annotate` for zero-friction UI and layout verification during device/emulator testing.
+
+---
+
 ## 🏗️ Zero-Stub Biometric Engineering & Verification Standards
 
 1. **Zero Simulated/Mock Vectors in Production Pipelines**:
@@ -124,7 +145,7 @@ All UI components and screens in OmniFace AI must strictly adhere to the modern 
    - Biometric matching against local SQLite/Room records must transparently decrypt hardware Keystore AES-256-GCM ciphertexts in memory before computing cosine distance.
    - Dashboard actions (CSV export, DPDP Act 2023 purge, manual overrides) must connect directly to active REST endpoints and Aegis SHA-256 blockchain minting.
 
-2. **TFLite Multi-Tier Hardware Delegate Pipeline**:
+2. **LiteRT Multi-Tier Hardware Delegate Pipeline**:
    - **Primary (NPU / NNAPI)**: `mobilefacenet_512d_int8.tflite` for sub-10ms neural execution.
    - **Fallback 1 (Mobile GPU)**: `mobilefacenet_512d_fp16.tflite` via `GpuDelegate`.
    - **Fallback 2 (Multi-Core CPU)**: `mobilefacenet_512d_fp32.tflite` via Multi-Threaded XNNPACK (4 threads).
@@ -175,6 +196,37 @@ All UI components and screens in OmniFace AI must strictly adhere to the modern 
 
 3. **Jetpack Compose BOM & Icon Compatibility**:
    - For Jetpack Compose BOM `2024.02.00` and Material Icons Extended, standard icons (such as `ShowChart` and `ReceiptLong`) belong to `Icons.Default.*` / `Icons.Filled.*`. Avoid unverified AutoMirrored icon variants.
+
+---
+
+## 🧭 Hierarchical Jetpack Compose Back Gesture & Navigation Standards
+
+1. **4-Tier Back Gesture Hierarchy (`BackHandler`)**:
+   - **Level 1 (Modals, Overlays, Bottom Sheets & Studios)**:
+     - Component layers (`FaceRegistrationComponent`, `BiometricDeduplicationStudio`, `ModalBottomSheet`, `AlertDialog`) must register an explicit `BackHandler` that dismisses the overlay and returns to the parent viewport.
+   - **Level 2 (Categorized Sub-Screens)**:
+     - Sub-screens (such as `SettingsCategory` sub-pages) must register `BackHandler(enabled = currentSubScreen != null) { currentSubScreen = null }` to animate back to the category menu.
+   - **Level 3 (Top-Level Navigation Tabs)**:
+     - Non-start tabs (Scanner, Students, Ledger, Settings) pop smoothly back to the root `Screen.Dashboard`.
+   - **Level 4 (Root Dashboard Double-Back Exit Protection)**:
+     - The start destination must intercept back presses with a 2-second debounce timer, triggering a Dynamic Island notification (*"Press back again to exit"*) and Toast prompt before finishing the Activity.
+
+---
+
+## ⚡ Google LiteRT Runtime & Machine Learning Standards
+
+1. **LiteRT Package Invariant**:
+   - Always use official Google LiteRT packages (`com.google.ai.edge.litert:litert`, `com.google.ai.edge.litert:litert-gpu`, `com.google.ai.edge.litert:litert-support`) instead of legacy `org.tensorflow:tensorflow-lite:*` dependencies.
+   - Prevents duplicate manifest namespace warnings in AGP 9.1+ and aligns with the latest Android 15/16 NNAPI/NPU runtime.
+
+---
+
+## 🎯 Single Source of Truth Entry Points & Feature Gating
+
+1. **Single Entry Point Invariant**:
+   - Ensure each primary destination (e.g. Settings, Scanner, Ledger) has exactly one authoritative entry point in the navigation bar. Do not duplicate floating gear buttons or top-bar shortcuts that create fragmented state or redundant modal sheets.
+2. **Semantic "Coming Soon" Badging**:
+   - Hardware-dependent stubs or future cloud services (e.g. BLE Fleet Mesh, remote Cloudflare/S3 sync) must be badged with localized `IOSGlassPill` ("Coming Soon") tokens across all 10 supported Indian languages rather than fake active toggles.
 
 ---
 

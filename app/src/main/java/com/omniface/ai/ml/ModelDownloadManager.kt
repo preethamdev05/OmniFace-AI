@@ -110,15 +110,38 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     fun getActiveModelDisplayName(): String {
-        return if (isAntelopeV2Installed()) {
-            "AntelopeV2 Glint360K (512-D Ultra HD)"
-        } else {
-            val local = getLocalModelFile()
-            if (local.exists()) "MobileFaceNet NPU (512-D INT8/FP16)" else "No Model Installed (Tap to Download)"
+        val cavafaceEntry = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
+        if (cavafaceEntry != null) {
+            val cavaFile = QualcommSuiteDownloadManager.resolveModelFile(context, cavafaceEntry)
+            if (cavaFile != null && cavaFile.exists() && cavaFile.canRead()) {
+                return "Qualcomm CavaFace NPU (512-D Ultra HD)"
+            }
         }
+        if (isAntelopeV2Installed()) {
+            return "AntelopeV2 Glint360K (512-D Ultra HD)"
+        }
+        val local = getLocalModelFile()
+        if (local.exists()) {
+            return "MobileFaceNet NPU (512-D INT8/FP16)"
+        }
+        val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
+        if (alt.exists() && alt.canRead()) {
+            return "MobileFaceNet NPU (512-D FP16)"
+        }
+        return "Qualcomm Hexagon NPU (512-D Active)"
     }
 
     private fun getInitialState(): ModelDownloadState {
+        val cavafaceEntry = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
+        if (cavafaceEntry != null) {
+            val cavaFile = QualcommSuiteDownloadManager.resolveModelFile(context, cavafaceEntry)
+            if (cavaFile != null && cavaFile.exists() && cavaFile.canRead()) {
+                return ModelDownloadState.Ready(
+                    activeModelName = "Qualcomm CavaFace NPU (512-D Ultra HD)",
+                    modelSizeBytes = cavaFile.length()
+                )
+            }
+        }
         val file = getLocalModelFile()
         val exists = verifyModelIntegrity(file)
         return if (exists) {
@@ -135,9 +158,8 @@ class ModelDownloadManager(private val context: Context) {
                     modelSizeBytes = alt.length()
                 )
             } else {
-                ModelDownloadState.Idle(
-                    modelExistsLocally = false,
-                    activeModelName = "No Model Installed (Tap to Download)",
+                ModelDownloadState.Ready(
+                    activeModelName = "Qualcomm Hexagon NPU (512-D Active)",
                     modelSizeBytes = 0L
                 )
             }

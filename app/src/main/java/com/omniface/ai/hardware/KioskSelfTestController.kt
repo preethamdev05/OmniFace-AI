@@ -27,6 +27,20 @@ data class SelfTestReport(
 
 object KioskSelfTestController {
 
+    private const val MAX_LOG_CAPACITY = 100
+    private val logRingBuffer = java.util.concurrent.ConcurrentLinkedDeque<String>()
+
+    fun recordDiagnosticLog(tag: String, message: String) {
+        val timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+        val entry = "[$timestamp] [$tag] $message"
+        logRingBuffer.addLast(entry)
+        while (logRingBuffer.size > MAX_LOG_CAPACITY) {
+            logRingBuffer.pollFirst()
+        }
+    }
+
+    fun getDiagnosticLogs(): List<String> = logRingBuffer.toList()
+
     suspend fun runFullDiagnostics(context: Context): SelfTestReport = withContext(Dispatchers.Default) {
         val results = mutableListOf<SelfTestItem>()
 

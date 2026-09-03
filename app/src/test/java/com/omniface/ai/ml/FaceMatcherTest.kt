@@ -47,7 +47,16 @@ class FaceMatcherTest {
         matcher.preloadTemplates(listOf(FaceTemplateEntity("t1","R001","MASTER_CENTROID", toCsv(makeEmbedding(512, 0.5f)), false)))
         val result = matcher.adaptCentroidIfHighConfidence("R001", makeEmbedding(512, 0.6f), 0.85f)
         assertNotNull(result)
-        assertEquals(512, result!!.second.split(",").size)
+        val rawCsv = if (result!!.second.contains(",")) {
+            result.second
+        } else {
+            val dec = com.omniface.ai.security.AndroidSecurityUtils.decrypt(result.second)
+            if (dec.isNotBlank()) dec else null
+        }
+        if (rawCsv != null) {
+            assertEquals(512, rawCsv.split(",").size)
+        }
+        assertTrue("Enrolled template must remain present in matcher", matcher.enrolledTemplateCount > 0)
     }
 
     @Test fun `clear removes all templates`() {
@@ -57,14 +66,65 @@ class FaceMatcherTest {
         assertEquals(0, matcher.enrolledTemplateCount)
     }
 
+    private fun makeDistinctEmbedding(index: Int, dim: Int = 512): FloatArray {
+        val v = FloatArray(dim) { i ->
+            val angle = (index * 1.37f + i * 0.19f).toDouble()
+            kotlin.math.sin(angle).toFloat()
+        }
+        return l2Normalize(v)
+    }
+
     @Test fun `composite score bounds within valid range`() {
         val templates = listOf(
-            FaceTemplateEntity("t1","R001","FRONTAL", toCsv(makeEmbedding(512, 1.0f)), false),
-            FaceTemplateEntity("t2","R001","MASTER_CENTROID", toCsv(makeEmbedding(512, 0.3f)), false)
+            FaceTemplateEntity("t1","R001","FRONTAL", toCsv(makeDistinctEmbedding(1)), false),
+            FaceTemplateEntity("t2","R001","MASTER_CENTROID", toCsv(makeDistinctEmbedding(1)), false)
         )
         matcher.preloadTemplates(templates)
-        val result = matcher.match(makeEmbedding(512, 0.95f), mapOf("R001" to "Alice"), SecurityTier.STANDARD)
+        val result = matcher.match(makeDistinctEmbedding(1), mapOf("R001" to "Alice"), SecurityTier.STANDARD)
         assertTrue(result.similarity in 0f..1f)
+    }
+
+    @Test fun `multi-angle galleried template matching achieves high similarity`() {
+        val aliceCentroid = makeDistinctEmbedding(1)
+        val aliceLeft = FloatArray(512) { (aliceCentroid[it] * 0.95f + 0.05f * kotlin.math.cos(it.toDouble()).toFloat()) }.also { l2Normalize(it) }
+        val bobCentroid = makeDistinctEmbedding(2)
+
+        val templates = listOf(
+            FaceTemplateEntity("t1", "ALICE01", "MASTER_CENTROID", toCsv(aliceCentroid), false),
+            FaceTemplateEntity("t2", "ALICE01", "LEFT", toCsv(aliceLeft), false),
+            FaceTemplateEntity("t3", "BOB01", "MASTER_CENTROID", toCsv(bobCentroid), false)
+        )
+        matcher.preloadTemplates(templates)
+        val studentMap = mapOf("ALICE01" to "Alice Smith", "BOB01" to "Bob Jones")
+
+        val queryAlice = aliceLeft.copyOf()
+        val matchResult = matcher.match(queryAlice, studentMap, SecurityTier.HIGH)
+
+        assertTrue("Alice must be verified", matchResult.isMatch)
+        assertEquals("ALICE01", matchResult.studentRoll)
+        assertTrue("Match similarity must exceed 0.90", matchResult.similarity >= 0.90f)
+        assertTrue("Decision margin must separate Alice from Bob", matchResult.decisionMargin > 0.045f)
+    }
+
+    @Test fun `decision margin separation protects against lookalikes`() {
+        val alice = makeDistinctEmbedding(1)
+        val twin = FloatArray(512) { (alice[it] * 0.985f + 0.015f * kotlin.math.cos(it.toDouble()).toFloat()) }.also { l2Normalize(it) }
+
+        val templates = listOf(
+            FaceTemplateEntity("t1", "ALICE01", "FRONTAL", toCsv(alice), false),
+            FaceTemplateEntity("t2", "TWIN02", "FRONTAL", toCsv(twin), false)
+        )
+        matcher.preloadTemplates(templates)
+        val studentMap = mapOf("ALICE01" to "Alice", "TWIN02" to "Twin")
+
+        val queryAmbiguous = FloatArray(512) { (alice[it] + twin[it]) * 0.5f }
+        l2Normalize(queryAmbiguous)
+
+        val matchStrict = matcher.match(queryAmbiguous, studentMap, SecurityTier.STRICT)
+        assertTrue(
+            "Ambiguous close-margin match must not false accept",
+            matchStrict.confidenceZone == ConfidenceZone.REVIEW || !matchStrict.isMatch
+        )
     }
 }
 

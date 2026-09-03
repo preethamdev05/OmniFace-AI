@@ -44,12 +44,20 @@ class FaceMatcher {
         faissIndex.reset()
         val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
 
+        var skippedCorrupt = 0
         for (entity in templates) {
             val decryptedCsv = try {
                 if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
                 else entity.embeddingEncryptedCsv
             } catch (t: Throwable) {
-                entity.embeddingEncryptedCsv
+                android.util.Log.e("FaceMatcher", "Skipping corrupt template ${entity.id}: ${t.message}")
+                skippedCorrupt++
+                continue
+            }
+            if (decryptedCsv.isBlank()) {
+                android.util.Log.w("FaceMatcher", "Skipping empty decrypted template ${entity.id}")
+                skippedCorrupt++
+                continue
             }
 
             val embedding = parseEmbeddingCsv(decryptedCsv)
@@ -81,6 +89,7 @@ class FaceMatcher {
         if (faissBatch.isNotEmpty()) {
             faissIndex.addBatch(faissBatch)
         }
+        android.util.Log.i("FaceMatcher", "Preloaded ${biometricCache.size} templates into biometricCache (input=${templates.size}, skippedCorrupt=$skippedCorrupt)")
     }
 
     /**
@@ -165,9 +174,9 @@ class FaceMatcher {
         studentMap: Map<String, String>,
         securityTier: SecurityTier = SecurityTier.HIGH,
         activeTier: HardwareTier = HardwareTier.GPU_DELEGATE
-    ): MatchResult {
+    ): MatchResult = lock.read {
         if (biometricCache.isEmpty()) {
-            return MatchResult(
+            return@read MatchResult(
                 studentRoll = "GUEST",
                 studentName = "Unknown Visitor",
                 confidence = 0.0f,
@@ -180,10 +189,15 @@ class FaceMatcher {
             )
         }
 
-        // 1. Candidate Generation: For large template sets (>64), use FAISS / HNSW ANN index to filter top candidate rolls
-        val candidateRolls: Set<String>? = if (biometricCache.size > 64) {
-            val faissResult = faissIndex.search(queryEmbedding, k = minOf(48, biometricCache.size))
-            faissResult.candidates.map { it.studentRoll }.toSet()
+        // 1. Candidate Generation: For large template sets (>64), use FAISS / HNSW ANN index to filter top candidate rolls if enabled
+        val isFaissEnabled = com.omniface.ai.ml.NeuralModelConfigManager.configState.value.isFaissHnswIndexEnabled
+        val candidateRolls: Set<String>? = if (isFaissEnabled && biometricCache.size > 64) {
+            // Scale probe width with gallery size to preserve recall; fall back to a full
+            // scan whenever the ANN result set comes back empty (recall safety net).
+            val probeK = minOf(200, biometricCache.size)
+            val faissResult = faissIndex.search(queryEmbedding, k = probeK)
+            val rolls = faissResult.candidates.map { it.studentRoll }.toSet()
+            if (rolls.isEmpty()) null else rolls
         } else {
             null
         }
@@ -230,10 +244,11 @@ class FaceMatcher {
             val meanSim = sumSim / templates.size.coerceAtLeast(1)
             val effectiveCentroid = centroidSim ?: meanSim
 
-            // If multiple angle templates exist, composite = 0.70 * maxAngle + 0.30 * centroid
-            // This prevents an impostor who accidentally correlates with 1 noisy angle from being falsely matched.
+            // If multiple angle templates exist, composite = max(0.70 * maxAngle + 0.30 * centroid, centroid)
+            // This prevents an impostor who accidentally correlates with 1 noisy angle from being falsely matched
+            // while ensuring strong frontal/centroid matches are not degraded by peripheral angles.
             val compositeScore = if (templates.size > 1) {
-                (bestSim * 0.70f + effectiveCentroid * 0.30f)
+                maxOf(bestSim * 0.70f + effectiveCentroid * 0.30f, effectiveCentroid)
             } else {
                 bestSim
             }
@@ -303,17 +318,12 @@ class FaceMatcher {
 
         val name = if (isMatch) studentMap[bestRoll] ?: bestRoll else "Visitor / Unregistered"
 
-        val normalizedConfidence = if (isMatch) {
-            val progress = ((top1Score - threshold) / (0.85f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
-            (85.0f + progress * 14.9f).coerceIn(85.0f, 99.9f)
-        } else {
-            ((top1Score.coerceAtLeast(0f) / threshold) * 65.0f).coerceIn(0.0f, 65.0f)
-        }
+        val directConfidencePct = (top1Score.coerceIn(0.0f, 1.0f) * 100.0f)
 
-        return MatchResult(
+        return@read MatchResult(
             studentRoll = if (isMatch) bestRoll else "GUEST",
             studentName = name,
-            confidence = normalizedConfidence,
+            confidence = directConfidencePct,
             similarity = top1Score,
             isMatch = isMatch,
             hardwareTier = activeTier,

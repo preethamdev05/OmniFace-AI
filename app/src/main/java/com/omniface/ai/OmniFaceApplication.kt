@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -13,9 +14,7 @@ import com.omniface.ai.data.local.AppDatabase
 import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.sync.AttendanceSyncWorker
-import java.io.InputStream
 import java.util.concurrent.TimeUnit
-import java.util.zip.CRC32
 
 class OmniFaceApplication : Application() {
 
@@ -29,8 +28,13 @@ class OmniFaceApplication : Application() {
         // 1. Initialize Hardware KeyStore Encryption Master Key
         AndroidSecurityUtils.initMasterKey()
 
+        // 1b. Initialize Multilingual Localization & Soundboard Voice Engine
+        com.omniface.ai.i18n.LocalizationManager.init(this)
+        com.omniface.ai.audio.BiometricSoundboard.initTts(this)
+        com.omniface.ai.audio.BiometricSoundboard.setLanguage(com.omniface.ai.i18n.LocalizationManager.currentLanguage.value)
+
         // 2. Initialize Room SQLite Database with WAL Mode Concurrency
-        database = Room.databaseBuilder(
+        val dbBuilder = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
             "omniface_biometrics.db"
@@ -42,10 +46,10 @@ class OmniFaceApplication : Application() {
                 AppDatabase.MIGRATION_2_3,
                 AppDatabase.MIGRATION_3_4,
                 AppDatabase.MIGRATION_1_4,
-                AppDatabase.MIGRATION_2_4
+                AppDatabase.MIGRATION_2_4,
+                AppDatabase.MIGRATION_4_5,
+                AppDatabase.MIGRATION_5_6
             )
-            .fallbackToDestructiveMigration()
-            .fallbackToDestructiveMigrationOnDowngrade()
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                     super.onOpen(db)
@@ -53,7 +57,12 @@ class OmniFaceApplication : Application() {
                     db.execSQL("PRAGMA temp_store = MEMORY;")
                 }
             })
-            .build()
+        @Suppress("DEPRECATION")
+        if (BuildConfig.DEBUG) {
+            dbBuilder.fallbackToDestructiveMigrationOnDowngrade()
+            dbBuilder.fallbackToDestructiveMigration()
+        }
+        database = dbBuilder.build()
 
         // 3. Verify TFLite Model Flatbuffer Integrity on Startup
         verifyModelAssetsIntegrity()
@@ -63,6 +72,9 @@ class OmniFaceApplication : Application() {
 
         // 5. Initialize Turnstile Relay — loads per-device HMAC secret from EncryptedSharedPreferences
         TurnstileRelayController.initWithContext(this)
+
+        // 5b. Initialize Kiosk Lock Controller (PBKDF2 + persistent lockout)
+        com.omniface.ai.hardware.KioskLockController.initialize(this)
 
         // 6. Check User Consent Before Scheduling Cloud Sync
         if (isCloudSyncEnabled()) {
@@ -79,15 +91,17 @@ class OmniFaceApplication : Application() {
         for (file in modelFiles) {
             try {
                 assets.open(file).use { input ->
-                    val crc = CRC32()
+                    // SHA-256 integrity digest — collision-resistant, unlike CRC32
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
                     var totalBytes = 0L
                     while (input.read(buffer).also { bytesRead = it } != -1) {
-                        crc.update(buffer, 0, bytesRead)
+                        digest.update(buffer, 0, bytesRead)
                         totalBytes += bytesRead
                     }
-                    Log.i("OmniFaceApp", "Verified model asset: $file ($totalBytes bytes, CRC32: ${crc.value})")
+                    val sha256 = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+                    Log.i("OmniFaceApp", "Verified model asset: $file ($totalBytes bytes, SHA-256: ${sha256.take(16)}…)")
                 }
             } catch (e: Exception) {
                 Log.w("OmniFaceApp", "Model asset check warning for $file: ${e.message}")
@@ -119,6 +133,7 @@ class OmniFaceApplication : Application() {
 
         val syncRequest = PeriodicWorkRequestBuilder<AttendanceSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -126,6 +141,21 @@ class OmniFaceApplication : Application() {
             ExistingPeriodicWorkPolicy.UPDATE,
             syncRequest
         )
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW || level >= TRIM_MEMORY_MODERATE) {
+            Log.i("OmniFaceApp", "Device memory pressure ($level) — clearing volatile caches")
+            System.gc()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Log.w("OmniFaceApp", "Low memory signal received — forcing aggressive memory cleanup")
+        System.gc()
     }
 
     companion object {

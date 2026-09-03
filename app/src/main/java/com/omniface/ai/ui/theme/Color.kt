@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 // Ultra-Luxury Obsidian Dark Palette (High-precision Obsidian Slate & Titanium)
 val ObsidianBg = Color(0xFF07090E)
+val SlateBackground = ObsidianBg
 val SlateSurface = Color(0xFF131823)
 val SlateElevated = Color(0xFF1C2230)
 val SlateBorder = Color(0xFF2E384D)

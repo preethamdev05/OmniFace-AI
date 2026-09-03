@@ -82,4 +82,8 @@ object FleetTopologyManager {
             } else node
         }
     }
+
+    fun reset() {
+        _kioskNodes.value = emptyList()
+    }
 }

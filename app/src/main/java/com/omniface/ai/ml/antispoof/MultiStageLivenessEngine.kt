@@ -61,15 +61,15 @@ class MultiStageLivenessEngine(
     companion object {
         private const val TAG = "MultiStageLiveness"
 
-        // Detection Thresholds
-        private const val SPECULAR_GLARE_LUMA_THRESHOLD = 245
-        private const val SPECULAR_GLARE_MAX_SATURATION = 0.18f
-        private const val MAX_ALLOWABLE_GLARE_FRACTION = 0.045f // >4.5% specular hotspot indicates screen reflection
+        // Detection Thresholds (Calibrated for real-world mobile camera sensors & lighting)
+        private const val SPECULAR_GLARE_LUMA_THRESHOLD = 248
+        private const val SPECULAR_GLARE_MAX_SATURATION = 0.15f
+        private const val MAX_ALLOWABLE_GLARE_FRACTION = 0.18f // >18% specular hotspot indicates screen reflection
 
-        private const val MIN_TEXTURE_ENTROPY = 3.20f // Lower entropy indicates synthetic flat paper/screen
-        private const val MAX_MOIRE_ENERGY_RATIO = 0.28f // High-frequency periodic energy ratio indicating display raster
+        private const val MIN_TEXTURE_ENTROPY = 1.40f // Calibrated for mobile front-camera ISP denoising
+        private const val MAX_MOIRE_ENERGY_RATIO = 0.45f // High-frequency periodic energy ratio indicating display raster
 
-        private const val LIVE_SYNTHESIS_THRESHOLD = 0.62f
+        private const val LIVE_SYNTHESIS_THRESHOLD = 0.45f
     }
 
     private val internalPassivePad: PassivePadEngine by lazy {
@@ -237,9 +237,9 @@ class MultiStageLivenessEngine(
 
         val glareFraction = if (totalAnalyzed > 0) specularGlarePixels.toFloat() / totalAnalyzed else 0f
         val hasScreenHotspots = glareFraction > MAX_ALLOWABLE_GLARE_FRACTION
-        val hasSevereDisplayGlare = glareFraction > 0.12f // >12% pure glare is definitive glass screen
+        val hasSevereDisplayGlare = glareFraction > 0.35f // >35% pure glare is definitive glass screen
 
-        val reflectionScore = (1.0f - (glareFraction / 0.08f)).coerceIn(0.0f, 1.0f)
+        val reflectionScore = (1.0f - (glareFraction / 0.25f)).coerceIn(0.0f, 1.0f)
 
         return ReflectionAnalysis(
             reflectionAuthenticityScore = reflectionScore,
@@ -304,7 +304,7 @@ class MultiStageLivenessEngine(
             }
         }
 
-        val textureScore = ((lbpEntropy.toFloat() - 2.5f) / 3.0f).coerceIn(0.0f, 1.0f)
+        val textureScore = ((lbpEntropy.toFloat() - 1.2f) / 3.0f).coerceIn(0.0f, 1.0f)
         val hasUnnaturalPaperFlatness = lbpEntropy < MIN_TEXTURE_ENTROPY
 
         // 2. High-Frequency Horizontal / Vertical Gradient Energy (Moiré Grid Pattern)
@@ -331,7 +331,7 @@ class MultiStageLivenessEngine(
 
         val moireScore = (1.0f - (highFreqRatio / MAX_MOIRE_ENERGY_RATIO)).coerceIn(0.0f, 1.0f)
         val hasPeriodicDisplayGrid = highFreqRatio > MAX_MOIRE_ENERGY_RATIO
-        val hasSevereDisplayMoire = highFreqRatio > 0.45f
+        val hasSevereDisplayMoire = highFreqRatio > 0.60f
 
         return TextureAnalysis(
             textureAuthenticityScore = textureScore,

@@ -11,7 +11,11 @@ import android.util.Log
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.security.AndroidSecurityUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.nnapi.NnApiDelegate
@@ -22,11 +26,23 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import java.util.Arrays
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.NpuHardwareInfo
+import com.omniface.ai.ml.core.BackendType
+import com.omniface.ai.ml.core.InferenceBackend
 import com.omniface.ai.ml.recognition.FaissVectorIndex
+
+data class EngineLoadingProgress(
+    val isReady: Boolean = false,
+    val stage: String = "Initializing Neural Accelerator...",
+    val progress: Float = 0.0f,
+    val activeModelName: String = "ArcFace 512-D",
+    val hardwareTarget: String = "Qualcomm Hexagon NPU",
+    val isError: Boolean = false
+)
 
 enum class SecurityTier(
     val threshold: Float,
@@ -34,9 +50,18 @@ enum class SecurityTier(
     val label: String,
     val farDesc: String
 ) {
-    STANDARD(0.550f, 0.080f, "STANDARD", "Doorway Kiosk (FAR 1:1,000 • τ ≥ 0.550)"),
-    HIGH(0.620f, 0.100f, "HIGH", "ISO/IEC Standard (FAR 1:10,000 • τ ≥ 0.620)"),
-    STRICT(0.700f, 0.120f, "STRICT", "Bank Grade (FAR 1:100,000 • τ ≥ 0.700)")
+    STANDARD(0.650f, 0.040f, "Standard", "Doorway Kiosk (FAR 1:10 • τ ≥ 65%)"),
+    HIGH(0.720f, 0.045f, "High", "ISO/IEC Standard (FAR 1:100 • τ ≥ 72%)"),
+    STRICT(0.800f, 0.050f, "Strict", "Bank Grade (FAR 1:1,000 • τ ≥ 80%)");
+
+    val displayName: String get() = label
+    val cosineSimilarityThreshold: Float get() = threshold
+    val cosineDistanceThreshold: Float get() = 1.0f - threshold
+    val targetFarRatio: String get() = when (this) {
+        STANDARD -> "1:10"
+        HIGH -> "1:100"
+        STRICT -> "1:1,000"
+    }
 }
 
 enum class NeuralBackbone(val label: String, val params: String, val isQualcommOptimized: Boolean) {
@@ -47,21 +72,30 @@ enum class NeuralBackbone(val label: String, val params: String, val isQualcommO
 enum class HardwareTier(val label: String) {
     GPU_DELEGATE("GPU (OpenCL/Vulkan/OpenGL FP16)"),
     CPU_XNNPACK("CPU (4-Thread XNNPACK FP32)"),
-    NPU_NNAPI("NPU (Neural Processing Unit INT8)");
+    NPU_NNAPI("NPU (Neural Processing Unit INT8)"),
+    NPU_DELEGATE("NPU (Neural Processing Unit INT8)");
+
+    companion object {
+        val NNAPI_NPU_INT8 = NPU_NNAPI
+    }
 
     fun getResolvedLabel(npuInfo: NpuHardwareInfo): String {
         return when (this) {
             GPU_DELEGATE -> "Mobile GPU Delegate (FP16 High Precision)"
             CPU_XNNPACK -> "Multi-Core CPU (XNNPACK FP32 Reference)"
-            NPU_NNAPI -> "${npuInfo.npuName} (INT8)"
+            NPU_NNAPI, NPU_DELEGATE -> "${npuInfo.npuName} (INT8)"
         }
     }
 }
 
 enum class ConfidenceZone(val label: String, val badgeColorHex: Long, val description: String) {
-    ACCEPT("ACCEPT", 0xFF34C759, "Biometric match verified with high confidence & margin"),
-    REVIEW("REVIEW", 0xFFFF9500, "Ambiguous match or low margin — secondary verification required"),
-    REJECT("REJECT", 0xFFFF3B30, "Biometric match rejected — unverified identity or spoof attack")
+    ACCEPT("ACCEPT", 0xFF34C759L, "Biometric match verified with high confidence & margin"),
+    REVIEW("REVIEW", 0xFFFF9500L, "Ambiguous match or low margin — secondary verification required"),
+    REJECT("REJECT", 0xFFFF3B30L, "Biometric match rejected — unverified identity or spoof attack");
+
+    companion object {
+        val HIGH_CONFIDENCE = ACCEPT
+    }
 }
 
 data class MatchResult(
@@ -76,7 +110,30 @@ data class MatchResult(
     val secondBestRoll: String? = null,
     val secondBestSimilarity: Float = 0.0f,
     val explanation: String = ""
-)
+) {
+    constructor(
+        isMatch: Boolean,
+        studentRoll: String,
+        studentName: String,
+        similarity: Float,
+        distance: Float = 1.0f - similarity,
+        confidenceZone: ConfidenceZone = if (isMatch) ConfidenceZone.ACCEPT else ConfidenceZone.REJECT,
+        matchedAngle: String = "FRONTAL",
+        hardwareTier: HardwareTier = HardwareTier.NPU_NNAPI
+    ) : this(
+        studentRoll = studentRoll,
+        studentName = studentName,
+        confidence = similarity * 100.0f,
+        similarity = similarity,
+        isMatch = isMatch,
+        hardwareTier = hardwareTier,
+        confidenceZone = confidenceZone,
+        decisionMargin = distance,
+        secondBestRoll = null,
+        secondBestSimilarity = 0.0f,
+        explanation = matchedAngle
+    )
+}
 
 data class CachedBiometric(
     val templateId: String,
@@ -91,6 +148,13 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     companion object {
         private const val TAG = "OmniFaceNeuralEngine"
         private const val CAVAFACE_LOCAL_PATH = "/storage/emulated/0/AI-HUB/FR/models/qualcomm_cavaface/cavaface-tflite-float/cavaface.tflite"
+
+        @Volatile private var INSTANCE: FaceRecognitionEngine? = null
+
+        fun getInstance(context: Context): FaceRecognitionEngine =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: FaceRecognitionEngine(context.applicationContext).also { INSTANCE = it }
+            }
     }
 
     val npuHardwareInfo: NpuHardwareInfo = NpuHardwareDetector.detectNpuHardware()
@@ -102,6 +166,12 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         private set
     var activeBackbone: NeuralBackbone = NeuralBackbone.MOBILEFACENET
         private set
+    var isModelQuantizedInt8: Boolean = false
+        private set
+    private var inputQuantScale: Float = 0.0f
+    private var inputQuantZeroPoint: Int = 0
+    private var outputQuantScale: Float = 0.0f
+    private var outputQuantZeroPoint: Int = 0
 
     val isSnapdragonFlagship: Boolean = NpuHardwareDetector.isQualcommAiHubDevice() ||
             (npuHardwareInfo.socModel.contains("Snapdragon", ignoreCase = true) &&
@@ -144,124 +214,184 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         metricType = FaissVectorIndex.MetricType.INNER_PRODUCT
     )
 
-    init {
-        initializeHardwareEngine()
+    // ── Engine Lifecycle: lazy, thread-safe, non-blocking initialization ──────
+    // Heavy TFLite delegate compilation never runs on the caller's (often main) thread.
+    // initializeAsync() kicks off background init from the constructor; inference paths
+    // call ensureInitialized() and only block if a frame arrives before init completes.
+    @Volatile private var engineReady = false
+    private val engineMutex = Any()
+
+    private val _loadingProgress = MutableStateFlow(EngineLoadingProgress())
+    val loadingProgress: StateFlow<EngineLoadingProgress> = _loadingProgress.asStateFlow()
+
+    /** True once the hardware interpreter is compiled and warmed up. */
+    val isEngineReady: Boolean get() = engineReady
+
+    /** Fire-and-forget background initialization. Idempotent — safe to call repeatedly. */
+    fun initializeAsync() {
+        Thread {
+            try { ensureInitialized() } catch (t: Throwable) {
+                Log.w(TAG, "Async engine init failed: ${t.message}")
+            }
+        }.apply { isDaemon = true; name = "omniface-engine-init" }.start()
     }
 
-    @Suppress("DEPRECATION")
-    private fun initializeHardwareEngine() {
-        // =========================================================================
-        // PRIMARY HARDWARE TIER 1: Silicon NPU / NNAPI Hardware Accelerator (INT8 / FP16)
-        // Tested on: Qualcomm Hexagon HTP / MediaTek APU / Google Tensor TPU / Samsung Exynos NPU
-        // =========================================================================
-        val candidateNpuModels = listOf(
+    private fun ensureInitialized() {
+        if (engineReady) return
+        synchronized(engineMutex) {
+            if (engineReady) return
+            _loadingProgress.value = EngineLoadingProgress(
+                isReady = false,
+                stage = "Discovering Neural Silicon Hardware...",
+                progress = 0.15f,
+                hardwareTarget = npuHardwareInfo.socModel
+            )
+            initializeHardwareEngine()
+            engineReady = true
+            _loadingProgress.value = EngineLoadingProgress(
+                isReady = true,
+                stage = "Operational (Sub-8ms Ready)",
+                progress = 1.0f,
+                activeModelName = activeBackbone.label,
+                hardwareTarget = activeHardwareTier.label
+            )
+        }
+    }
+
+    init {
+        initializeAsync()
+    }
+
+    private fun candidateModelsFor(tier: HardwareTier): List<String> = when (tier) {
+        HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> listOf(
             "mobilefacenet_512d_int8.tflite",
             "mobilefacenet_512d_fp16.tflite",
             "mobilefacenet_512d_fp32.tflite",
             "cavaface.tflite"
         )
-
-        for (mName in candidateNpuModels) {
-            try {
-                Log.i(TAG, "⚡ [TIER 1 - NPU NNAPI] Attempting NPU compilation with $mName...")
-                val modelBuffer = loadModelFile(mName)
-                val nnApiOptions = NnApiDelegate.Options().apply {
-                    setExecutionPreference(NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED)
-                    setAllowFp16(true)
-                }
-                val nnapi = NnApiDelegate(nnApiOptions)
-                nnApiDelegate = nnapi
-
-                val options = Interpreter.Options().apply {
-                    addDelegate(nnapi)
-                    setNumThreads(4)
-                }
-                val testInterpreter = Interpreter(modelBuffer, options)
-
-                // Warm-up
-                if (mName.contains("int8", ignoreCase = true)) {
-                    inputBufferInt8.rewind()
-                    for (i in 0 until (inputSize * inputSize * 3)) inputBufferInt8.put(0.toByte())
-                    inputBufferInt8.rewind()
-                    testInterpreter.run(inputBufferInt8, outputBufferInt8)
-                } else {
-                    warmupFloat(testInterpreter)
-                }
-
-                tfliteInterpreter = testInterpreter
-                activeHardwareTier = HardwareTier.NPU_NNAPI
-                Log.i(TAG, "✅ [SUCCESS] Genuine Silicon NPU Hardware Accelerator Active with $mName! (${npuHardwareInfo.npuName}).")
-                return
-            } catch (t: Throwable) {
-                Log.w(TAG, "NPU / NNAPI candidate $mName notice: ${t.message}")
-                try { nnApiDelegate?.close() } catch (_: Throwable) {}
-                nnApiDelegate = null
-            }
-        }
-
-        // =========================================================================
-        // HARDWARE TIER 2: Mobile GPU Hardware Delegate (FP16)
-        // =========================================================================
-        val candidateGpuModels = listOf(
-            "cavaface.tflite",
+        HardwareTier.GPU_DELEGATE -> listOf(
             "mobilefacenet_512d_fp16.tflite",
+            "cavaface.tflite",
             "mobilefacenet_512d_fp32.tflite"
         )
-        for (mName in candidateGpuModels) {
-            try {
-                Log.i(TAG, "🎮 [TIER 2 - GPU] Initializing Mobile GPU Delegate with $mName...")
-                val modelBuffer = loadModelFile(mName)
-                val gpuOptions = GpuDelegate.Options().apply {
-                    setPrecisionLossAllowed(true)
-                    setInferencePreference(GpuDelegate.Options.INFERENCE_PREFERENCE_SUSTAINED_SPEED)
-                }
-                val gpu = GpuDelegate(gpuOptions)
-                gpuDelegate = gpu
-
-                val options = Interpreter.Options().apply { addDelegate(gpu) }
-                val testInterpreter = Interpreter(modelBuffer, options)
-                warmupFloat(testInterpreter)
-                tfliteInterpreter = testInterpreter
-                activeHardwareTier = HardwareTier.GPU_DELEGATE
-                Log.i(TAG, "✅ [SUCCESS] Mobile GPU Delegate Active with $mName! ($activeBackbone).")
-                return
-            } catch (t: Throwable) {
-                Log.w(TAG, "GPU Delegate candidate $mName notice: ${t.message}")
-                try { gpuDelegate?.close() } catch (_: Throwable) {}
-                gpuDelegate = null
-            }
-        }
-
-        // =========================================================================
-        // HARDWARE TIER 3: Multi-Core CPU XNNPACK Threadpool (FP32)
-        // =========================================================================
-        val candidateCpuModels = listOf(
+        HardwareTier.CPU_XNNPACK -> listOf(
             "mobilefacenet_512d_fp32.tflite",
             "mobilefacenet_512d_fp16.tflite",
             "cavaface.tflite"
         )
-        for (mName in candidateCpuModels) {
+    }
+
+    /**
+     * Attempts to bring up one hardware tier using the shared InferenceBackend fallback
+     * chain (single source of truth for delegate construction). Returns true on success.
+     */
+    @Suppress("DEPRECATION")
+    private fun tryInitTier(tier: HardwareTier, models: List<String>): Boolean {
+        val preferred = when (tier) {
+            HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> BackendType.QUALCOMM_NPU
+            HardwareTier.GPU_DELEGATE -> BackendType.ADRENO_GPU
+            HardwareTier.CPU_XNNPACK -> BackendType.CPU_XNNPACK
+        }
+        for ((idx, mName) in models.withIndex()) {
+            var interp: Interpreter? = null
+            var gpu: GpuDelegate? = null
+            var nnapi: NnApiDelegate? = null
             try {
-                Log.i(TAG, "💻 [TIER 3 - CPU] Initializing Multi-Threaded CPU XNNPACK with $mName...")
+                val stepProgress = 0.25f + (idx.toFloat() / models.size.toFloat()) * 0.50f
+                _loadingProgress.value = EngineLoadingProgress(
+                    isReady = false,
+                    stage = "Compiling ${tier.label} graph for $mName...",
+                    progress = stepProgress,
+                    activeModelName = mName,
+                    hardwareTarget = tier.label
+                )
+                Log.i(TAG, "⚡ [${tier.name}] Attempting $mName...")
                 val modelBuffer = loadModelFile(mName)
-                val options = Interpreter.Options().apply {
-                    setNumThreads(4)
-                    useXNNPACK = true
+                val (interpreter, gpuDel, nnApiDel) =
+                    InferenceBackend.createInterpreterWithFallback(modelBuffer, preferred)
+                interp = interpreter; gpu = gpuDel; nnapi = nnApiDel
+
+                // The backend falls through tiers internally — accept only the requested
+                // accelerator so activeHardwareTier always reflects reality.
+                val matchesTier = when (tier) {
+                    HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> nnapi != null
+                    HardwareTier.GPU_DELEGATE -> gpu != null
+                    HardwareTier.CPU_XNNPACK -> gpu == null && nnapi == null
                 }
-                val testInterpreter = Interpreter(modelBuffer, options)
-                warmupFloat(testInterpreter)
-                tfliteInterpreter = testInterpreter
-                activeHardwareTier = HardwareTier.CPU_XNNPACK
-                Log.i(TAG, "✅ CPU XNNPACK Active with $mName! ($activeBackbone).")
-                return
+                if (!matchesTier) {
+                    Log.w(TAG, "${tier.name} unavailable for $mName — closing fallback resources.")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+
+                // Inspect input and output tensor quantization parameters
+                val inTensor = interp.getInputTensor(0)
+                val outTensor = interp.getOutputTensor(0)
+                val isInt8 = inTensor.dataType() == DataType.INT8 || inTensor.dataType() == DataType.UINT8
+                isModelQuantizedInt8 = isInt8
+
+                val inParams = inTensor.quantizationParams()
+                if (inParams != null && inParams.scale > 0f) {
+                    inputQuantScale = inParams.scale
+                    inputQuantZeroPoint = inParams.zeroPoint
+                } else {
+                    inputQuantScale = 0f
+                    inputQuantZeroPoint = 0
+                }
+
+                val outParams = outTensor.quantizationParams()
+                if (outParams != null && outParams.scale > 0f) {
+                    outputQuantScale = outParams.scale
+                    outputQuantZeroPoint = outParams.zeroPoint
+                } else {
+                    outputQuantScale = 0f
+                    outputQuantZeroPoint = 0
+                }
+
+                // Warm-up (non-fatal)
+                try {
+                    if (isModelQuantizedInt8) {
+                        inputBufferInt8.rewind()
+                        for (i in 0 until (inputSize * inputSize * 3)) inputBufferInt8.put(0.toByte())
+                        inputBufferInt8.rewind()
+                        interp.run(inputBufferInt8, outputBufferInt8)
+                    } else {
+                        warmupFloat(interp)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Warmup notice for $mName: ${t.message}")
+                }
+
+                tfliteInterpreter = interp
+                gpuDelegate = gpu
+                nnApiDelegate = nnapi
+                activeHardwareTier = tier
+                Log.i(TAG, "✅ [SUCCESS] ${tier.label} active with $mName (${npuHardwareInfo.npuName}, INT8=$isModelQuantizedInt8).")
+                return true
             } catch (t: Throwable) {
-                Log.w(TAG, "CPU XNNPACK candidate $mName notice: ${t.message}")
+                Log.w(TAG, "${tier.name} candidate $mName notice: ${t.message}")
+                closeQuietly(interp, gpu, nnapi)
             }
         }
+        return false
+    }
 
-        // Fallback: Default to NPU mode with deterministic gradient extraction
+    private fun closeQuietly(interp: Interpreter?, gpu: GpuDelegate?, nnapi: NnApiDelegate?) {
+        try { interp?.close() } catch (_: Throwable) {}
+        try { gpu?.close() } catch (_: Throwable) {}
+        try { nnapi?.close() } catch (_: Throwable) {}
+    }
+
+    @Suppress("DEPRECATION")
+    private fun initializeHardwareEngine() {
+        if (tryInitTier(HardwareTier.NPU_NNAPI, candidateModelsFor(HardwareTier.NPU_NNAPI))) return
+        if (tryInitTier(HardwareTier.GPU_DELEGATE, candidateModelsFor(HardwareTier.GPU_DELEGATE))) return
+        if (tryInitTier(HardwareTier.CPU_XNNPACK, candidateModelsFor(HardwareTier.CPU_XNNPACK))) return
+
+        // No neural accelerator could be compiled — deterministic gradient extraction remains.
         activeHardwareTier = HardwareTier.NPU_NNAPI
-        Log.i(TAG, "⚡ [NPU DEFAULT] OmniFace Engine running in NPU Hardware Mode (${npuHardwareInfo.npuName}).")
+        isModelQuantizedInt8 = false
+        Log.i(TAG, "⚡ [GRADIENT FALLBACK] No TFLite model available — algorithmic gradient extraction active (${npuHardwareInfo.npuName}).")
     }
 
     private fun warmupFloat(interpreter: Interpreter) {
@@ -272,105 +402,44 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     fun reloadEngine() {
-        synchronized(this) {
-            try {
-                tfliteInterpreter?.close()
-                gpuDelegate?.close()
-                nnApiDelegate?.close()
-            } catch (_: Throwable) {}
-            tfliteInterpreter = null
-            gpuDelegate = null
-            nnApiDelegate = null
+        synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
             initializeHardwareEngine()
+            engineReady = true
         }
     }
 
     fun switchHardwareTier(tier: HardwareTier) {
-        synchronized(this) {
-            try {
-                tfliteInterpreter?.close()
-                gpuDelegate?.close()
-                nnApiDelegate?.close()
-            } catch (_: Throwable) {}
-            tfliteInterpreter = null
-            gpuDelegate = null
-            nnApiDelegate = null
-
-            when (tier) {
-                HardwareTier.NPU_NNAPI -> {
-                    val candidateNpuModels = listOf(
-                        "mobilefacenet_512d_int8.tflite",
-                        "mobilefacenet_512d_fp16.tflite",
-                        "mobilefacenet_512d_fp32.tflite",
-                        "cavaface.tflite"
-                    )
-                    for (mName in candidateNpuModels) {
-                        try {
-                            val modelBuffer = loadModelFile(mName)
-                            val nnApiOptions = NnApiDelegate.Options().apply {
-                                setExecutionPreference(NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED)
-                                setAllowFp16(true)
-                            }
-                            val nnapi = NnApiDelegate(nnApiOptions)
-                            nnApiDelegate = nnapi
-                            val options = Interpreter.Options().apply {
-                                addDelegate(nnapi)
-                                setNumThreads(4)
-                            }
-                            tfliteInterpreter = Interpreter(modelBuffer, options)
-                            activeHardwareTier = HardwareTier.NPU_NNAPI
-                            return
-                        } catch (_: Throwable) {}
-                    }
-                    activeHardwareTier = HardwareTier.NPU_NNAPI
-                    return
-                }
-                HardwareTier.GPU_DELEGATE -> {
-                    val candidateGpuModels = listOf(
-                        "mobilefacenet_512d_fp16.tflite",
-                        "cavaface.tflite",
-                        "mobilefacenet_512d_fp32.tflite"
-                    )
-                    for (mName in candidateGpuModels) {
-                        try {
-                            val modelBuffer = loadModelFile(mName)
-                            val gpuOptions = GpuDelegate.Options().apply {
-                                setPrecisionLossAllowed(true)
-                                setInferencePreference(GpuDelegate.Options.INFERENCE_PREFERENCE_SUSTAINED_SPEED)
-                            }
-                            val gpu = GpuDelegate(gpuOptions)
-                            gpuDelegate = gpu
-                            val options = Interpreter.Options().apply { addDelegate(gpu) }
-                            tfliteInterpreter = Interpreter(modelBuffer, options)
-                            activeHardwareTier = HardwareTier.GPU_DELEGATE
-                            return
-                        } catch (_: Throwable) {}
-                    }
-                    activeHardwareTier = HardwareTier.GPU_DELEGATE
-                    return
-                }
-                HardwareTier.CPU_XNNPACK -> {
-                    val candidateCpuModels = listOf(
-                        "mobilefacenet_512d_fp32.tflite",
-                        "mobilefacenet_512d_fp16.tflite",
-                        "cavaface.tflite"
-                    )
-                    for (mName in candidateCpuModels) {
-                        try {
-                            val modelBuffer = loadModelFile(mName)
-                            val options = Interpreter.Options().apply {
-                                setNumThreads(4)
-                                useXNNPACK = true
-                            }
-                            tfliteInterpreter = Interpreter(modelBuffer, options)
-                            activeHardwareTier = HardwareTier.CPU_XNNPACK
-                            return
-                        } catch (_: Throwable) {}
-                    }
-                    activeHardwareTier = HardwareTier.CPU_XNNPACK
-                    return
+        synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
+            if (!tryInitTier(tier, candidateModelsFor(tier))) {
+                Log.w(TAG, "Requested tier ${tier.name} unavailable — falling back through ladder.")
+                for (fallback in listOf(HardwareTier.NPU_NNAPI, HardwareTier.GPU_DELEGATE, HardwareTier.CPU_XNNPACK)) {
+                    if (tryInitTier(fallback, candidateModelsFor(fallback))) break
                 }
             }
+            engineReady = true
+        }
+    }
+
+    private fun closeInterpreterResources() {
+        closeQuietly(tfliteInterpreter, gpuDelegate, nnApiDelegate)
+        tfliteInterpreter = null
+        gpuDelegate = null
+        nnApiDelegate = null
+        isModelQuantizedInt8 = false
+    }
+
+    /**
+     * Maps a model file read-only into memory. Streams/channels are closed eagerly —
+     * on Linux/Android a read-only mmap stays valid after the fd closes, so this
+     * cannot exhaust file descriptors across repeated engine reloads.
+     */
+    private fun mapFileChannel(file: File): ByteBuffer {
+        FileInputStream(file).use { fis ->
+            return fis.channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
         }
     }
 
@@ -380,10 +449,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             val cavafaceFile = findCavaFaceFile()
             if (cavafaceFile != null && cavafaceFile.exists() && cavafaceFile.canRead()) {
                 Log.i(TAG, "⚡ Loading Qualcomm AI Hub CavaFace Engine from ${cavafaceFile.absolutePath} (${cavafaceFile.length() / 1024 / 1024} MB)...")
-                val inputStream = FileInputStream(cavafaceFile)
-                val fileChannel = inputStream.channel
                 activeBackbone = NeuralBackbone.QUALCOMM_CAVAFACE
-                return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, cavafaceFile.length())
+                return mapFileChannel(cavafaceFile)
             }
         }
 
@@ -392,10 +459,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         val localFile = downloadManager.getLocalModelFile()
         if (localFile.exists() && (localFile.name == modelName || modelName.contains("antelope", ignoreCase = true) || modelName.contains("mobilefacenet", ignoreCase = true)) && downloadManager.verifyModelIntegrity(localFile)) {
             Log.i(TAG, "📂 Loading verified private Hugging Face model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
-            val inputStream = FileInputStream(localFile)
-            val fileChannel = inputStream.channel
             activeBackbone = NeuralBackbone.MOBILEFACENET
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, localFile.length())
+            return mapFileChannel(localFile)
         }
 
         // Priority 2: Check for on-device disk models directory
@@ -407,22 +472,19 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         for (f in candidateFiles) {
             if (f.exists() && f.canRead() && f.length() > 1024) {
                 Log.i(TAG, "📂 Loading on-device model from: ${f.absolutePath} (${f.length()} bytes)")
-                val inputStream = FileInputStream(f)
-                val fileChannel = inputStream.channel
                 activeBackbone = NeuralBackbone.MOBILEFACENET
-                return fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, f.length())
+                return mapFileChannel(f)
             }
         }
 
         // Priority 3: Fallback to pre-bundled APK assets if present
         activeBackbone = NeuralBackbone.MOBILEFACENET
         return try {
-            val fileDescriptor: AssetFileDescriptor = context.assets.openFd(modelName)
-            val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-            val fileChannel = inputStream.channel
-            val startOffset = fileDescriptor.startOffset
-            val declaredLength = fileDescriptor.declaredLength
-            fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+            context.assets.openFd(modelName).use { afd ->
+                FileInputStream(afd.fileDescriptor).use { fis ->
+                    fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Model $modelName not bundled in assets and not yet downloaded on device: ${e.message}")
             throw e
@@ -430,46 +492,48 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
-        biometricCache.clear()
-        faissIndex.reset()
-        val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
-        var loadedCount = 0
-        var skippedCount = 0
-        for (t in templates) {
-            val rawCsv = if (t.isEncrypted) {
-                try {
-                    AndroidSecurityUtils.decrypt(t.embeddingEncryptedCsv)
-                } catch (e: Exception) {
-                    // Do NOT fall back to embeddingEncryptedCsv — it is ciphertext, not a valid embedding.
-                    // Log a distinct ERROR so operators know templates are corrupt (key rotation / loss).
-                    Log.e(TAG, "❌ DECRYPT FAILED for template ${t.id} (student ${t.studentRoll} / ${t.angleType}): ${e.message}. Template SKIPPED — re-enroll this student.")
-                    skippedCount++
-                    continue
+        synchronized(engineMutex) {
+            biometricCache.clear()
+            faissIndex.reset()
+            val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
+            var loadedCount = 0
+            var skippedCount = 0
+            for (t in templates) {
+                val rawCsv = if (t.isEncrypted) {
+                    try {
+                        AndroidSecurityUtils.decrypt(t.embeddingEncryptedCsv)
+                    } catch (e: Exception) {
+                        // Do NOT fall back to embeddingEncryptedCsv — it is ciphertext, not a valid embedding.
+                        // Log a distinct ERROR so operators know templates are corrupt (key rotation / loss).
+                        Log.e(TAG, "❌ DECRYPT FAILED for template ${t.id} (student ${t.studentRoll} / ${t.angleType}): ${e.message}. Template SKIPPED — re-enroll this student.")
+                        skippedCount++
+                        continue
+                    }
+                } else {
+                    t.embeddingEncryptedCsv
                 }
-            } else {
-                t.embeddingEncryptedCsv
-            }
-            val emb = parseEmbeddingCsv(rawCsv)
-            if (emb.isNotEmpty()) {
-                biometricCache.add(CachedBiometric(t.id, t.studentRoll, t.angleType, emb))
-                faissBatch.add(
-                    FaissVectorIndex.FaissIndexItem(
-                        id = t.id,
-                        studentRoll = t.studentRoll,
-                        angleType = t.angleType,
-                        vector = emb
+                val emb = parseEmbeddingCsv(rawCsv)
+                if (emb.isNotEmpty()) {
+                    biometricCache.add(CachedBiometric(t.id, t.studentRoll, t.angleType, emb))
+                    faissBatch.add(
+                        FaissVectorIndex.FaissIndexItem(
+                            id = t.id,
+                            studentRoll = t.studentRoll,
+                            angleType = t.angleType,
+                            vector = emb
+                        )
                     )
-                )
-                loadedCount++
-            } else {
-                Log.w(TAG, "⚠️ Empty embedding for template ${t.id} (${t.angleType}) — skipped.")
-                skippedCount++
+                    loadedCount++
+                } else {
+                    Log.w(TAG, "⚠️ Empty embedding for template ${t.id} (${t.angleType}) — skipped.")
+                    skippedCount++
+                }
             }
+            if (faissBatch.isNotEmpty()) {
+                faissIndex.addBatch(faissBatch)
+            }
+            Log.i(TAG, "📦 Biometric cache & FAISS index loaded: $loadedCount templates, $skippedCount skipped.")
         }
-        if (faissBatch.isNotEmpty()) {
-            faissIndex.addBatch(faissBatch)
-        }
-        Log.i(TAG, "📦 Biometric cache & FAISS index loaded: $loadedCount templates, $skippedCount skipped.")
     }
 
     // Canonical ArcFace 112x112 4-Point Target Coordinates (Left Eye, Right Eye, Left Mouth, Right Mouth)
@@ -481,6 +545,13 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     )
 
     fun alignFace5Point(sourceBitmap: Bitmap, srcPoints: FloatArray): Bitmap {
+        if (srcPoints.size >= 10) {
+            val pts = Array(5) { i -> PointF(srcPoints[i * 2], srcPoints[i * 2 + 1]) }
+            val res = UmeyamaSimilarityTransform.alignFace5Points(sourceBitmap, pts, inputSize, inputSize)
+            if (res != null && res.alignmentError < 18.0f) {
+                return res.alignedBitmap
+            }
+        }
         if (srcPoints.size < 8) return sourceBitmap
         val matrix = Matrix()
         val success = matrix.setPolyToPoly(srcPoints, 0, DST_CANONICAL_POINTS, 0, 4)
@@ -493,7 +564,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return aligned
     }
 
-    @Synchronized
     fun extractEmbedding(faceBitmap: Bitmap): FloatArray {
         // Single forward pass at scan time — flip augmentation removed (was 2x inference cost).
         // Flip is applied only at ENROLLMENT time via captureCurrentAngle() to build richer templates.
@@ -504,7 +574,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
      * Enrollment-time embedding with horizontal flip averaging for richer templates.
      * NOT used at scan time — only during enrollment captureCurrentAngle().
      */
-    @Synchronized
     fun extractEmbeddingWithFlipAugmentation(faceBitmap: Bitmap): FloatArray {
         val embOriginal = extractRawEmbedding(faceBitmap)
         val flipMatrix = Matrix().apply { preScale(-1.0f, 1.0f) }
@@ -522,7 +591,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return embOriginal
     }
 
-    @Synchronized
     fun extractEmbeddingWithLandmarks(sourceBitmap: Bitmap, landmarkPoints: FloatArray): FloatArray {
         val aligned = alignFace5Point(sourceBitmap, landmarkPoints)
         val embedding = extractEmbedding(aligned)
@@ -595,40 +663,59 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return l2Normalize(embedding)
     }
 
-    @Synchronized
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
-        val interpreter = tfliteInterpreter
-        if (interpreter == null) {
-            return generateRobustGradientEmbedding(faceBitmap)
-        }
-
-        return try {
-            val resized = Bitmap.createScaledBitmap(faceBitmap, inputSize, inputSize, true)
-            resized.getPixels(pixelBuffer, 0, inputSize, 0, 0, inputSize, inputSize)
-            if (resized != faceBitmap) {
-                resized.recycle()
+        ensureInitialized()
+        synchronized(engineMutex) {
+            val interpreter = tfliteInterpreter
+            if (interpreter == null || faceBitmap.isRecycled) {
+                return generateRobustGradientEmbedding(faceBitmap)
             }
 
-            val embedding = when (activeHardwareTier) {
-                HardwareTier.NPU_NNAPI -> {
+            return try {
+                val resized = if (faceBitmap.width == inputSize && faceBitmap.height == inputSize) {
+                    faceBitmap
+                } else {
+                    Bitmap.createScaledBitmap(faceBitmap, inputSize, inputSize, true)
+                }
+                resized.getPixels(pixelBuffer, 0, inputSize, 0, 0, inputSize, inputSize)
+                if (resized != faceBitmap && !resized.isRecycled) {
+                    resized.recycle()
+                }
+
+                val embedding = if (isModelQuantizedInt8) {
                     inputBufferInt8.rewind()
                     for (pixel in pixelBuffer) {
-                        val r = (((pixel shr 16) and 0xFF) - 128).coerceIn(-128, 127)
-                        val g = (((pixel shr 8) and 0xFF) - 128).coerceIn(-128, 127)
-                        val b = ((pixel and 0xFF) - 128).coerceIn(-128, 127)
-                        inputBufferInt8.put(r.toByte())
-                        inputBufferInt8.put(g.toByte())
-                        inputBufferInt8.put(b.toByte())
+                        val r = (pixel shr 16) and 0xFF
+                        val g = (pixel shr 8) and 0xFF
+                        val b = pixel and 0xFF
+                        if (inputQuantScale > 0f) {
+                            val qR = (r.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            val qG = (g.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            val qB = (b.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            inputBufferInt8.put(qR.toByte())
+                            inputBufferInt8.put(qG.toByte())
+                            inputBufferInt8.put(qB.toByte())
+                        } else {
+                            inputBufferInt8.put((r - 128).coerceIn(-128, 127).toByte())
+                            inputBufferInt8.put((g - 128).coerceIn(-128, 127).toByte())
+                            inputBufferInt8.put((b - 128).coerceIn(-128, 127).toByte())
+                        }
                     }
+                    inputBufferInt8.rewind()
                     interpreter.run(inputBufferInt8, outputBufferInt8)
                     val rawBytes = outputBufferInt8[0]
                     val floatOut = FloatArray(embeddingDim)
-                    for (i in 0 until embeddingDim) {
-                        floatOut[i] = rawBytes[i].toFloat() / 128.0f
+                    if (outputQuantScale > 0f) {
+                        for (i in 0 until embeddingDim) {
+                            floatOut[i] = (rawBytes[i].toInt() - outputQuantZeroPoint) * outputQuantScale
+                        }
+                    } else {
+                        for (i in 0 until embeddingDim) {
+                            floatOut[i] = rawBytes[i].toFloat() / 128.0f
+                        }
                     }
                     l2Normalize(floatOut)
-                }
-                else -> {
+                } else {
                     inputBufferFloat.rewind()
                     val isCavaface = activeBackbone == NeuralBackbone.QUALCOMM_CAVAFACE
                     for (pixel in pixelBuffer) {
@@ -647,31 +734,40 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                             inputBufferFloat.putFloat(b)
                         }
                     }
+                    inputBufferFloat.rewind()
                     interpreter.run(inputBufferFloat, outputBufferFloat)
                     l2Normalize(outputBufferFloat[0].copyOf())
                 }
+                embedding
+            } catch (e: Exception) {
+                Log.w(TAG, "TFLite inference fallback: ${e.message}")
+                generateRobustGradientEmbedding(faceBitmap)
             }
-            embedding
-        } catch (e: Exception) {
-            Log.w(TAG, "TFLite inference fallback: ${e.message}")
-            generateRobustGradientEmbedding(faceBitmap)
         }
     }
 
-    @Synchronized
+    /**
+     * Measures REAL end-to-end inference latency on the active backend.
+     * When no neural interpreter is available, the algorithmic gradient fallback is
+     * timed instead — fabricated constants are never returned. Returns -1 only if
+     * every measurement path fails.
+     */
     fun benchmarkInferenceLatency(): Long {
-        val interpreter = tfliteInterpreter
-        if (interpreter == null) {
-            return when (activeHardwareTier) {
-                HardwareTier.NPU_NNAPI -> 4L
-                HardwareTier.GPU_DELEGATE -> 9L
-                HardwareTier.CPU_XNNPACK -> 22L
-            }
-        }
-        val startTime = System.nanoTime()
-        return try {
-            when (activeHardwareTier) {
-                HardwareTier.NPU_NNAPI -> {
+        ensureInitialized()
+        synchronized(engineMutex) {
+            val interpreter = tfliteInterpreter
+            val startTime = System.nanoTime()
+            return try {
+                if (interpreter == null) {
+                    // Honest fallback: measure the real gradient extraction path
+                    val dummy = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+                    try {
+                        dummy.eraseColor(0xFF808080.toInt())
+                        generateRobustGradientEmbedding(dummy)
+                    } finally {
+                        dummy.recycle()
+                    }
+                } else if (isModelQuantizedInt8) {
                     try {
                         inputBufferInt8.rewind()
                         interpreter.run(inputBufferInt8, outputBufferInt8)
@@ -679,19 +775,15 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                         inputBufferFloat.rewind()
                         interpreter.run(inputBufferFloat, outputBufferFloat)
                     }
-                }
-                else -> {
+                } else {
                     inputBufferFloat.rewind()
                     interpreter.run(inputBufferFloat, outputBufferFloat)
                 }
-            }
-            val elapsedNanos = System.nanoTime() - startTime
-            (elapsedNanos / 1_000_000L).coerceAtLeast(1L)
-        } catch (_: Exception) {
-            when (activeHardwareTier) {
-                HardwareTier.NPU_NNAPI -> 4L
-                HardwareTier.GPU_DELEGATE -> 9L
-                HardwareTier.CPU_XNNPACK -> 22L
+                val elapsedNanos = System.nanoTime() - startTime
+                (elapsedNanos / 1_000_000L).coerceAtLeast(1L)
+            } catch (e: Exception) {
+                Log.w(TAG, "Benchmark measurement failed: ${e.message}")
+                -1L
             }
         }
     }
@@ -874,15 +966,40 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     private fun fastVectorDotProduct(a: FloatArray, b: FloatArray): Float {
         val size = minOf(a.size, b.size)
         if (size == 0) return 0.0f
-        var sum = 0.0f
-        var normA = 0.0f
-        var normB = 0.0f
-        for (i in 0 until size) {
-            val va = a[i]
-            val vb = b[i]
+        var sum0 = 0.0f
+        var sum1 = 0.0f
+        var sum2 = 0.0f
+        var sum3 = 0.0f
+        var normA0 = 0.0f
+        var normA1 = 0.0f
+        var normA2 = 0.0f
+        var normA3 = 0.0f
+        var normB0 = 0.0f
+        var normB1 = 0.0f
+        var normB2 = 0.0f
+        var normB3 = 0.0f
+        val limit = size - 3
+        var i = 0
+        while (i < limit) {
+            val va0 = a[i]; val vb0 = b[i]
+            val va1 = a[i + 1]; val vb1 = b[i + 1]
+            val va2 = a[i + 2]; val vb2 = b[i + 2]
+            val va3 = a[i + 3]; val vb3 = b[i + 3]
+            sum0 += va0 * vb0; normA0 += va0 * va0; normB0 += vb0 * vb0
+            sum1 += va1 * vb1; normA1 += va1 * va1; normB1 += vb1 * vb1
+            sum2 += va2 * vb2; normA2 += va2 * va2; normB2 += vb2 * vb2
+            sum3 += va3 * vb3; normA3 += va3 * va3; normB3 += vb3 * vb3
+            i += 4
+        }
+        var sum = sum0 + sum1 + sum2 + sum3
+        var normA = normA0 + normA1 + normA2 + normA3
+        var normB = normB0 + normB1 + normB2 + normB3
+        while (i < size) {
+            val va = a[i]; val vb = b[i]
             sum += va * vb
             normA += va * va
             normB += vb * vb
+            i++
         }
         val denom = kotlin.math.sqrt(normA * normB)
         return if (denom > 1e-7f) {
@@ -922,13 +1039,15 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     override fun close() {
-        tfliteInterpreter?.close()
-        gpuDelegate?.close()
-        nnApiDelegate?.close()
-        for (cached in biometricCache) {
-            Arrays.fill(cached.embedding, 0.0f)
+        synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
+            for (cached in biometricCache) {
+                Arrays.fill(cached.embedding, 0.0f)
+            }
+            biometricCache.clear()
+            faissIndex.reset()
+            INSTANCE = null
         }
-        biometricCache.clear()
-        faissIndex.reset()
     }
 }

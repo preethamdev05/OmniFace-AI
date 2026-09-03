@@ -55,9 +55,10 @@ class QualcommSuiteDownloadManager private constructor(private val context: Cont
 
         /**
          * Shared secret header value. Set as a wrangler secret on the Worker.
-         * The app reads this from HfSecureGateway's stored token slot.
+         * MUST be provisioned via EncryptedSharedPreferences (HfSecureGateway) — this
+         * compile-time value is empty to force runtime configuration. No hardcoded secret.
          */
-        const val DEFAULT_APP_SECRET = "omniface-secure-2025"
+        const val DEFAULT_APP_SECRET = ""
 
         /** Hardcoded public fallback: Qualcomm AI Hub S3 (no auth required) */
         private const val S3_BASE =

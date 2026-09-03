@@ -42,12 +42,25 @@ object UmeyamaSimilarityTransform {
 
         val dst5Points = ARCFACE_REFERENCE_5PTS
 
+        // Ensure canonical geometric ordering (Image Left Eye, Image Right Eye, Nose, Image Left Mouth, Image Right Mouth)
+        val pt0 = src5Points[0]
+        val pt1 = src5Points[1]
+        val pt2 = src5Points[2]
+        val pt3 = src5Points[3]
+        val pt4 = src5Points[4]
+
+        val eyeLeft = if (pt0.x <= pt1.x) pt0 else pt1
+        val eyeRight = if (pt0.x <= pt1.x) pt1 else pt0
+        val mouthLeft = if (pt3.x <= pt4.x) pt3 else pt4
+        val mouthRight = if (pt3.x <= pt4.x) pt4 else pt3
+        val canonicalSrc = arrayOf(eyeLeft, eyeRight, pt2, mouthLeft, mouthRight)
+
         // 1. Compute Centroids
         var srcMeanX = 0f; var srcMeanY = 0f
         var dstMeanX = 0f; var dstMeanY = 0f
         for (i in 0 until 5) {
-            srcMeanX += src5Points[i].x
-            srcMeanY += src5Points[i].y
+            srcMeanX += canonicalSrc[i].x
+            srcMeanY += canonicalSrc[i].y
             dstMeanX += dst5Points[i].x
             dstMeanY += dst5Points[i].y
         }
@@ -60,8 +73,8 @@ object UmeyamaSimilarityTransform {
         var covYX = 0f; var covYY = 0f
 
         for (i in 0 until 5) {
-            val sX = src5Points[i].x - srcMeanX
-            val sY = src5Points[i].y - srcMeanY
+            val sX = canonicalSrc[i].x - srcMeanX
+            val sY = canonicalSrc[i].y - srcMeanY
             val dX = dst5Points[i].x - dstMeanX
             val dY = dst5Points[i].y - dstMeanY
 
@@ -109,7 +122,7 @@ object UmeyamaSimilarityTransform {
         var residualError = 0f
         val mappedPt = FloatArray(2)
         for (i in 0 until 5) {
-            val srcPt = floatArrayOf(src5Points[i].x, src5Points[i].y)
+            val srcPt = floatArrayOf(canonicalSrc[i].x, canonicalSrc[i].y)
             matrix.mapPoints(mappedPt, srcPt)
             val dx = mappedPt[0] - dst5Points[i].x
             val dy = mappedPt[1] - dst5Points[i].y
@@ -123,5 +136,67 @@ object UmeyamaSimilarityTransform {
             rotationDegrees = rotationDeg,
             scale = scale
         )
+    }
+
+    /**
+     * Computes the 2D affine/similarity transformation matrix from 5 source points to canonical reference points.
+     */
+    fun computeSimilarityTransform(
+        src5Points: Array<PointF>,
+        dst5Points: Array<PointF> = ARCFACE_REFERENCE_5PTS
+    ): Matrix? {
+        if (src5Points.size < 5 || dst5Points.size < 5) return null
+
+        val pt0 = src5Points[0]
+        val pt1 = src5Points[1]
+        val pt2 = src5Points[2]
+        val pt3 = src5Points[3]
+        val pt4 = src5Points[4]
+
+        val eyeLeft = if (pt0.x <= pt1.x) pt0 else pt1
+        val eyeRight = if (pt0.x <= pt1.x) pt1 else pt0
+        val mouthLeft = if (pt3.x <= pt4.x) pt3 else pt4
+        val mouthRight = if (pt3.x <= pt4.x) pt4 else pt3
+        val canonicalSrc = arrayOf(eyeLeft, eyeRight, pt2, mouthLeft, mouthRight)
+
+        var srcMeanX = 0f; var srcMeanY = 0f
+        var dstMeanX = 0f; var dstMeanY = 0f
+        for (i in 0 until 5) {
+            srcMeanX += canonicalSrc[i].x; srcMeanY += canonicalSrc[i].y
+            dstMeanX += dst5Points[i].x; dstMeanY += dst5Points[i].y
+        }
+        srcMeanX /= 5f; srcMeanY /= 5f
+        dstMeanX /= 5f; dstMeanY /= 5f
+
+        var srcVar = 0f
+        var covXX = 0f; var covXY = 0f
+        var covYX = 0f; var covYY = 0f
+        for (i in 0 until 5) {
+            val sX = canonicalSrc[i].x - srcMeanX
+            val sY = canonicalSrc[i].y - srcMeanY
+            val dX = dst5Points[i].x - dstMeanX
+            val dY = dst5Points[i].y - dstMeanY
+            srcVar += sX * sX + sY * sY
+            covXX += dX * sX; covXY += dX * sY
+            covYX += dY * sX; covYY += dY * sY
+        }
+        srcVar /= 5f
+        covXX /= 5f; covXY /= 5f
+        covYX /= 5f; covYY /= 5f
+
+        if (srcVar < 1e-6f) return null
+
+        val trace = covXX + covYY
+        val diff = covYX - covXY
+        val angleRad = kotlin.math.atan2(diff, trace)
+        val rotationDeg = Math.toDegrees(angleRad.toDouble()).toFloat()
+        val scale = kotlin.math.sqrt((trace * trace + diff * diff).toDouble()).toFloat() / srcVar
+
+        val matrix = Matrix()
+        matrix.postTranslate(-srcMeanX, -srcMeanY)
+        matrix.postScale(scale, scale)
+        matrix.postRotate(rotationDeg)
+        matrix.postTranslate(dstMeanX, dstMeanY)
+        return matrix
     }
 }

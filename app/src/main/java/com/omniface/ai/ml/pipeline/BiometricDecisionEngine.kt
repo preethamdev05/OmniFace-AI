@@ -13,7 +13,13 @@ enum class PipelineGateState {
     REJECT_QUALITY,
     REJECT_SPOOF_ATTACK,
     REJECT_UNKNOWN_IDENTITY,
-    REVIEW_AMBIGUOUS_MATCH
+    REVIEW_AMBIGUOUS_MATCH;
+
+    companion object {
+        val VERIFIED = PASS
+        val SPOOF_DETECTED = REJECT_SPOOF_ATTACK
+        val QUALITY_REJECTED = REJECT_QUALITY
+    }
 }
 
 data class BiometricSynthesisDecision(
@@ -41,6 +47,16 @@ data class BiometricSynthesisDecision(
  * A strong identity score CANNOT override a failed liveness or quality gate!
  */
 object BiometricDecisionEngine {
+
+    fun evaluatePipeline(
+        quality: QualityGateResult,
+        passivePad: PassivePadResult?,
+        temporalLiveness: TemporalLivenessResult,
+        matchResult: MatchResult?,
+        securityTier: SecurityTier = SecurityTier.HIGH
+    ): PipelineGateState {
+        return evaluate(quality, passivePad, temporalLiveness, matchResult, securityTier).gateState
+    }
 
     fun evaluate(
         quality: QualityGateResult,
@@ -76,7 +92,13 @@ object BiometricDecisionEngine {
         val multiStageScore = multiStageLiveness?.overallLivenessScore ?: (passivePad?.livenessScore ?: 0.90f)
         val livenessScore = multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
-        if (!isMultiStageLive || !isPassiveLive || !isTemporalLive) {
+        // Confirmed spoof rejection: passive PAD failure OR multi-stage + temporal consensus failure OR primary attack vector
+        val isConfirmedSpoof = (!isPassiveLive && (passivePad?.spoofProbability ?: 0f) >= 0.70f) ||
+                               (!isMultiStageLive && !isTemporalLive && livenessScore < 0.45f) ||
+                               (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.35f) ||
+                               (!isTemporalLive && temporalLiveness.explanation.contains("Static"))
+
+        if (isConfirmedSpoof) {
             val titleText = when (temporalLiveness.requiredAction) {
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.BLINK -> "PLEASE BLINK YOUR EYES"
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.TURN_LEFT,
@@ -110,7 +132,7 @@ object BiometricDecisionEngine {
             val sim = matchResult?.similarity ?: 0.0f
             val isReview = matchResult?.confidenceZone == ConfidenceZone.REVIEW
 
-            return if (isReview && matchResult != null) {
+            return if (isReview) {
                 BiometricSynthesisDecision(
                     gateState = PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
                     isAttendanceAuthorized = false,
@@ -137,7 +159,7 @@ object BiometricDecisionEngine {
                     qualityScore = quality.overallQualityScore,
                     livenessScore = livenessScore,
                     title = "UNKNOWN IDENTITY",
-                    subtitle = "Score: ${"%.3f".format(sim)} < ${"%.3f".format(securityTier.threshold)}",
+                    subtitle = "Match: ${(sim * 100).toInt()}% (Requires ≥${(securityTier.threshold * 100).toInt()}%)",
                     technicalExplanation = "Gate 3 (Identity) Failed: Cosine sim ${"%.3f".format(sim)} < threshold ${"%.3f".format(securityTier.threshold)}"
                 )
             }
@@ -155,7 +177,7 @@ object BiometricDecisionEngine {
             qualityScore = quality.overallQualityScore,
             livenessScore = livenessScore,
             title = "✓ VERIFIED: ${matchResult.studentName.uppercase()}",
-            subtitle = "${matchResult.confidence.toInt()}% Match • Live 3D Face Verified",
+            subtitle = "${"%.1f".format(matchResult.confidence)}% Match • Live 3D Face Verified",
             technicalExplanation = "Gate 1: PASS, Gate 2: PASS, Gate 3: PASS (${matchResult.explanation})"
         )
     }

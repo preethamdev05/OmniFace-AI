@@ -1,8 +1,13 @@
 package com.omniface.ai.ml.tracking
 
 import androidx.compose.ui.geometry.Rect
+import com.omniface.ai.ml.EyeGazeResult
+import com.omniface.ai.ml.FaceAttributesResult
+import com.omniface.ai.ml.FaceMap3DMMResult
+import com.omniface.ai.ml.MediaPipeMeshResult
 import com.omniface.ai.ml.pipeline.BiometricSynthesisDecision
 import com.omniface.ai.ml.pipeline.PipelineGateState
+import com.omniface.ai.ml.quality.QualityGateResult
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
@@ -37,6 +42,8 @@ data class TrackedFaceState(
     val firstSeenTimestampMs: Long = System.currentTimeMillis(),
     var frameCount: Int = 1,
     var lostFrameCount: Int = 0,
+    val rectFilter: RectOneEuroFilter = RectOneEuroFilter(minCutoff = 1.2f, beta = 0.05f),
+    val landmarkFilters: Array<PointFOneEuroFilter> = Array(5) { PointFOneEuroFilter(minCutoff = 1.0f, beta = 0.04f) },
 
     // Identity Stability & Anti-Flickering State
     var classification: IdentityClassification = IdentityClassification.UNCONFIRMED,
@@ -49,7 +56,15 @@ data class TrackedFaceState(
     var consecutiveKnownHits: Int = 0,
     var consecutiveUnknownHits: Int = 0,
     var consecutiveSpoofHits: Int = 0,
-    var isClassificationLocked: Boolean = false
+    var isClassificationLocked: Boolean = false,
+    var hasTriggeredAttendance: Boolean = false,
+
+    // Auxiliary Neural Telemetry (Cached from async pipeline to enrich 60 FPS fast-path)
+    var lastMeshResult: MediaPipeMeshResult? = null,
+    var lastMap3dResult: FaceMap3DMMResult? = null,
+    var lastGazeResult: EyeGazeResult? = null,
+    var lastAttrResult: FaceAttributesResult? = null,
+    var lastQualityResult: QualityGateResult? = null
 )
 
 /**
@@ -83,6 +98,22 @@ class FaceTracker {
     fun updateTrack(mlKitTrackId: Int, rawRect: Rect): Rect {
         val state = getOrCreateTrackState(mlKitTrackId, rawRect)
         return state.smoothedRect
+    }
+
+    fun updateAuxiliaryFeatures(
+        trackId: Int,
+        meshResult: MediaPipeMeshResult?,
+        map3dResult: FaceMap3DMMResult?,
+        gazeResult: EyeGazeResult?,
+        attrResult: FaceAttributesResult?,
+        qualityResult: QualityGateResult?
+    ) {
+        val track = activeTracks[trackId] ?: return
+        track.lastMeshResult = meshResult
+        track.lastMap3dResult = map3dResult
+        track.lastGazeResult = gazeResult
+        track.lastAttrResult = attrResult
+        track.lastQualityResult = qualityResult
     }
 
     /**
@@ -152,18 +183,13 @@ class FaceTracker {
     }
 
     private fun updateExistingTrack(prev: TrackedFaceState, rawRect: Rect, now: Long): TrackedFaceState {
-        // Exponential Moving Average for bounding box smoothing
-        val smoothed = Rect(
-            left = prev.smoothedRect.left * (1f - ALPHA) + rawRect.left * ALPHA,
-            top = prev.smoothedRect.top * (1f - ALPHA) + rawRect.top * ALPHA,
-            right = prev.smoothedRect.right * (1f - ALPHA) + rawRect.right * ALPHA,
-            bottom = prev.smoothedRect.bottom * (1f - ALPHA) + rawRect.bottom * ALPHA
-        )
+        // High-precision One Euro (1€) filter for 0-lag dynamic response during motion and 0-jitter at rest
+        val filteredRect = prev.rectFilter.filter(rawRect, now)
 
-        val vx = (smoothed.center.x - prev.smoothedRect.center.x).coerceIn(-50f, 50f)
-        val vy = (smoothed.center.y - prev.smoothedRect.center.y).coerceIn(-50f, 50f)
+        val vx = (filteredRect.center.x - prev.smoothedRect.center.x).coerceIn(-80f, 80f)
+        val vy = (filteredRect.center.y - prev.smoothedRect.center.y).coerceIn(-80f, 80f)
 
-        prev.smoothedRect = smoothed
+        prev.smoothedRect = filteredRect
         prev.rawRect = rawRect
         prev.velocityX = vx
         prev.velocityY = vy
@@ -172,6 +198,25 @@ class FaceTracker {
         prev.lostFrameCount = 0
 
         return prev
+    }
+
+    /**
+     * Filters 5 canonical facial fiducials using dedicated 1€ filters per vertex.
+     */
+    fun filterLandmarks(
+        trackId: Int,
+        rawLandmarks: Array<android.graphics.PointF>,
+        timestampMs: Long = System.currentTimeMillis()
+    ): Array<android.graphics.PointF> {
+        val state = activeTracks[trackId] ?: return rawLandmarks
+        val out = Array(rawLandmarks.size) { i ->
+            if (i < state.landmarkFilters.size) {
+                state.landmarkFilters[i].filter(rawLandmarks[i], timestampMs)
+            } else {
+                rawLandmarks[i]
+            }
+        }
+        return out
     }
 
     /**
@@ -197,17 +242,20 @@ class FaceTracker {
             }
             rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK -> {
                 state.consecutiveSpoofHits++
+                state.consecutiveKnownHits = 0
             }
             rawDecision.gateState == PipelineGateState.REJECT_UNKNOWN_IDENTITY || rawDecision.matchedStudentRoll == "GUEST" -> {
                 state.consecutiveUnknownHits++
-                state.consecutiveKnownHits = 0
+                if (state.consecutiveKnownHits > 0) {
+                    state.consecutiveKnownHits--
+                }
             }
         }
 
-        // Check if track should transition to locked state
-        if (!state.isClassificationLocked) {
-            when {
-                state.consecutiveKnownHits >= REQUIRED_CONFIRMATION_FRAMES || (rawDecision.isAttendanceAuthorized && rawDecision.matchSimilarity >= 0.70f) -> {
+        // Check if track should transition to known or spoof locked state
+        when {
+            rawDecision.isAttendanceAuthorized && rawDecision.matchedStudentRoll.isNotBlank() -> {
+                if (state.consecutiveKnownHits >= REQUIRED_CONFIRMATION_FRAMES || rawDecision.matchSimilarity >= 0.65f) {
                     state.classification = IdentityClassification.KNOWN
                     state.studentRoll = rawDecision.matchedStudentRoll
                     state.studentName = rawDecision.matchedStudentName
@@ -216,51 +264,46 @@ class FaceTracker {
                     state.decisionMargin = rawDecision.decisionMargin
                     state.isClassificationLocked = true
                 }
-                state.consecutiveUnknownHits >= REQUIRED_CONFIRMATION_FRAMES -> {
-                    state.classification = IdentityClassification.UNKNOWN
-                    state.studentRoll = "GUEST"
-                    state.studentName = "Unregistered Visitor"
-                    state.isClassificationLocked = true
-                }
-                state.consecutiveSpoofHits >= REQUIRED_CONFIRMATION_FRAMES -> {
-                    state.classification = IdentityClassification.SPOOF_ATTACK
-                    state.isClassificationLocked = true
-                }
+            }
+            state.consecutiveSpoofHits >= REQUIRED_CONFIRMATION_FRAMES -> {
+                state.classification = IdentityClassification.SPOOF_ATTACK
+                state.isClassificationLocked = true
             }
         }
 
-        // Apply persistent locked classification to prevent single-frame flickers
+        // Apply persistent locked classification if currently verified as KNOWN
         if (state.isClassificationLocked) {
             when (state.classification) {
                 IdentityClassification.KNOWN -> {
-                    // Retain known student identity even if rawDecision had a single-frame quality dip
-                    val stabilized = if (rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK) {
-                        // Anti-spoof attack triggers override
-                        rawDecision
-                    } else {
-                        rawDecision.copy(
-                            gateState = PipelineGateState.PASS,
-                            isAttendanceAuthorized = true,
-                            matchedStudentRoll = state.studentRoll,
-                            matchedStudentName = state.studentName,
-                            matchSimilarity = maxOf(rawDecision.matchSimilarity, state.matchSimilarity),
-                            matchConfidence = maxOf(rawDecision.matchConfidence, state.matchConfidence),
-                            decisionMargin = maxOf(rawDecision.decisionMargin, state.decisionMargin),
-                            title = "AUTHENTICATED: ${state.studentName.uppercase()}",
-                            subtitle = "Roll: ${state.studentRoll} • Identity Locked"
-                        )
+                    // Security guard: If the face changes to spoof attack or stranger actively replaces the subject
+                    val isStrangerDetected = rawDecision.matchSimilarity in 0.01f..0.35f
+                    val isSpoofDetected = rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK
+                    val isLostPersistence = state.consecutiveUnknownHits >= 12
+
+                    if (isSpoofDetected || isStrangerDetected || isLostPersistence) {
+                        state.isClassificationLocked = false
+                        state.consecutiveKnownHits = 0
+                        state.studentRoll = ""
+                        state.studentName = ""
+                        state.classification = if (isSpoofDetected) {
+                            IdentityClassification.SPOOF_ATTACK
+                        } else {
+                            IdentityClassification.UNKNOWN
+                        }
+                        state.lastDecision = rawDecision
+                        return rawDecision
                     }
-                    state.lastDecision = stabilized
-                    return stabilized
-                }
-                IdentityClassification.UNKNOWN -> {
+
                     val stabilized = rawDecision.copy(
-                        gateState = PipelineGateState.REJECT_UNKNOWN_IDENTITY,
-                        isAttendanceAuthorized = false,
-                        matchedStudentRoll = "GUEST",
-                        matchedStudentName = "Unregistered Visitor",
-                        title = "ACCESS DENIED: UNKNOWN VISITOR",
-                        subtitle = "Identity not enrolled in system"
+                        gateState = PipelineGateState.PASS,
+                        isAttendanceAuthorized = true,
+                        matchedStudentRoll = state.studentRoll,
+                        matchedStudentName = state.studentName,
+                        matchSimilarity = maxOf(rawDecision.matchSimilarity, state.matchSimilarity),
+                        matchConfidence = maxOf(rawDecision.matchConfidence, state.matchConfidence),
+                        decisionMargin = maxOf(rawDecision.decisionMargin, state.decisionMargin),
+                        title = "AUTHENTICATED: ${state.studentName.uppercase()}",
+                        subtitle = "Roll: ${state.studentRoll} • Live 3D Verified"
                     )
                     state.lastDecision = stabilized
                     return stabilized

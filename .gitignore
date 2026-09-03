@@ -87,3 +87,13 @@ build_local.sh
 debug.keystore
 debug.keystore.*
 local.properties
+
+# Release signing credentials (never commit)
+keystore.properties
+
+# Temporary test captures & test data
+*.png
+test_faces/
+download_and_verify_faces.py
+run_end_to_end_real_face_test.py
+

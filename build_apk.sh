@@ -16,7 +16,7 @@ rm -f "$DIR/app/src/main/assets"/*.tflite
 cp -v "$DIR"/models/class_labels.json "$DIR/app/src/main/assets/" 2>/dev/null || true
 
 echo "[+] Executing Signed Production Gradle Assembly on Linux ARM64..."
-bash ./gradlew assembleRelease --build-cache --parallel --stacktrace
+bash ./gradlew assembleRelease -Pandroid.aapt2FromMavenOverride=/root/Android/Sdk/aapt2 --build-cache --parallel --stacktrace
 
 if [ -f "$DIR/app/build/outputs/apk/release/app-release.apk" ]; then
     cp "$DIR/app/build/outputs/apk/release/app-release.apk" "$DIR/OmniFace-AI.apk"

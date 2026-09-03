@@ -64,6 +64,37 @@ object TurnstileRelayController {
         return false
     }
 
+    private val LCUS_RELAY_OPEN = byteArrayOf(0xA0.toByte(), 0x01.toByte(), 0x01.toByte(), 0xA2.toByte())
+    private val LCUS_RELAY_CLOSE = byteArrayOf(0xA0.toByte(), 0x01.toByte(), 0x00.toByte(), 0xA1.toByte())
+
+    fun sendUsbRelayCommand(context: Context, isEnergized: Boolean) {
+        val usbManager = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return
+        val deviceList = usbManager.deviceList
+        for ((_, device) in deviceList) {
+            val vid = device.vendorId
+            if (vid == 0x0403 || vid == 0x1A86 || vid == 0x10C4 || vid == 0x067B || vid == 0x2341) {
+                try {
+                    val connection = usbManager.openDevice(device) ?: continue
+                    val iface = device.getInterface(0)
+                    connection.claimInterface(iface, true)
+
+                    if (iface.endpointCount > 0) {
+                        val endpoint = iface.getEndpoint(0)
+                        val command = if (isEnergized) LCUS_RELAY_OPEN else LCUS_RELAY_CLOSE
+                        connection.bulkTransfer(endpoint, command, command.size, 1000)
+                    }
+
+                    connection.releaseInterface(iface)
+                    connection.close()
+                    Log.i(TAG, "Sent binary relay command to USB device [VID: 0x${Integer.toHexString(vid)}]: ${if (isEnergized) "ENERGIZED" else "DE-ENERGIZED"}")
+                    return
+                } catch (e: Exception) {
+                    Log.w(TAG, "USB relay transmission error: ${e.message}")
+                }
+            }
+        }
+    }
+
     /**
      * Sends digital 5V pulse over USB-Serial / GPIO relay and dispatches HTTP Webhook to unlock doorway.
      */
@@ -73,6 +104,7 @@ object TurnstileRelayController {
         studentName: String = "",
         confidencePct: Float = 0f,
         sha256Proof: String = "",
+        context: Context? = null,
         onUnlocked: () -> Unit = {},
         onLocked: () -> Unit = {}
     ) {
@@ -80,6 +112,7 @@ object TurnstileRelayController {
             try {
                 isDoorUnlocked = true
                 Log.d(TAG, "⚡ [RELAY TRIGGER] Doorway Unlocked: 5V High Pulse Sent ($durationMs ms)")
+                context?.let { sendUsbRelayCommand(it, true) }
                 mainHandler.post { onUnlocked() }
 
                 // Asynchronous IoT / HTTP Webhook Dispatch
@@ -91,6 +124,7 @@ object TurnstileRelayController {
 
                 isDoorUnlocked = false
                 Log.d(TAG, "🔒 [RELAY TRIGGER] Doorway Locked: 0V Low Closed")
+                context?.let { sendUsbRelayCommand(it, false) }
                 mainHandler.post { onLocked() }
             } catch (e: Exception) {
                 Log.e(TAG, "Relay Trigger Error: ${e.message}")
@@ -105,9 +139,10 @@ object TurnstileRelayController {
             val mac = javax.crypto.Mac.getInstance(algorithm)
             mac.init(key)
             val hmacBytes = mac.doFinal(data.toByteArray(Charsets.UTF_8))
-            hmacBytes.joinToString("") { "%02x".format(it) }
-        } catch (_: Throwable) {
-            AndroidSecurityUtils.computeSha256(data + secret)
+            hmacBytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        } catch (e: Throwable) {
+            Log.e(TAG, "HMAC computation failed — refusing downgrade")
+            throw IllegalStateException("HMAC unavailable", e)
         }
     }
 

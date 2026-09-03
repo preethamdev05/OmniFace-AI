@@ -54,10 +54,14 @@ class HnswVectorIndex(
     private var entryNodeId: String? = null
     private var maxLevel: Int = -1
 
+    /** Hard capacity bound — prevents OOM on runaway enrollment (50k × 512 floats ≈ 100MB heap). */
+    private val maxElements: Int = 50_000
+
     val size: Int get() = nodes.size
 
     /**
      * Inserts an L2-normalized biometric embedding into the multi-layer HNSW graph.
+     * Inserts beyond [maxElements] are rejected (logged) to guarantee bounded memory.
      */
     fun insert(
         id: String,
@@ -69,6 +73,12 @@ class HnswVectorIndex(
         val nodeLevel = selectRandomLevel()
 
         lock.write {
+            if (nodes.size >= maxElements && !nodes.containsKey(id)) {
+                java.util.logging.Logger.getLogger("HnswVectorIndex").warning(
+                    "HNSW capacity bound reached ($maxElements) — rejecting insert of template $id. Re-enrollment requires purge."
+                )
+                return
+            }
             val newNode = Node(
                 id = id,
                 studentRoll = studentRoll,
@@ -91,7 +101,9 @@ class HnswVectorIndex(
             // 1. Traverse greedy search from topLevel down to nodeLevel + 1
             for (level in topLevel downTo (nodeLevel + 1)) {
                 var changed = true
-                while (changed) {
+                var hops = 0
+                while (changed && hops < MAX_GREEDY_HOPS) {
+                    hops++
                     changed = false
                     val currNode = nodes[currObj] ?: break
                     val currDist = cosineDistance(normalized, currNode.vector)
@@ -166,7 +178,9 @@ class HnswVectorIndex(
 
             for (level in topLevel downTo 1) {
                 var changed = true
-                while (changed) {
+                var hops = 0
+                while (changed && hops < MAX_GREEDY_HOPS) {
+                    hops++
                     changed = false
                     val currNode = nodes[currObj] ?: break
                     val currDist = cosineDistance(normalized, currNode.vector)
@@ -304,6 +318,9 @@ class HnswVectorIndex(
     private data class DistPair(val id: String, val dist: Float)
 
     companion object {
+        /** Upper bound on greedy descent steps — guards against infinite loops on a corrupted graph. */
+        private const val MAX_GREEDY_HOPS = 512
+
         fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
             val len = minOf(a.size, b.size)
             var dot = 0.0f

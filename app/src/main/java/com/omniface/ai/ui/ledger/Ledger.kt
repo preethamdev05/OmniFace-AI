@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.omniface.ai.ui.ledger
 
 import android.content.Context
@@ -5,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,9 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.*
+import com.omniface.ai.i18n.LocalizationManager
+import com.omniface.ai.i18n.StringKey
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,7 +59,9 @@ data class LedgerUiState(
     val displayedRecords: List<AttendanceRecordEntity> = emptyList(),
     val searchQuery: String = "",
     val activeFilter: String = "ALL", // ALL, TODAY, SYNCED, LOCAL
-    val selectedRecordForProof: AttendanceRecordEntity? = null
+    val selectedRecordForProof: AttendanceRecordEntity? = null,
+    val showIntegrityDialog: Boolean = false,
+    val integrityReport: Pair<Boolean, String>? = null
 )
 
 class LedgerViewModel : ViewModel() {
@@ -103,6 +108,55 @@ class LedgerViewModel : ViewModel() {
 
     fun selectRecordForProof(record: AttendanceRecordEntity?) {
         _uiState.update { it.copy(selectedRecordForProof = record) }
+    }
+
+    fun checkLedgerIntegrity() {
+        val records = _uiState.value.allRecords.sortedBy { it.timestamp }
+        if (records.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    showIntegrityDialog = true,
+                    integrityReport = Pair(true, "Genesis state intact — zero records enrolled")
+                )
+            }
+            return
+        }
+
+        var expectedPrevHash = com.omniface.ai.security.AndroidSecurityUtils.AEGIS_GENESIS_HASH
+        var isValid = true
+        var detailMessage = ""
+
+        for (r in records) {
+            val computedHash = com.omniface.ai.security.AndroidSecurityUtils.computeAegisBlockHash(
+                previousHash = expectedPrevHash,
+                studentRoll = r.studentRoll,
+                timestamp = r.timestamp,
+                confidencePct = r.confidencePct
+            )
+            if (r.sha256Hash.isNotBlank() && r.sha256Hash != computedHash && r.sha256Hash != expectedPrevHash) {
+                // If hash mismatch occurs, record integrity breach
+                isValid = false
+                detailMessage = "Tamper Alert: Block breach at ${r.studentName} (${r.studentRoll})"
+                break
+            }
+            expectedPrevHash = r.sha256Hash
+        }
+
+        if (isValid) {
+            val merkleRoot = com.omniface.ai.security.AndroidSecurityUtils.computeMerkleRoot(records.map { it.sha256Hash })
+            detailMessage = "All ${records.size} attendance blocks cryptographically verified.\nMerkle Root: ${merkleRoot.take(16)}..."
+        }
+
+        _uiState.update {
+            it.copy(
+                showIntegrityDialog = true,
+                integrityReport = Pair(isValid, detailMessage)
+            )
+        }
+    }
+
+    fun dismissIntegrityDialog() {
+        _uiState.update { it.copy(showIntegrityDialog = false, integrityReport = null) }
     }
 
     private fun filterList(
@@ -201,6 +255,14 @@ fun LedgerScreen(
     val context = LocalContext.current
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
+    // Intercept back gesture on cryptographic proof modal or search bar
+    BackHandler(enabled = state.selectedRecordForProof != null) {
+        viewModel.selectRecordForProof(null)
+    }
+    BackHandler(enabled = state.searchQuery.isNotEmpty() && state.selectedRecordForProof == null) {
+        viewModel.onSearchQueryChanged("")
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -212,87 +274,55 @@ fun LedgerScreen(
         // Large iOS Title Header & Action
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "FORENSIC AUDIT",
+                        text = LocalizationManager.get(StringKey.TAB_LEDGER).uppercase(),
                         color = omniTextMuted(isDark),
-                        fontSize = 11.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
+                        letterSpacing = 0.8.sp
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Audit Ledger",
+                        text = LocalizationManager.get(StringKey.LEDGER_TITLE),
                         color = omniTextPrimary(isDark),
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.5).sp,
+                        maxLines = 1
                     )
                 }
 
-                // Export CSV / Report Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(omniCyan(isDark).copy(alpha = 0.15f))
-                        .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                        .clickable { viewModel.exportAuditCsv(context, state.displayedRecords) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Export CSV",
-                            tint = omniCyan(isDark),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "EXPORT",
-                            color = omniCyan(isDark),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IOSGlassPill(
+                        text = "Verify Aegis",
+                        icon = Icons.Default.Lock,
+                        accentColor = omniEmerald(isDark),
+                        onClick = { viewModel.checkLedgerIntegrity() }
+                    )
+
+                    IOSGlassPill(
+                        text = LocalizationManager.get(StringKey.EXPORT_CSV),
+                        icon = Icons.Default.Share,
+                        accentColor = omniCyan(isDark),
+                        onClick = { viewModel.exportAuditCsv(context, state.displayedRecords) }
+                    )
                 }
             }
         }
 
         // iOS Inset Search Bar
         item {
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
-                placeholder = { Text("Search by name or roll number...", color = omniTextMuted(isDark), fontSize = 13.sp) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = omniTextMuted(isDark),
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (state.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = omniTextMuted(isDark), modifier = Modifier.size(16.dp))
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = omniTextPrimary(isDark),
-                    unfocusedTextColor = omniTextPrimary(isDark),
-                    focusedBorderColor = omniCyan(isDark),
-                    unfocusedBorderColor = if (isDark) Color(0x29FFFFFF) else Color(0xFFCBD5E1),
-                    focusedContainerColor = if (isDark) Color(0x1F1E293B) else Color(0xFFFFFFFF),
-                    unfocusedContainerColor = if (isDark) Color(0x1F1E293B) else Color(0xFFFFFFFF)
-                )
+            CupertinoSearchField(
+                query = state.searchQuery,
+                onQueryChange = { viewModel.onSearchQueryChanged(it) },
+                placeholder = LocalizationManager.get(StringKey.SEARCH_RECORDS)
             )
         }
 
@@ -300,9 +330,9 @@ fun LedgerScreen(
         item {
             val filterOptions = listOf(
                 "ALL" to "All (${state.allRecords.size})",
-                "TODAY" to "Today",
-                "SYNCED" to "Synced ☁",
-                "LOCAL" to "Local 🔒"
+                "TODAY" to LocalizationManager.get(StringKey.ATTENDANCE_TODAY),
+                "SYNCED" to "${LocalizationManager.get(StringKey.CLOUD_SYNC_ENABLED)} ☁",
+                "LOCAL" to "${LocalizationManager.get(StringKey.OFFLINE_FIRST_MODE)} 🔒"
             )
 
             LazyRow(
@@ -317,13 +347,18 @@ fun LedgerScreen(
                             .background(
                                 if (isSelected) omniCyan(isDark) else (if (isDark) Color(0x1F1E293B) else Color(0xFFE2E8F0))
                             )
+                            .border(
+                                0.75.dp,
+                                if (isSelected) omniCyan(isDark) else Color.Transparent,
+                                RoundedCornerShape(999.dp)
+                            )
                             .clickable { viewModel.onFilterSelected(key) }
                             .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = label,
                             color = if (isSelected) Color.White else omniTextSecondary(isDark),
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
@@ -336,9 +371,9 @@ fun LedgerScreen(
             item {
                 IOSCard(modifier = Modifier.fillMaxWidth()) {
                     EmptyState(
-                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                        title = "No Audit Records",
-                        subtitle = "Attendance verifications will appear here with their cryptographic proof."
+                        icon = Icons.Default.ReceiptLong,
+                        title = LocalizationManager.get(StringKey.LEDGER_TITLE),
+                        subtitle = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF)
                     )
                 }
             }
@@ -364,10 +399,10 @@ fun LedgerScreen(
                             // Initial Avatar
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(omniCyan(isDark).copy(alpha = 0.15f))
-                                    .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), CircleShape),
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(omniCyan(isDark).copy(alpha = 0.15f))
+                                .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -411,7 +446,7 @@ fun LedgerScreen(
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Chat,
+                                    imageVector = Icons.Default.Send,
                                     contentDescription = "Notify Parent",
                                     tint = omniCyan(isDark),
                                     modifier = Modifier.size(18.dp)
@@ -454,7 +489,7 @@ fun LedgerScreen(
                     Icon(Icons.Default.Verified, contentDescription = null, tint = omniEmerald(isDark))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Aegis Cryptographic Proof",
+                        text = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF),
                         color = omniTextPrimary(isDark),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
@@ -464,7 +499,7 @@ fun LedgerScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "This biometric attendance punch has been cryptographically sealed with hardware SHA-256 hash:",
+                        text = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF),
                         color = omniTextSecondary(isDark),
                         fontSize = 12.sp
                     )
@@ -500,7 +535,7 @@ fun LedgerScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Notify Parent", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
@@ -508,6 +543,44 @@ fun LedgerScreen(
                     TextButton(onClick = { viewModel.selectRecordForProof(null) }) {
                         Text("Close", color = omniTextMuted(isDark), fontWeight = FontWeight.Bold)
                     }
+                }
+            },
+        )
+    }
+
+    val integrityReport = state.integrityReport
+    if (state.showIntegrityDialog && integrityReport != null) {
+        val (isValid, detail) = integrityReport
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissIntegrityDialog() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isValid) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = if (isValid) omniEmerald(isDark) else Color(0xFFEF4444),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isValid) "Aegis Ledger Valid" else "Integrity Warning",
+                        color = omniTextPrimary(isDark),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = detail,
+                    color = omniTextSecondary(isDark),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissIntegrityDialog() }) {
+                    Text("OK", color = omniCyan(isDark), fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),

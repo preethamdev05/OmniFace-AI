@@ -41,23 +41,29 @@ object NpuHardwareDetector {
         cachedInfo?.let { return it }
 
         val socModelRaw = getSystemProp("ro.soc.model").ifEmpty {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Build.SOC_MODEL
-            } else ""
-        }.ifEmpty { Build.HARDWARE }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Build.SOC_MODEL ?: ""
+                } else ""
+            } catch (_: Throwable) { "" }
+        }.ifEmpty { try { Build.HARDWARE ?: "" } catch (_: Throwable) { "" } }
 
         val socManufacturerRaw = getSystemProp("ro.soc.manufacturer").ifEmpty {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Build.SOC_MANUFACTURER
-            } else ""
-        }.ifEmpty { Build.MANUFACTURER }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Build.SOC_MANUFACTURER ?: ""
+                } else ""
+            } catch (_: Throwable) { "" }
+        }.ifEmpty { try { Build.MANUFACTURER ?: "" } catch (_: Throwable) { "" } }
 
-        val boardPlatform = getSystemProp("ro.board.platform").ifEmpty { Build.BOARD }
+        val boardPlatform = getSystemProp("ro.board.platform").ifEmpty { try { Build.BOARD ?: "" } catch (_: Throwable) { "" } }
         val cpuFeatures = extractArmCpuFeatures()
 
         val parsed = mapSiliconToNpu(socModelRaw, socManufacturerRaw, boardPlatform, cpuFeatures)
         cachedInfo = parsed
-        Log.i(TAG, "🔍 [SILICON DISCOVERY] SoC: ${parsed.socModel} | NPU: ${parsed.npuName} (${parsed.peakTops}) | Platform: $boardPlatform")
+        try {
+            Log.i(TAG, "🔍 [SILICON DISCOVERY] SoC: ${parsed.socModel} | NPU: ${parsed.npuName} (${parsed.peakTops}) | Platform: $boardPlatform")
+        } catch (_: Throwable) {}
         return parsed
     }
 
@@ -321,8 +327,8 @@ object NpuHardwareDetector {
         val hasFp16 = features.contains("asimdhp") || features.contains("fphp") || features.contains("bf16")
 
         return NpuHardwareInfo(
-            socModel = if (socModel.isNotBlank()) socModel else Build.MODEL,
-            socManufacturer = if (manufacturer.isNotBlank()) manufacturer else Build.MANUFACTURER,
+            socModel = if (socModel.isNotBlank()) socModel else (try { Build.MODEL ?: "" } catch (_: Throwable) { "" }).ifBlank { "ARM64 Android Silicon" },
+            socManufacturer = if (manufacturer.isNotBlank()) manufacturer else (try { Build.MANUFACTURER ?: "" } catch (_: Throwable) { "" }).ifBlank { "Generic ARM" },
             npuName = if (hasI8mm || hasDotProd) "ARMv8/v9 Neural Matrix Engine (DotProd/I8MM)" else "Android Neural Networks (NNAPI NPU)",
             npuArchitecture = "Dedicated Hardware Neural Acceleration Engine (Systolic Matrix)",
             peakTops = if (hasI8mm) "45.0 TOPS (ARM I8MM Matrix)" else "30.0 TOPS (NNAPI Hardware Accelerator)",

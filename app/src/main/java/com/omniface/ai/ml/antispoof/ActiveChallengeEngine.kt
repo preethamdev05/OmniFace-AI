@@ -39,7 +39,7 @@ class ActiveChallengeEngine {
         activeChallenge = types[Random.nextInt(types.size)]
         challengeStartTimeMs = System.currentTimeMillis()
         isChallengePassed = false
-        return getStatus(0f, 0f, 0f, 0f)
+        return getStatus(0f, 0f, 0f, 1.0f)
     }
 
     fun evaluateMotion(

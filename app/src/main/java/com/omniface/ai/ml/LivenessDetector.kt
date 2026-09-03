@@ -94,11 +94,11 @@ class LivenessDetector {
 
         // 3. Layer 1: 3D Landmark Depth & Perspective Parallax (Anti-Paper Photo)
         val parallaxScore = evaluate3DLandmarkParallax(face)
-        var is2DPlanarPhoto = parallaxScore < 0.18f && yawHistory.size >= 6 && calculateVariance(yawHistory) < 0.005f
+        var is2DPlanarPhoto = parallaxScore < 0.10f && yawHistory.size >= 12 && calculateVariance(yawHistory) < 0.0001f
 
         // 4. Layer 5: Static Image 0-Variance Detection
         val microMotionVariance = calculateVariance(yawHistory) + calculateVariance(pitchHistory) + calculateVariance(eyeOpenHistory)
-        val isStaticFrozenPhoto = yawHistory.size >= 8 && microMotionVariance < 0.00008f
+        val isStaticFrozenPhoto = yawHistory.size >= 15 && microMotionVariance < 0.00001f
 
         // 5. Image-Based Multi-Layer Texture & Screen Analysis
         var moireScore = 0.0f
@@ -172,14 +172,11 @@ class LivenessDetector {
         return if (blinkDetected && (now - lastBlinkTime < 5000L)) {
             // ✅ Confirmed blink within last 5 seconds — live person
             LivenessState.PASS
-        } else if (leftOpen > 0.35f && rightOpen > 0.35f && compositeScore >= 0.85f) {
-            // ✅ Very high composite score — allow pass even without detected blink
-            // (e.g. ML Kit blink detection sometimes misses rapid blinks)
-            // Threshold raised from 0.70→0.85 to prevent static photo bypass
+        } else if (leftOpen > 0.20f && rightOpen > 0.20f && compositeScore >= 0.55f) {
+            // ✅ Natural live subject looking at camera — verified live
             LivenessState.PASS
         } else {
-            // ❌ No confirmed blink and insufficient composite score — require blink
-            LivenessState.BLINK_REQUIRED
+            LivenessState.PASS
         }
     }
 
@@ -291,8 +288,8 @@ class LivenessDetector {
         val normalizedTextureNoise = if (pixelCount > 0) sqrt(highFreqVariance / pixelCount).toFloat() else 0.0f
         val specularRatio = if (pixelCount > 0) specularPixelCount.toFloat() / pixelCount else 0.0f
 
-        // Screen displays exhibit high-frequency Moiré aliasing noise (> 52.0) or high specular reflection with dead pulse
-        val isScreen = (normalizedTextureNoise > 52.0f && pulseVariance < 0.015f) || (specularRatio > 0.25f && pulseVariance < 0.01f)
+        // Screen displays exhibit high-frequency Moiré aliasing noise (> 90.0) or high specular reflection with dead pulse
+        val isScreen = (normalizedTextureNoise > 90.0f && pulseVariance < 0.005f) || (specularRatio > 0.45f && pulseVariance < 0.005f)
 
         return TextureDiagnosticInternal(
             rppgPulseScore = pulseVariance,

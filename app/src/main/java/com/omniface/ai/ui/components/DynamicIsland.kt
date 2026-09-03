@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -136,7 +137,23 @@ fun DynamicIslandCapsule(
                         spotColor = event.accentColor.copy(alpha = 0.25f)
                     )
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (isDark) Color(0xFA0B0F17) else Color(0xF7FFFFFF))
+                    .background(
+                        if (isDark) {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xF0182234),
+                                    Color(0xFA0F172A)
+                                )
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(0xF5FFFFFF),
+                                    Color(0xEEF1F5F9)
+                                )
+                            )
+                        }
+                    )
                     .border(
                         0.75.dp,
                         omniLiquidSpecularBorder(isDark),
@@ -203,6 +220,7 @@ fun BiometricLiveTelemetryCapsule(
     isGazeAttentive: Boolean,
     livenessProbability: Float,
     isDark: Boolean,
+    hasFace: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -224,11 +242,11 @@ fun BiometricLiveTelemetryCapsule(
                 modifier = Modifier
                     .size(6.dp)
                     .clip(CircleShape)
-                    .background(omniCyan(isDark))
+                    .background(if (hasFace) omniCyan(isDark) else omniTextMuted(isDark))
             )
             Text(
-                text = "3DMM: %.3f Var".format(depthVariance),
-                color = omniTextSecondary(isDark),
+                text = if (hasFace) "3DMM: %.3f Var".format(depthVariance) else "3DMM: Standby",
+                color = if (hasFace) omniTextSecondary(isDark) else omniTextMuted(isDark),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -245,8 +263,8 @@ fun BiometricLiveTelemetryCapsule(
         // Eye Gaze Attentiveness
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = if (isGazeAttentive) "Gaze: ✓" else "Gaze: Off-Axis",
-                color = if (isGazeAttentive) omniEmerald(isDark) else Color(0xFFFF9500),
+                text = if (!hasFace) "Gaze: Standby" else if (isGazeAttentive) "Gaze: Direct" else "Gaze: Off-Axis",
+                color = if (!hasFace) omniTextMuted(isDark) else if (isGazeAttentive) omniEmerald(isDark) else Color(0xFFFF9500),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -262,8 +280,8 @@ fun BiometricLiveTelemetryCapsule(
 
         // Liveness Probability
         Text(
-            text = "Liv: ${(livenessProbability * 100).toInt()}%",
-            color = omniCyan(isDark),
+            text = if (!hasFace) "Live: Standby" else "Live: ${(livenessProbability * 100).toInt()}%",
+            color = if (!hasFace) omniTextMuted(isDark) else if (livenessProbability >= 0.70f) omniEmerald(isDark) else Color(0xFFFF453A),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold
         )

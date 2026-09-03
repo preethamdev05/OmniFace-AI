@@ -22,7 +22,8 @@ object HfSecureGateway {
     private const val KEY_REPO_ID = "hf_repo_id"
     private const val KEY_GATEWAY_URL = "cf_gateway_url"
 
-    // Default target repository
+    // Default Sovereign Cloudflare R2 Edge CDN
+    const val DEFAULT_R2_CDN_URL = "https://omniface-model-cdn.preetham-dev.workers.dev"
     const val DEFAULT_REPO_ID = "preetham-dev/omniface-antelopev2"
     const val MODEL_FILENAME = "mobilefacenet_512d_fp16.tflite"
 
@@ -122,13 +123,13 @@ object HfSecureGateway {
 
     /**
      * Builds the direct model URL:
-     * Priority 1: Cloudflare Zero-Trust Edge Gateway (100% tokenless)
+     * Priority 1: Cloudflare Zero-Trust Edge Gateway / R2 Bucket (100% tokenless sovereign CDN)
      * Priority 2: Direct Hugging Face resolve URL
      */
     fun buildResolveUrl(context: Context, filename: String = MODEL_FILENAME): String {
-        val gateway = getGatewayUrl(context)
+        val gateway = getGatewayUrl(context) ?: DEFAULT_R2_CDN_URL
         if (!gateway.isNullOrBlank()) {
-            return if (gateway.endsWith("/")) "${gateway}model" else if (!gateway.endsWith("/model") && !gateway.endsWith(".tflite")) "$gateway/model" else gateway
+            return if (gateway.endsWith("/")) "${gateway}download/$filename" else if (!gateway.endsWith("/download") && !gateway.endsWith(".tflite")) "$gateway/download/$filename" else gateway
         }
         val repoId = getRepoId(context)
         return "https://huggingface.co/$repoId/resolve/main/$filename"
