@@ -135,10 +135,12 @@ fun StudentInfoSheet(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Roll: ",
+                        text = "Roll: ${student.rollNumber}",
                         color = omniCyan(isDark),
                         fontSize = 13.5.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -147,7 +149,7 @@ fun StudentInfoSheet(
                             accentColor = omniCyan(isDark)
                         )
                         IOSGlassPill(
-                            text = if (student.semester.isNotBlank()) "Sem " else "Active",
+                            text = if (student.semester.isNotBlank()) "Sem ${student.semester}" else "Active",
                             accentColor = Color(0xFF10B981)
                         )
                     }
@@ -178,11 +180,11 @@ fun StudentInfoSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Department", color = omniTextMuted(isDark), fontSize = 11.5.sp)
-                            Text(student.department.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(student.department.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Semester / Year", color = omniTextMuted(isDark), fontSize = 11.5.sp)
-                            Text(student.semester.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(student.semester.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
 
@@ -192,11 +194,11 @@ fun StudentInfoSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Enrolled Since", color = omniTextMuted(isDark), fontSize = 11.5.sp)
-                            Text(regDateStr, color = omniTextPrimary(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                            Text(regDateStr, color = omniTextPrimary(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Attendance Logged", color = omniTextMuted(isDark), fontSize = 11.5.sp)
-                            Text(" Days Present", color = Color(0xFF10B981), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("${recentRecords.size} Days Present", color = Color(0xFF10B981), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -288,7 +290,7 @@ fun StudentInfoSheet(
                         )
 
                         IOSGlassPill(
-                            text = " Templates",
+                            text = "${templates.size} Templates",
                             icon = Icons.Default.Shield,
                             accentColor = Color(0xFF10B981)
                         )
@@ -330,10 +332,12 @@ fun StudentInfoSheet(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (isEnrolled) "✓ " else label,
+                                    text = if (isEnrolled) "✓ $label" else label,
                                     color = if (isEnrolled) Color(0xFF10B981) else omniTextMuted(isDark),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (isEnrolled) FontWeight.Bold else FontWeight.Normal
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isEnrolled) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

@@ -1817,19 +1817,23 @@ fun ScannerScreen(
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = state.matchTitle,
                                     color = omniTextPrimary(isDark),
                                     fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = state.matchSubtitle,
                                     color = omniTextSecondary(isDark),
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1901,10 +1905,10 @@ fun ScannerScreen(
                                             modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.AccountCircle,
+                                                imageVector = Icons.Default.Info,
                                                 contentDescription = "Profile",
                                                 tint = omniCyan(isDark),
-                                                modifier = Modifier.size(20.dp)
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                     }
@@ -1917,7 +1921,14 @@ fun ScannerScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text(LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT).take(8), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    Text(
+                                        text = "+ Enroll",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
                                 }
                             }
                             else -> {
@@ -1953,14 +1964,19 @@ fun ScannerScreen(
                             text = "${state.enrolledCount} ${LocalizationManager.get(StringKey.STUDENTS_ENROLLED)}",
                             color = omniTextMuted(isDark),
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (state.enrolledCount == 0) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else LocalizationManager.get(StringKey.MANAGE_DATABASE),
                             color = omniCyan(isDark),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.clickable { onNavigateToEnroll() }
                         )
                     }
@@ -1978,7 +1994,10 @@ fun ScannerScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
@@ -1991,9 +2010,12 @@ fun ScannerScreen(
                                         color = omniTextMuted(isDark),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.5.sp
+                                        letterSpacing = 0.5.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
@@ -2001,10 +2023,11 @@ fun ScannerScreen(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = if (qc?.isCavafaceActive == true) "CavaFace HD (65.5M)" else "Hexagon NPU Active",
+                                        text = if (qc?.isCavafaceActive == true) "CavaFace HD" else "Hexagon NPU",
                                         color = omniCyan(isDark),
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
                                 }
                             }

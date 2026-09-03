@@ -737,7 +737,10 @@ fun CupertinoSegmentedControl(
                             if (isDark) Color(0x99EBEBF5) else Color(0x993C3C43)
                         },
                         fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             }
@@ -775,8 +778,12 @@ fun CupertinoMetricTile(
                 color = omniTextMuted(isDark),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.6.sp
+                letterSpacing = 0.6.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
                     .size(30.dp)
@@ -799,9 +806,11 @@ fun CupertinoMetricTile(
         Text(
             text = value,
             color = omniTextPrimary(isDark),
-            fontSize = 26.sp,
+            fontSize = if (value.length > 8) 19.sp else 24.sp,
             fontWeight = FontWeight.ExtraBold,
-            letterSpacing = (-0.5).sp
+            letterSpacing = (-0.5).sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
 
         Spacer(modifier = Modifier.height(3.dp))
@@ -818,7 +827,9 @@ fun CupertinoMetricTile(
                 text = subtitle,
                 color = accentColor,
                 fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
     }
@@ -913,9 +924,11 @@ fun CupertinoButton(
             Text(
                 text = text,
                 color = if (enabled) effectiveContentColor else TextMuted,
-                fontSize = 15.sp,
+                fontSize = if (text.length > 14) 12.5.sp else if (text.length > 10) 13.5.sp else 14.5.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.2).sp
+                letterSpacing = (-0.2).sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
     }

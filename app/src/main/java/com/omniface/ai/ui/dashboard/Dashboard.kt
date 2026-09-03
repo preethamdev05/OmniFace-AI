@@ -245,14 +245,15 @@ fun DashboardScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = todayDateFormatted.uppercase(),
                             color = omniTextMuted(isDark),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.8.sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
@@ -261,7 +262,8 @@ fun DashboardScreen(
                             fontSize = 21.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = (-0.5).sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -321,7 +323,9 @@ fun DashboardScreen(
                                 color = omniTextMuted(isDark),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.6.sp
+                                letterSpacing = 0.6.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -338,7 +342,8 @@ fun DashboardScreen(
                                 text = "ArcFace 512-D • AES-256 GCM",
                                 color = omniTextSecondary(isDark),
                                 fontSize = 11.5.sp,
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                     }

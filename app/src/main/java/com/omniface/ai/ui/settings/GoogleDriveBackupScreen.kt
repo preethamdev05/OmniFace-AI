@@ -1,8 +1,11 @@
 package com.omniface.ai.ui.settings
 
+import android.accounts.Account
+import android.accounts.AccountManager
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,9 +34,11 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
@@ -83,6 +88,34 @@ fun GoogleDriveBackupScreen(
             .build()
     }
 
+    var pendingActionAfterAuth by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val authRecoveryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            Toast.makeText(context, "Google Drive authorization granted! Retrying...", Toast.LENGTH_SHORT).show()
+            pendingActionAfterAuth?.invoke()
+            pendingActionAfterAuth = null
+        } else {
+            Toast.makeText(context, "Google Drive access was not granted.", Toast.LENGTH_SHORT).show()
+            pendingActionAfterAuth = null
+        }
+    }
+
+    val accountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val accountName = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!accountName.isNullOrBlank()) {
+                connectedEmail = accountName
+                prefs.edit().putString("CONNECTED_GOOGLE_ACCOUNT", accountName).apply()
+                Toast.makeText(context, "Connected Google Account: $accountName", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -100,43 +133,126 @@ fun GoogleDriveBackupScreen(
         }
     }
 
-    fun startBackup() {
-        if (connectedEmail.isBlank()) {
+    val exportDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
+                    context.contentResolver.openOutputStream(uri)?.use { os ->
+                        os.write(encryptedBytes)
+                        os.flush()
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "✅ Backup exported (${meta.studentCount} students, ${meta.attendanceRecordCount} records)!", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val importDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (bytes == null || bytes.isEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Selected backup file is empty.", Toast.LENGTH_SHORT).show()
+                        }
+                        return@launch
+                    }
+                    val restoreResult = UserDriveBackupManager.restoreEncryptedBackup(bytes, backupPin, context)
+                    withContext(Dispatchers.Main) {
+                        if (restoreResult.isSuccess) {
+                            val meta = restoreResult.getOrThrow()
+                            Toast.makeText(context, "🎉 Restored ${meta.studentCount} students and ${meta.attendanceRecordCount} attendance records!", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "❌ Decryption failed: Check your PIN.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Import error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    fun launchAccountPicker() {
+        try {
+            val intent = AccountManager.newChooseAccountIntent(
+                if (connectedEmail.isNotBlank()) Account(connectedEmail, "com.google") else null,
+                null,
+                arrayOf("com.google"),
+                null,
+                null,
+                null,
+                null
+            )
+            accountPickerLauncher.launch(intent)
+        } catch (e: Exception) {
             val client = GoogleSignIn.getClient(context, gso)
             signInLauncher.launch(client.signInIntent)
+        }
+    }
+
+    fun startBackup() {
+        if (connectedEmail.isBlank()) {
+            launchAccountPicker()
             return
         }
 
         coroutineScope.launch {
             isBackingUp = true
-            backupProgressMessage = "Creating end-to-end encrypted kiosk snapshot..."
+            backupProgressMessage = "Creating encrypted backup snapshot..."
             try {
                 val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
 
-                backupProgressMessage = "Acquiring secure Google Drive auth token..."
+                backupProgressMessage = "Acquiring Google Drive auth token..."
+                var userRecoverableIntent: Intent? = null
+                var authErrorMsg: String? = null
                 val token = withContext(Dispatchers.IO) {
                     try {
-                        val account = android.accounts.Account(connectedEmail, "com.google")
+                        val account = Account(connectedEmail, "com.google")
                         GoogleAuthUtil.getToken(
                             context,
                             account,
                             "oauth2:https://www.googleapis.com/auth/drive.appdata"
                         )
+                    } catch (e: UserRecoverableAuthException) {
+                        Log.w("GoogleDriveBackup", "User recoverable auth required: ${e.message}")
+                        userRecoverableIntent = e.intent
+                        null
                     } catch (e: Exception) {
-                        // If token needs direct prompt or user authentication
+                        Log.e("GoogleDriveBackup", "Token acquisition error: ${e.message}", e)
+                        authErrorMsg = e.message
                         null
                     }
                 }
 
-                if (token == null) {
-                    // Fallback to GoogleSignIn client to re-prompt account
-                    val client = GoogleSignIn.getClient(context, gso)
-                    signInLauncher.launch(client.signInIntent)
+                if (userRecoverableIntent != null) {
                     isBackingUp = false
+                    pendingActionAfterAuth = { startBackup() }
+                    authRecoveryLauncher.launch(userRecoverableIntent)
                     return@launch
                 }
 
-                backupProgressMessage = "Uploading to your Google Drive appDataFolder..."
+                if (token == null) {
+                    isBackingUp = false
+                    Toast.makeText(context, "Auth failed: ${authErrorMsg ?: "Could not get token"}. Tap Google Account to select again.", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+
+                backupProgressMessage = "Uploading to your Google Drive..."
                 val result = GoogleDriveAppDataService.uploadBackup(token, encryptedBytes)
 
                 if (result.isSuccess) {
@@ -163,7 +279,7 @@ fun GoogleDriveBackupScreen(
 
     fun startRestore(pin: String) {
         if (connectedEmail.isBlank()) {
-            Toast.makeText(context, "Please connect your Google Account first.", Toast.LENGTH_SHORT).show()
+            launchAccountPicker()
             return
         }
 
@@ -171,23 +287,35 @@ fun GoogleDriveBackupScreen(
             isRestoring = true
             backupProgressMessage = "Connecting to Google Drive..."
             try {
+                var userRecoverableIntent: Intent? = null
+                var authErrorMsg: String? = null
                 val token = withContext(Dispatchers.IO) {
                     try {
-                        val account = android.accounts.Account(connectedEmail, "com.google")
+                        val account = Account(connectedEmail, "com.google")
                         GoogleAuthUtil.getToken(
                             context,
                             account,
                             "oauth2:https://www.googleapis.com/auth/drive.appdata"
                         )
+                    } catch (e: UserRecoverableAuthException) {
+                        userRecoverableIntent = e.intent
+                        null
                     } catch (e: Exception) {
+                        authErrorMsg = e.message
                         null
                     }
                 }
 
-                if (token == null) {
-                    val client = GoogleSignIn.getClient(context, gso)
-                    signInLauncher.launch(client.signInIntent)
+                if (userRecoverableIntent != null) {
                     isRestoring = false
+                    pendingActionAfterAuth = { startRestore(pin) }
+                    authRecoveryLauncher.launch(userRecoverableIntent)
+                    return@launch
+                }
+
+                if (token == null) {
+                    isRestoring = false
+                    Toast.makeText(context, "Auth failed: ${authErrorMsg ?: "Could not get token"}", Toast.LENGTH_LONG).show()
                     return@launch
                 }
 
@@ -200,7 +328,7 @@ fun GoogleDriveBackupScreen(
                 }
 
                 val latest = files.first()
-                backupProgressMessage = "Downloading encrypted backup (${latest.sizeBytes / 1024} KB)..."
+                backupProgressMessage = "Downloading backup (${latest.sizeBytes / 1024} KB)..."
                 val downloadResult = GoogleDriveAppDataService.downloadBackup(token, latest.id)
 
                 if (downloadResult.isFailure) {
@@ -218,7 +346,7 @@ fun GoogleDriveBackupScreen(
 
                 if (restoreResult.isSuccess) {
                     val meta = restoreResult.getOrThrow()
-                    Toast.makeText(context, "🎉 Successfully restored ${meta.studentCount} students and ${meta.attendanceRecordCount} attendance logs!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "🎉 Successfully restored ${meta.studentCount} students and ${meta.attendanceRecordCount} attendance records!", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(context, "❌ Decryption failed: Incorrect PIN or corrupt archive.", Toast.LENGTH_LONG).show()
                 }
@@ -277,17 +405,21 @@ fun GoogleDriveBackupScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(14.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Back up to Google Drive",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = omniTextPrimary(isDark)
+                                    color = omniTextPrimary(isDark),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "Owned 100% by you • Stored in your Google Drive",
+                                    text = "Owned 100% by you • Saved to your Google Drive",
                                     fontSize = 12.sp,
-                                    color = omniTextSecondary(isDark)
+                                    color = omniTextSecondary(isDark),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -308,23 +440,48 @@ fun GoogleDriveBackupScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (isDark) Color(0x33000000) else Color(0x0A000000))
                                 .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Last Backup:", fontSize = 12.5.sp, color = omniTextSecondary(isDark))
-                                Text(formattedDate, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Last Backup:", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text(formattedDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Archive Size:", fontSize = 12.5.sp, color = omniTextSecondary(isDark))
-                                Text(formattedSize, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Archive Size:", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text(formattedSize, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), maxLines = 1)
                             }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Google Account:", fontSize = 12.5.sp, color = omniTextSecondary(isDark))
-                                Text(if (connectedEmail.isNotBlank()) connectedEmail else "Not Connected", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = if (connectedEmail.isNotBlank()) omniCyan(isDark) else Color(0xFFFF9500))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Google Account:", fontSize = 12.sp, color = omniTextSecondary(isDark), modifier = Modifier.weight(1f, fill = false))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (connectedEmail.isNotBlank()) connectedEmail else "Not Connected",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (connectedEmail.isNotBlank()) omniCyan(isDark) else Color(0xFFFF9500),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("End-to-End Encryption:", fontSize = 12.5.sp, color = omniTextSecondary(isDark))
-                                Text("AES-256 (Protected by PIN)", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = omniEmerald(isDark))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Encryption:", fontSize = 12.sp, color = omniTextSecondary(isDark), modifier = Modifier.weight(1f, fill = false))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("AES-256-GCM (PIN Protected)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = omniEmerald(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
 
@@ -344,7 +501,7 @@ fun GoogleDriveBackupScreen(
                             if (isBackingUp) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(backupProgressMessage.take(28), fontSize = 14.sp)
+                                Text(backupProgressMessage.take(28), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             } else {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -365,7 +522,7 @@ fun GoogleDriveBackupScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Lock, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("End-to-End Encryption Key", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark))
+                            Text("End-to-End Encryption Key", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
@@ -381,7 +538,7 @@ fun GoogleDriveBackupScreen(
                             },
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Change Encryption PIN (Currently: ${backupPin.length} digits)", fontSize = 13.sp)
+                            Text("Change PIN (Current: ${backupPin.length} digits)", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -401,16 +558,22 @@ fun GoogleDriveBackupScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val client = GoogleSignIn.getClient(context, gso)
-                                    signInLauncher.launch(client.signInIntent)
+                                    launchAccountPicker()
                                 },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Google Account", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = omniTextPrimary(isDark))
-                                Text(if (connectedEmail.isNotBlank()) connectedEmail else "Tap to connect", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text(
+                                    text = if (connectedEmail.isNotBlank()) connectedEmail else "Tap to connect",
+                                    fontSize = 12.sp,
+                                    color = omniTextSecondary(isDark),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = omniTextSecondary(isDark))
                         }
 
@@ -422,10 +585,11 @@ fun GoogleDriveBackupScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Auto Backup Frequency", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = omniTextPrimary(isDark))
-                                Text("Schedule automated background backups", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text("Schedule automated background backups", fontSize = 12.sp, color = omniTextSecondary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             TextButton(onClick = {
                                 val nextFreq = when (backupFrequency) {
                                     "OFF" -> "DAILY"
@@ -436,7 +600,7 @@ fun GoogleDriveBackupScreen(
                                 prefs.edit().putString("BACKUP_FREQUENCY", nextFreq).putBoolean("AUTO_BACKUP_ENABLED", nextFreq != "OFF").apply()
                                 GoogleDriveBackupWorker.schedulePeriodicBackup(context, nextFreq, wifiOnly)
                             }) {
-                                Text(backupFrequency, fontWeight = FontWeight.Bold, color = omniCyan(isDark))
+                                Text(backupFrequency, fontWeight = FontWeight.Bold, color = omniCyan(isDark), maxLines = 1)
                             }
                         }
 
@@ -448,10 +612,11 @@ fun GoogleDriveBackupScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Back up over Wi-Fi only", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = omniTextPrimary(isDark))
-                                Text("Prevent uploads on cellular mobile data", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text("Prevent uploads on cellular mobile data", fontSize = 12.sp, color = omniTextSecondary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Switch(
                                 checked = wifiOnly,
                                 onCheckedChange = {
@@ -475,7 +640,7 @@ fun GoogleDriveBackupScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CloudDownload, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("Restore from Google Drive", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark))
+                            Text("Restore from Google Drive", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
@@ -497,11 +662,66 @@ fun GoogleDriveBackupScreen(
                             if (isRestoring) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(backupProgressMessage.take(28), fontSize = 14.sp)
+                                Text(backupProgressMessage.take(28), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             } else {
                                 Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("RESTORE FROM DRIVE", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── DIRECT STORAGE / SYSTEM FILE BACKUP & RESTORE (SAF) ──
+            item {
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 20.dp
+                ) {
+                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Save, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Direct File & Drive Document Sync",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = omniTextPrimary(isDark),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = "Save or import your encrypted biometric archive directly via Android's file manager to Google Drive, SD Card, or Downloads.",
+                            fontSize = 12.sp,
+                            color = omniTextSecondary(isDark)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    exportDocumentLauncher.launch("omniface_backup_${System.currentTimeMillis()}.enc")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Save File", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    importDocumentLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import File", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }

@@ -51,7 +51,7 @@ object GoogleDriveAppDataService {
             }.toString()
 
             val multipartBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
+                .setType("multipart/related".toMediaType())
                 .addPart(
                     metadataJson.toRequestBody("application/json; charset=UTF-8".toMediaType())
                 )
@@ -70,7 +70,7 @@ object GoogleDriveAppDataService {
                 val body = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Drive upload failed (HTTP ${response.code}): $body")
-                    return@withContext Result.failure(Exception("Google Drive upload error: HTTP ${response.code}"))
+                    return@withContext Result.failure(Exception("Drive error (HTTP ${response.code}): $body"))
                 }
 
                 val obj = JSONObject(body)

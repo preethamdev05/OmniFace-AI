@@ -170,17 +170,21 @@ fun BiometricSettingsSubScreen(
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = LocalizationManager.get(StringKey.KEYSTORE_SECURITY),
                                     color = omniTextPrimary(isDark),
                                     fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = if (state.isStrongBoxActive) LocalizationManager.get(StringKey.STRONGBOX_ACTIVE) else LocalizationManager.get(StringKey.TEE_ACTIVE),
                                     color = omniTextMuted(isDark),
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -210,8 +214,12 @@ fun BiometricSettingsSubScreen(
                                 text = LocalizationManager.get(StringKey.MERKLE_ROOT_PROOF),
                                 color = omniTextPrimary(isDark),
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
                             IOSGlassPill(
                                 text = "SHA-256",
                                 accentColor = Color(0xFF007AFF)
