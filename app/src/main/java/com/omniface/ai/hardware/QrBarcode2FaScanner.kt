@@ -20,7 +20,7 @@ data class TwoFactorResult(
 
 object QrBarcode2FaScanner {
 
-    private val scanner = BarcodeScanning.getClient()
+    private val scanner by lazy { BarcodeScanning.getClient() }
     var isTwoFactorModeEnabled: Boolean = true
 
     fun scanCardQrFromBitmap(

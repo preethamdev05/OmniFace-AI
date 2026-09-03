@@ -133,7 +133,7 @@ fun BiometricSettingsSubScreen(
                 }
             }
 
-            // 2. 2FA QR Code Verification Mode (Marked Coming Soon)
+            // 2. 2FA QR Code Verification Mode (Hardware Barcode Engine)
             item {
                 IOSCard(cornerRadius = 20.dp) {
                     SettingRow(
@@ -141,9 +141,9 @@ fun BiometricSettingsSubScreen(
                         subtitle = "${LocalizationManager.get(StringKey.TWO_FACTOR_QR_DESC)} • Hardware Barcode Engine",
                         icon = Icons.Default.QrCodeScanner,
                         trailing = {
-                            IOSGlassPill(
-                                text = "Coming Soon",
-                                accentColor = Color(0xFFF59E0B)
+                            CupertinoSwitch(
+                                checked = state.isTwoFactorEnabled,
+                                onCheckedChange = { isEnabled -> viewModel.toggleTwoFactorMode(isEnabled) }
                             )
                         }
                     )

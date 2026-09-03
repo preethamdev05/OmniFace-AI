@@ -10,8 +10,10 @@ import android.graphics.YuvImage
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import com.omniface.ai.hardware.NpuHardwareDetector
+import com.omniface.ai.hardware.QrBarcode2FaScanner
 import com.omniface.ai.hardware.ThermalGovernor
 import com.omniface.ai.hardware.ThermalState
+import com.omniface.ai.hardware.TwoFactorStatus
 import android.util.Range
 import android.util.Size
 import androidx.activity.compose.BackHandler
@@ -147,6 +149,7 @@ data class ScannerUiState(
     val visualGeometryData: List<FaceGeometryVisualData> = emptyList(),
     val isProcessing: Boolean = false,
     val activeTier: SecurityTier = SecurityTier.STANDARD,
+    val isTwoFactorQrActive: Boolean = QrBarcode2FaScanner.isTwoFactorModeEnabled,
     val scanState: ScannerScanState = ScannerScanState.READY_TO_SCAN,
     val matchTitle: String = "READY TO SCAN",
     val matchSubtitle: String = "Tap 'START SCAN' to begin",
@@ -930,6 +933,31 @@ class ScannerViewModel : ViewModel() {
                 } else {
                     when (decision.gateState) {
                         com.omniface.ai.ml.pipeline.PipelineGateState.PASS -> {
+                            var twoFaBadgeSuffix = ""
+                            if (QrBarcode2FaScanner.isTwoFactorModeEnabled) {
+                                var scannedRollFromFrame: String? = null
+                                QrBarcode2FaScanner.scanCardQrFromBitmap(fullBitmap) { detectedRoll ->
+                                    scannedRollFromFrame = detectedRoll
+                                }
+                                val twoFa = QrBarcode2FaScanner.correlateBiometricAndCard(
+                                    scannedCardRoll = scannedRollFromFrame,
+                                    matchedFaceRoll = decision.matchedStudentRoll
+                                )
+                                if (twoFa.status == TwoFactorStatus.TWO_FA_MISMATCH_FRAUD) {
+                                    BiometricSoundboard.playSpoofAlert()
+                                    _uiState.update {
+                                        it.copy(
+                                            scanState = ScannerScanState.SPOOF_ALERT,
+                                            matchTitle = "🚨 2FA FRAUD DETECTED",
+                                            matchSubtitle = "ID Badge ($scannedRollFromFrame) does not match Face (${decision.matchedStudentName})"
+                                        )
+                                    }
+                                    return@launch
+                                } else if (twoFa.status == TwoFactorStatus.TWO_FA_PASS) {
+                                    twoFaBadgeSuffix = " • 2FA Badge Verified"
+                                }
+                            }
+
                             if (output.isAttendanceTriggered) {
                                 lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
                                 BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
@@ -967,16 +995,16 @@ class ScannerViewModel : ViewModel() {
                                 if (isNewlyRecorded) {
                                     scanState = ScannerScanState.ATTENDANCE_RECORDED
                                     topMatchTitle = "✓ ATTENDANCE RECORDED"
-                                    topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (${"%.1f".format(decision.matchConfidence)}% Match)"
+                                    topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (${"%.1f".format(decision.matchConfidence)}% Match)$twoFaBadgeSuffix"
                                 } else {
                                     scanState = ScannerScanState.DUPLICATE_ATTENDANCE
                                     topMatchTitle = "⚠️ ALREADY CHECKED IN"
-                                    topMatchSubtitle = "${decision.matchedStudentName} (${decision.matchedStudentRoll}) • Attendance already logged today"
+                                    topMatchSubtitle = "${decision.matchedStudentName} (${decision.matchedStudentRoll}) • Attendance already logged today$twoFaBadgeSuffix"
                                 }
                             } else {
                                 scanState = ScannerScanState.RECOGNIZED
                                 topMatchTitle = decision.matchedStudentName.uppercase()
-                                topMatchSubtitle = "${"%.1f".format(decision.matchConfidence)}% Match • Live 3D Face Verified"
+                                topMatchSubtitle = "${"%.1f".format(decision.matchConfidence)}% Match • Live 3D Face Verified$twoFaBadgeSuffix"
                             }
                         }
                         com.omniface.ai.ml.pipeline.PipelineGateState.REJECT_SPOOF_ATTACK -> {

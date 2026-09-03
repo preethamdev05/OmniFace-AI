@@ -3,9 +3,12 @@ package com.omniface.ai.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.asImageBitmap
+import com.omniface.ai.hardware.QrBadgeGenerator
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,6 +199,70 @@ fun StudentInfoSheet(
                             Text(" Days Present", color = Color(0xFF10B981), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
+            }
+
+            // 2.5 Two-Factor Authentication QR Badge
+            val qrBitmap = remember(student.rollNumber) {
+                QrBadgeGenerator.generateStudentQrBitmap(
+                    content = student.rollNumber,
+                    sizePx = 384,
+                    foregroundColor = android.graphics.Color.BLACK,
+                    backgroundColor = android.graphics.Color.WHITE
+                )
+            }
+
+            IOSCard(cornerRadius = 16.dp) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "2FA STUDENT DIGITAL BADGE",
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        )
+
+                        IOSGlassPill(
+                            text = "2FA Ready",
+                            icon = Icons.Default.QrCodeScanner,
+                            accentColor = omniCyan(isDark)
+                        )
+                    }
+
+                    if (qrBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(140.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White)
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "Student 2FA QR Badge",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Hold badge up to camera during kiosk scan for 2FA validation",
+                        color = omniTextMuted(isDark),
+                        fontSize = 11.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                 }
             }
 

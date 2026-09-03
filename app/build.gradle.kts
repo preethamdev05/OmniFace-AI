@@ -144,6 +144,7 @@ dependencies {
     implementation("com.google.mlkit:face-detection:16.1.6")
     implementation("com.google.mlkit:text-recognition:16.0.0")
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("com.google.zxing:core:3.5.3")
 
 
     // LiteRT (Google's official successor to TensorFlow Lite)
