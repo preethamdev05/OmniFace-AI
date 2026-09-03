@@ -67,7 +67,7 @@ data class SettingsUiState(
     val hardwareTier: String = "NPU / NNAPI INT8",
     val latencyMs: Long = 6L,
     val selectedTier: SecurityTier = SecurityTier.HIGH,
-    val selectedThemeMode: ThemeMode = ThemeMode.LIGHT,
+    val selectedThemeMode: ThemeMode = ThemeMode.SYSTEM,
     val selectedLanguage: AppLanguage = BiometricSoundboard.currentLanguage,
     val selectedSoundMode: SoundEnvironmentMode = BiometricSoundboard.currentSoundMode,
     val isTwoFactorEnabled: Boolean = QrBarcode2FaScanner.isTwoFactorModeEnabled,
@@ -220,10 +220,10 @@ class SettingsViewModel : ViewModel() {
 
     private fun loadSavedThemeMode(): ThemeMode {
         val prefs = OmniFaceApplication.instance.getSharedPreferences("omniface_theme_prefs", Context.MODE_PRIVATE)
-        return when (prefs.getString("theme_mode", "LIGHT")) {
+        return when (prefs.getString("theme_mode", "SYSTEM")) {
             "DARK" -> ThemeMode.DARK
-            "SYSTEM" -> ThemeMode.SYSTEM
-            else -> ThemeMode.LIGHT
+            "LIGHT" -> ThemeMode.LIGHT
+            else -> ThemeMode.SYSTEM
         }
     }
 
