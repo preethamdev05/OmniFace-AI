@@ -192,6 +192,22 @@ class FaceSecurityPipeline(
                 faceBox = box
             )
 
+            // Canonical ArcFace 5-Point Umeyama Alignment
+            val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
+                arrayOf(rightEye, leftEye, nose, mouthR, mouthL)
+            } else null
+
+            var alignedFaceBitmap: Bitmap? = null
+            var isTemporaryAligned = false
+
+            if (raw5Pts != null) {
+                val alignmentResult = com.omniface.ai.ml.UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
+                if (alignmentResult != null && alignmentResult.alignmentError < 18.0f) {
+                    alignedFaceBitmap = alignmentResult.alignedBitmap
+                    isTemporaryAligned = true
+                }
+            }
+
             val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
             val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
                 unifiedEngine.processFace(
@@ -199,9 +215,14 @@ class FaceSecurityPipeline(
                     headYaw = face.headEulerAngleY,
                     headPitch = face.headEulerAngleX,
                     leftEyeOpenProb = face.leftEyeOpenProbability,
-                    rightEyeOpenProb = face.rightEyeOpenProbability
+                    rightEyeOpenProb = face.rightEyeOpenProbability,
+                    alignedFace = alignedFaceBitmap
                 )
             } else null
+
+            if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
+                alignedFaceBitmap.recycle()
+            }
 
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null

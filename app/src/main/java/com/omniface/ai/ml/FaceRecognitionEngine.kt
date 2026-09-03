@@ -667,7 +667,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
         if (unified.isModelLoaded && !faceBitmap.isRecycled) {
             val emb = unified.extractEmbedding(faceBitmap)
-            if (emb.isNotEmpty() && emb[0] != 0f) return emb
+            if (emb.isNotEmpty() && (emb[0] != 0f || emb[1] != 0f || emb[2] != 0f)) return emb
         }
         ensureInitialized()
         synchronized(engineMutex) {

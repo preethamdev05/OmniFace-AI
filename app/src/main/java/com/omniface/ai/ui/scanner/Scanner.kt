@@ -198,7 +198,7 @@ class ScannerViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(
         ScannerUiState(
             activeModelDisplayName = initialModelName,
-            isScanningPaused = true,
+            isScanningPaused = false,
             modelDownloadState = downloadManager.downloadState.value,
             thermalState = ThermalGovernor.thermalState.value,
             deviceTemperature = ThermalGovernor.currentTemperature.value,

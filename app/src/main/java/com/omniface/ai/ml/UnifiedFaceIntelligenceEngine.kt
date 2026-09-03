@@ -134,13 +134,17 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     /**
      * Executes single-pass unified inference across all 7 biometric heads.
+     * When [alignedFace] is provided (e.g. from Umeyama 5-point landmark alignment),
+     * it is fed directly into Qualcomm CavaFace ArcFace-512 for bit-accurate identity matching,
+     * while the surrounding [faceCrop] is fed into the auxiliary anti-spoof/3D/mesh heads.
      */
     fun processFace(
         faceCrop: Bitmap,
         headYaw: Float = 0f,
         headPitch: Float = 0f,
         leftEyeOpenProb: Float? = null,
-        rightEyeOpenProb: Float? = null
+        rightEyeOpenProb: Float? = null,
+        alignedFace: Bitmap? = null
     ): UnifiedFaceInferenceResult? {
         val interp = interpreter ?: return null
         if (!isModelLoaded || faceCrop.isRecycled) return null
@@ -152,7 +156,8 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             populateAntiSpoofBuffer(faceCrop)
 
             // 2. Populate Input 1: Qualcomm CavaFace [1, 112, 112, 3] Float32 NHWC [0.0, 1.0]
-            populateRgbNormalizedBuffer(faceCrop, inputCavaface, 112, 112)
+            val cavaFaceBitmap = if (alignedFace != null && !alignedFace.isRecycled) alignedFace else faceCrop
+            populateRgbNormalizedBuffer(cavaFaceBitmap, inputCavaface, 112, 112)
 
             // 3. Populate Input 2: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
             populateRgbNormalizedBuffer(faceCrop, input3DMM, 128, 128)
@@ -404,7 +409,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     fun extractEmbedding(faceBitmap: Bitmap): FloatArray {
         val res = processFace(faceBitmap)
-        return if (res != null && res.cavafaceEmbedding512.isNotEmpty() && res.cavafaceEmbedding512[0] != 0f) {
+        return if (res != null && res.cavafaceEmbedding512.isNotEmpty() && (res.cavafaceEmbedding512[0] != 0f || res.cavafaceEmbedding512[1] != 0f)) {
             res.cavafaceEmbedding512
         } else {
             res?.embedding512 ?: FloatArray(512)

@@ -93,14 +93,13 @@ object BiometricDecisionEngine {
         val multiStageScore = multiStageLiveness?.overallLivenessScore ?: (passivePad?.livenessScore ?: 0.90f)
         val livenessScore = multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
-        // Strict spoof rejection:
-        // 1. Passive PAD detected presentation attack (phone screen moire, photo print reflection)
-        // 2. 3DMM depth variance detects flat 2D surface (<0.0028)
-        // 3. Multi-stage or temporal consensus failure
-        val isConfirmedSpoof = (passivePad != null && (!isPassiveLive || passivePad.spoofProbability >= 0.50f)) ||
-                               (faceMap3DMM != null && (!faceMap3DMM.isTrue3DSurface || faceMap3DMM.depthVariance < 0.0028f)) ||
-                               (!isMultiStageLive && !isTemporalLive && livenessScore < 0.50f) ||
-                               (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.40f) ||
+        // Robust spoof rejection:
+        // 1. Passive PAD detected presentation attack with high confidence (spoof >= 70% AND failed liveness)
+        // 2. OR Multi-stage + temporal consensus failure
+        // 3. OR Explicit static attack with zero micro-motion
+        val isConfirmedSpoof = (!isPassiveLive && passivePad.spoofProbability >= 0.70f) ||
+                               (!isMultiStageLive && !isTemporalLive && livenessScore < 0.45f) ||
+                               (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.35f) ||
                                (!isTemporalLive && temporalLiveness.explanation.contains("Static"))
 
         if (isConfirmedSpoof) {
