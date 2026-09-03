@@ -489,13 +489,6 @@ fun SettingsScreen(
                     onBack = { currentSubScreen = null }
                 )
             }
-            SettingsCategory.NEURAL_ENGINE -> {
-                NeuralEngineSettingsSubScreen(
-                    state = state,
-                    viewModel = viewModel,
-                    onBack = { currentSubScreen = null }
-                )
-            }
             SettingsCategory.KIOSK_ACCESS -> {
                 KioskAccessSettingsSubScreen(
                     state = state,

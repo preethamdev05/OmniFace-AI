@@ -29,14 +29,6 @@ enum class SettingsCategory(
         icon = Icons.Default.Security,
         accentColor = Color(0xFF34C759)
     ),
-    NEURAL_ENGINE(
-        id = "neural_engine",
-        titleKey = StringKey.CAT_NEURAL,
-        subtitleKey = StringKey.CAT_NEURAL_DESC,
-        icon = Icons.Default.Memory,
-        accentColor = Color(0xFFA855F7),
-        badge = "INT8"
-    ),
     KIOSK_ACCESS(
         id = "kiosk_access",
         titleKey = StringKey.CAT_KIOSK,
