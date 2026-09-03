@@ -110,6 +110,10 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     fun getActiveModelDisplayName(): String {
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            return "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)"
+        }
         val cavafaceEntry = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
         if (cavafaceEntry != null) {
             val cavaFile = QualcommSuiteDownloadManager.resolveModelFile(context, cavafaceEntry)
@@ -128,19 +132,16 @@ class ModelDownloadManager(private val context: Context) {
         if (alt.exists() && alt.canRead()) {
             return "MobileFaceNet NPU (512-D FP16)"
         }
-        return "Qualcomm Hexagon NPU (512-D Active)"
+        return "Unified OmniFace AI (Single-Model Edge)"
     }
 
     private fun getInitialState(): ModelDownloadState {
-        val cavafaceEntry = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
-        if (cavafaceEntry != null) {
-            val cavaFile = QualcommSuiteDownloadManager.resolveModelFile(context, cavafaceEntry)
-            if (cavaFile != null && cavaFile.exists() && cavaFile.canRead()) {
-                return ModelDownloadState.Ready(
-                    activeModelName = "Qualcomm CavaFace NPU (512-D Ultra HD)",
-                    modelSizeBytes = cavaFile.length()
-                )
-            }
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            return ModelDownloadState.Ready(
+                activeModelName = "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)",
+                modelSizeBytes = 380182456L
+            )
         }
         val file = getLocalModelFile()
         val exists = verifyModelIntegrity(file)

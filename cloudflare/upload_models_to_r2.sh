@@ -21,6 +21,9 @@ upload_model() {
     fi
 }
 
+# 0. Single Consolidated Unified Model (Flagship Single File)
+upload_model "unified/unified_omniface.tflite" "$MODELS_DIR/../app/src/main/assets/unified_omniface.tflite"
+
 # 1. Base MobileFaceNet Models (Already completed, skipped or verified)
 upload_model "mobilefacenet_512d_int8.tflite" "$MODELS_DIR/mobilefacenet_512d_int8.tflite"
 upload_model "mobilefacenet_512d_fp16.tflite" "$MODELS_DIR/mobilefacenet_512d_fp16.tflite"

@@ -37,13 +37,6 @@ enum class SettingsCategory(
         accentColor = Color(0xFFA855F7),
         badge = "INT8"
     ),
-    QUALCOMM_SUITE(
-        id = "qualcomm_suite",
-        titleKey = StringKey.CAT_QUALCOMM,
-        subtitleKey = StringKey.CAT_QUALCOMM_DESC,
-        icon = Icons.Default.Hub,
-        accentColor = Color(0xFFFF9500)
-    ),
     KIOSK_ACCESS(
         id = "kiosk_access",
         titleKey = StringKey.CAT_KIOSK,
