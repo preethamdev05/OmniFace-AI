@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "com.omniface.ai"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.omniface.ai"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "2.0.0"
 
@@ -107,7 +107,7 @@ android {
         }
         jniLibs {
             keepDebugSymbols += "**/*.so"
-            useLegacyPackaging = true
+            useLegacyPackaging = false
         }
     }
 }

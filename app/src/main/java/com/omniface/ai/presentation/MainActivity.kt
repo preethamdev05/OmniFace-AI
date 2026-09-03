@@ -12,7 +12,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.omniface.ai.ui.OmniFaceApp
+import com.omniface.ai.ui.components.CameraProminentDisclosureDialog
 
 class MainActivity : FragmentActivity() {
 
@@ -28,12 +33,30 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         configureAdaptiveHighRefreshRate()
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-
         setContent {
+            var hasCameraPermission by remember {
+                mutableStateOf(
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                )
+            }
+            var showDisclosure by remember { mutableStateOf(!hasCameraPermission) }
+
             OmniFaceApp()
+
+            if (showDisclosure && !hasCameraPermission) {
+                CameraProminentDisclosureDialog(
+                    onAccept = {
+                        showDisclosure = false
+                        requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    },
+                    onDismiss = {
+                        showDisclosure = false
+                    }
+                )
+            }
         }
     }
 

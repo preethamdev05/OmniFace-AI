@@ -1,5 +1,7 @@
 package com.omniface.ai.ui.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -334,6 +336,16 @@ fun DataGovernanceSettingsSubScreen(
             confirmButton = {
                 TextButton(onClick = { showPrivacyPolicyDialog = false }) {
                     Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), color = omniCyan(isDark), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://preethamdev05.github.io/OmniFace-AI/privacy.html"))
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
+                }) {
+                    Text("Web Policy", color = omniEmerald(isDark))
                 }
             }
         )

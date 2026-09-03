@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniFace AI — Privacy Policy & Biometric Data Governance</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #111827;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-emerald: #10b981;
+            --accent-cyan: #06b6d4;
+            --accent-border: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 860px;
+            margin: 40px auto;
+            padding: 0 24px;
+        }
+        header {
+            text-align: center;
+            padding-bottom: 32px;
+            border-bottom: 1px solid var(--accent-border);
+            margin-bottom: 32px;
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-emerald);
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        h1 {
+            font-size: 32px;
+            margin: 0 0 12px;
+            background: linear-gradient(135deg, #ffffff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .meta-info {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        .highlight-box {
+            background: rgba(16, 185, 129, 0.08);
+            border-left: 4px solid var(--accent-emerald);
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 24px 0;
+        }
+        .highlight-box h3 {
+            margin-top: 0;
+            color: var(--accent-emerald);
+        }
+        h2 {
+            font-size: 22px;
+            color: #ffffff;
+            margin-top: 36px;
+            border-bottom: 1px solid var(--accent-border);
+            padding-bottom: 8px;
+        }
+        h3 {
+            font-size: 17px;
+            color: var(--accent-cyan);
+            margin-top: 20px;
+        }
+        p, li {
+            color: #d1d5db;
+            font-size: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--accent-border);
+        }
+        th {
+            background: rgba(255, 255, 255, 0.04);
+            color: #ffffff;
+        }
+        code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        footer {
+            margin-top: 60px;
+            padding-top: 24px;
+            border-top: 1px solid var(--accent-border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge">Official Google Play Privacy Policy</div>
+            <h1>OmniFace AI — Privacy & Biometric Data Governance</h1>
+            <div class="meta-info">
+                <strong>Package Name:</strong> com.omniface.ai &bull; 
+                <strong>Effective Date:</strong> September 3, 2026 &bull; 
+                <strong>Governing Frameworks:</strong> Google Play Data Safety, DPDP Act 2023, GDPR, CCPA, FERPA
+            </div>
+        </header>
+
+        <div class="highlight-box">
+            <h3>🔒 Core Privacy Commitment: 100% On-Device Processing</h3>
+            <p>
+                <strong>OmniFace AI processes all biometric facial recognition locally on your hardware.</strong> 
+                Raw camera images and mathematical facial feature templates are <strong>NEVER</strong> transmitted to developer servers, advertising networks, or analytics brokers. Your biometrics remain strictly sealed inside your device's hardware-encrypted enclave.
+            </p>
+        </div>
+
+        <h2>1. Categories of Data Processed</h2>
+        <h3>A. Biometric Data (100% Local)</h3>
+        <ul>
+            <li><strong>512-Dimensional Vector Embeddings:</strong> Deep neural feature abstractions (MobileFaceNet / ArcFace). These normalized numerical unit vectors <em>cannot be reverse-engineered into photographs</em>.</li>
+            <li><strong>Facial Landmark Geometry:</strong> 5 canonical fiducials and 468-point 3D topological mesh coordinates used in volatile RAM exclusively for orientation and Presentation Attack Detection (PAD).</li>
+            <li><strong>Storage & Cryptography:</strong> Biometric templates are stored in an on-device SQLite database encrypted with <strong>AES-256-GCM</strong> using master keys sealed within the hardware <strong>AndroidKeyStore</strong>.</li>
+        </ul>
+
+        <h3>B. Contactless rPPG Pulse Telemetry (Vitality & Anti-Spoofing)</h3>
+        <ul>
+            <li><strong>Technical Function:</strong> Remote Photoplethysmography (rPPG) extracts capillary hemoglobin light absorption frequencies (0.75 Hz – 3.0 Hz, 45 – 180 BPM) using the Chrominance (CHROM) algorithm.</li>
+            <li><strong>Security Purpose:</strong> Presentation Attack Detection (PAD). Live human skin demonstrates microscopic capillary pulse pulsatility; printed photos and screen replays do not.</li>
+            <li><strong>Non-Medical Notice:</strong> This feature is solely an anti-spoofing defense and is <strong>NOT intended, certified, or used as a medical device or health diagnostic instrument</strong>. Pulse readings exist in volatile RAM and are never recorded to disk.</li>
+        </ul>
+
+        <h3>C. Academic & Attendance Records</h3>
+        <ul>
+            <li><strong>Institutional Identifiers:</strong> Student Full Name, Roll Number, Department, and Semester.</li>
+            <li><strong>Attendance Ledger:</strong> Session date, timestamp, match confidence score, and deterministic SHA-256 Aegis blockchain Merkle root block hashes.</li>
+        </ul>
+
+        <h2>2. User-Owned Google Drive Backups</h2>
+        <p>OmniFace AI supports optional cloud backups owned 100% by the institutional administrator:</p>
+        <ul>
+            <li><strong>Direct Storage:</strong> Backups are stored directly in the administrator's personal Google Drive <code>appDataFolder</code>. Developer servers do not host, broker, or see the data.</li>
+            <li><strong>Zero-Knowledge Encryption:</strong> Backups are encrypted locally using <strong>AES-256-GCM</strong> with a key derived via <strong>PBKDF2-HMAC-SHA256 (10,000 iterations)</strong> from a custom administrator PIN before upload.</li>
+            <li>Neither Google nor OmniFace can decrypt or view the biometric templates without the administrator's PIN.</li>
+        </ul>
+
+        <h2>3. Android Runtime Permissions</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Permission</th>
+                    <th>Classification</th>
+                    <th>Technical Purpose & Justification</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>CAMERA</code></td>
+                    <td>Dangerous (Runtime)</td>
+                    <td>Live frame ingestion for real-time biometric verification and liveness checks. Preceded by an in-app prominent disclosure dialog. Frames are processed in volatile RAM and never saved to gallery.</td>
+                </tr>
+                <tr>
+                    <td><code>VIBRATE</code></td>
+                    <td>Normal</td>
+                    <td>Tactile sensory feedback upon successful biometric identification.</td>
+                </tr>
+                <tr>
+                    <td><code>INTERNET</code><br><code>ACCESS_NETWORK_STATE</code></td>
+                    <td>Normal</td>
+                    <td>Optional encrypted Google Drive backup uploads, emergency evacuation webhooks, and neural model downloads.</td>
+                </tr>
+                <tr>
+                    <td><code>ACCESS_WIFI_STATE</code></td>
+                    <td>Normal</td>
+                    <td>Enforces "Wi-Fi Only" constraints to prevent cellular data usage during Google Drive backup uploads.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>4. Google Play Data Safety Matrix</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Data Type</th>
+                    <th>Collected?</th>
+                    <th>Shared?</th>
+                    <th>Processing & Security</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Photos & Videos</td>
+                    <td>NO</td>
+                    <td>NO</td>
+                    <td>Processed in ephemeral RAM; never stored on disk.</td>
+                </tr>
+                <tr>
+                    <td>Biometric Info (512-D Vectors)</td>
+                    <td>YES (Local)</td>
+                    <td>NO</td>
+                    <td>100% on-device; AES-256-GCM hardware encrypted.</td>
+                </tr>
+                <tr>
+                    <td>Personal Info (Name, Student ID)</td>
+                    <td>YES (Local)</td>
+                    <td>NO</td>
+                    <td>Stored in local database; user-controlled deletion.</td>
+                </tr>
+                <tr>
+                    <td>Personal Google Account Email</td>
+                    <td>YES (Local)</td>
+                    <td>NO</td>
+                    <td>Used solely for Google Drive appDataFolder targeting.</td>
+                </tr>
+                <tr>
+                    <td>Location Data</td>
+                    <td>NO</td>
+                    <td>NO</td>
+                    <td>Never requested or collected.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>5. Right-to-Forget & Data Deletion Instructions</h2>
+        <p>OmniFace AI complies with the Digital Personal Data Protection (DPDP) Act 2023 and GDPR Article 17:</p>
+        <ol>
+            <li><strong>Single Profile Deletion:</strong> In the Student Directory, swipe left on any student record and tap <em>Delete Biometric Profile</em> to irreversibly wipe their vector embedding.</li>
+            <li><strong>Automated 90-Day Purge:</strong> Historical attendance logs older than 90 days are automatically pruned from the local database.</li>
+            <li><strong>Complete Master Wipe:</strong> Open <em>Settings &rarr; Data Governance</em> and tap <em>Wipe All Biometric Data</em> to perform a zero-fill cryptographic erase of all biometric templates and ledger records.</li>
+        </ol>
+
+        <h2>6. Contact & Data Protection Officer</h2>
+        <p>For inquiries regarding this Privacy Policy, please contact:</p>
+        <ul>
+            <li><strong>Engineering Lead:</strong> Preetham N</li>
+            <li><strong>Data Protection Officer (DPO):</strong> <a href="mailto:privacy@omniface.ai" style="color: var(--accent-cyan);">privacy@omniface.ai</a></li>
+            <li><strong>GitHub Repository:</strong> <a href="https://github.com/preethamdev05/OmniFace-AI" style="color: var(--accent-cyan);">https://github.com/preethamdev05/OmniFace-AI</a></li>
+        </ul>
+
+        <footer>
+            &copy; 2026 OmniFace AI. All rights reserved. Sovereign On-Device Biometric Verification.
+        </footer>
+    </div>
+</body>
+</html>

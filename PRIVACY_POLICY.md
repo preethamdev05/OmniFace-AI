@@ -1,4 +1,4 @@
-﻿# 🛡️ OmniFace AI — Privacy Policy & Biometric Data Governance
+# 🛡️ OmniFace AI — Privacy Policy & Biometric Data Governance
 
 **Last Updated**: September 3, 2026  
 **Effective Date**: September 3, 2026  
@@ -38,6 +38,16 @@ OmniFace AI ("we", "our", or "the Application") is an offline-first, sovereign b
 - **Device Silicon Metrics**: Neural Processing Unit (NPU) TOPS capability, GPU model, thermal throttling state, and inference latency (ms).
 - **Purpose**: Local hardware adaptation (e.g., auto-scaling camera resolution and selecting between Qualcomm Hexagon NPU, Adreno GPU, and CPU XNNPACK delegates). **Never exported or linked to individual identities.**
 
+### E. Contactless rPPG Pulse Telemetry (Vitality & Anti-Spoofing)
+- **Technical Scope**: Remote Photoplethysmography (rPPG) extracts capillary hemoglobin light absorption frequencies (0.75 Hz – 3.0 Hz, corresponding to 45 – 180 BPM) using the Chrominance (CHROM) algorithm.
+- **Sole Purpose**: Presentation Attack Detection (PAD). Real human beings exhibit microscopic capillary arterial pulse waves; 2D paper photographs, digital displays, and silicone masks do not.
+- **Non-Medical Notice**: This feature operates purely as an anti-spoofing security countermeasure and is **NOT intended, certified, or used as a medical device or health diagnostic tool**. Pulse telemetry is processed ephemerally in RAM and is never stored or transmitted.
+
+### F. User-Owned Google Drive Cloud Backups (Zero Cloud Liability)
+- **Zero Developer Access**: OmniFace AI allows administrators to optionally back up their student roster, 512-D biometric vector templates, and attendance records directly to the **administrator's own personal Google Drive account**.
+- **End-to-End Encryption**: Before transmission, the backup archive is encrypted locally using **AES-256-GCM** with a 256-bit key derived via **PBKDF2-HMAC-SHA256 (10,000 iterations)** from a custom administrator PIN.
+- **Hidden Sandbox**: Stored directly into the Google Drive `appDataFolder` sandbox via TLS 1.3. Neither Google, OmniFace developers, nor any third party can inspect or decrypt the biometric templates without the administrator's PIN.
+
 ---
 
 ## 3. Device Permissions & Purpose Specification
@@ -46,10 +56,9 @@ OmniFace AI requests only the minimal set of Android runtime permissions require
 
 | Permission | Category | Technical Purpose & Scope |
 |:---|:---|:---|
-| `android.permission.CAMERA` | Dangerous (Runtime) | Captures live camera frames for on-device face detection, landmark alignment, and biometric verification. Frames are processed in volatile RAM buffers and never saved to public media galleries. |
-| `android.permission.BLUETOOTH_CONNECT`<br>`android.permission.BLUETOOTH_SCAN` | Normal / Runtime (API 31+) | Facilitates offline peer-to-peer BLE mesh synchronization between local kiosk terminals in facilities without internet. Declared with `android:usesPermissionFlags="neverForLocation"` to guarantee **zero location tracking**. |
+| `android.permission.CAMERA` | Dangerous (Runtime) | Captures live camera frames for on-device face detection, landmark alignment, and biometric verification. Frames are processed in volatile RAM buffers and never saved to public media galleries. Preceded by an explicit in-app prominent disclosure dialog. |
 | `android.permission.VIBRATE` | Normal | Provides sensory tactile haptic feedback during Face ID reticle alignment and verification passes. |
-| `android.permission.INTERNET`<br>`android.permission.ACCESS_NETWORK_STATE` | Normal | Used solely for optional institutional backend synchronization, emergency evacuation webhooks, and Hugging Face model repository synchronization if configured by the administrator. |
+| `android.permission.INTERNET`<br>`android.permission.ACCESS_NETWORK_STATE`<br>`android.permission.ACCESS_WIFI_STATE` | Normal | Used solely for optional user-owned Google Drive encrypted backups, emergency evacuation webhooks, and Hugging Face model repository downloads if configured by the administrator. |
 
 ---
 
