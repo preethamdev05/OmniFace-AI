@@ -871,8 +871,6 @@ fun EnrollmentScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
-    var showMultiShotComponent by remember { mutableStateOf(false) }
-
     // Intercept back gesture on active modals, sheets, and registration studios in prioritized order
     BackHandler(enabled = state.isDeleteConfirmOpen) {
         viewModel.closeDeleteConfirmDialog()
@@ -883,10 +881,7 @@ fun EnrollmentScreen(
     BackHandler(enabled = state.selectedStudentForManage != null && !state.isEditProfileOpen && !state.isDeleteConfirmOpen) {
         viewModel.closeStudentProfile()
     }
-    BackHandler(enabled = showMultiShotComponent) {
-        showMultiShotComponent = false
-    }
-    BackHandler(enabled = state.stage != EnrollmentStage.REGISTRATION_FORM && !showMultiShotComponent) {
+    BackHandler(enabled = state.stage != EnrollmentStage.REGISTRATION_FORM) {
         viewModel.cancelBiometricStudio()
     }
 
@@ -894,42 +889,25 @@ fun EnrollmentScreen(
         viewModel.initEngine(context)
     }
 
-    if (showMultiShotComponent) {
-        FaceRegistrationComponent(
-            initialRoll = state.rollNumber,
-            initialName = state.fullName,
-            initialDept = state.department,
-            initialSem = state.semester,
-            onRegistrationFinished = {
-                showMultiShotComponent = false
-                viewModel.resetForNextStudent()
-            },
-            onDismiss = {
-                showMultiShotComponent = false
-            }
-        )
-    } else {
-        when (state.stage) {
-            EnrollmentStage.REGISTRATION_FORM -> {
-                RegistrationFormView(
-                    viewModel = viewModel,
-                    state = state,
-                    isDark = isDark,
-                    context = context,
-                    onLaunchMultiShotStudio = { showMultiShotComponent = true }
-                )
-            }
-            EnrollmentStage.BIOMETRIC_STUDIO -> {
-                BiometricStudioView(viewModel = viewModel, state = state, isDark = isDark)
-            }
-            EnrollmentStage.ENROLLMENT_SUCCESS -> {
-                EnrollmentSuccessView(
-                    viewModel = viewModel,
-                    state = state,
-                    isDark = isDark,
-                    onNavigateToScanner = onNavigateToScanner
-                )
-            }
+    when (state.stage) {
+        EnrollmentStage.REGISTRATION_FORM -> {
+            RegistrationFormView(
+                viewModel = viewModel,
+                state = state,
+                isDark = isDark,
+                context = context
+            )
+        }
+        EnrollmentStage.BIOMETRIC_STUDIO -> {
+            BiometricStudioView(viewModel = viewModel, state = state, isDark = isDark)
+        }
+        EnrollmentStage.ENROLLMENT_SUCCESS -> {
+            EnrollmentSuccessView(
+                viewModel = viewModel,
+                state = state,
+                isDark = isDark,
+                onNavigateToScanner = onNavigateToScanner
+            )
         }
     }
 }
@@ -940,8 +918,7 @@ private fun RegistrationFormView(
     viewModel: EnrollmentViewModel,
     state: EnrollmentUiState,
     isDark: Boolean,
-    context: Context,
-    onLaunchMultiShotStudio: () -> Unit = {}
+    context: Context
 ) {
     LazyColumn(
         modifier = Modifier
@@ -980,10 +957,9 @@ private fun RegistrationFormView(
                 }
 
                 IOSGlassPill(
-                    text = LocalizationManager.get(StringKey.BURST_STUDIO_BUTTON).uppercase(),
-                    icon = Icons.Default.Face,
-                    accentColor = omniCyan(isDark),
-                    onClick = onLaunchMultiShotStudio
+                    text = "5-Angle 3D Vault",
+                    icon = Icons.Default.Shield,
+                    accentColor = omniCyan(isDark)
                 )
             }
         }
@@ -1007,8 +983,7 @@ private fun RegistrationFormView(
                     IOSGlassPill(
                         text = LocalizationManager.get(StringKey.BURST_STUDIO_BADGE),
                         icon = Icons.Default.Bolt,
-                        accentColor = if (isDark) AmberCore else LightAmberCore,
-                        onClick = onLaunchMultiShotStudio
+                        accentColor = if (isDark) AmberCore else LightAmberCore
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
@@ -1116,15 +1091,6 @@ private fun RegistrationFormView(
                     text = LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT),
                     icon = Icons.Default.Face,
                     onClick = { viewModel.startBiometricStudio(context) }
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                CupertinoButton(
-                    text = LocalizationManager.get(StringKey.BURST_STUDIO_BUTTON),
-                    icon = Icons.Default.BurstMode,
-                    isSecondary = true,
-                    onClick = { onLaunchMultiShotStudio() }
                 )
             }
         }
