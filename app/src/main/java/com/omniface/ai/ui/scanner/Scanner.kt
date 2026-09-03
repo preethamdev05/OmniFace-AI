@@ -2059,7 +2059,7 @@ fun ScannerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "SNAPDRAGON® FACE INTELLIGENCE",
+                                        text = "UNIFIED ON-DEVICE NEURAL SUITE",
                                         color = omniTextMuted(isDark),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
@@ -2076,7 +2076,7 @@ fun ScannerScreen(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = if (qc?.isCavafaceActive == true) "CavaFace HD" else "Hexagon NPU",
+                                        text = "Unified LiteRT",
                                         color = omniCyan(isDark),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -2103,7 +2103,7 @@ fun ScannerScreen(
                                     Text("3DMM Depth", fontSize = 10.sp, color = omniTextMuted(isDark))
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = if (qc?.is3DMMActive == true) "%.3f Var".format(qc.depthVariance) else "Standby",
+                                        text = if (qc?.is3DMMActive == true) "%.3f Var".format(qc.depthVariance) else "Ready",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = omniTextPrimary(isDark)
@@ -2121,7 +2121,7 @@ fun ScannerScreen(
                                     Text("Eye Gaze", fontSize = 10.sp, color = omniTextMuted(isDark))
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = if (qc?.isEyeGazeActive == true) (if (qc.gazeAttentive) "✓ Attentive" else "Off-Axis") else "Standby",
+                                        text = if (qc?.isEyeGazeActive == true) (if (qc.gazeAttentive) "✓ Attentive" else "Off-Axis") else "Ready",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (qc?.gazeAttentive == true) omniEmerald(isDark) else Color(0xFFFF9500)
@@ -2139,7 +2139,7 @@ fun ScannerScreen(
                                     Text("Attrib Net", fontSize = 10.sp, color = omniTextMuted(isDark))
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = if (qc?.isFaceAttribActive == true) "${(qc.smileScore * 100).toInt()}% Smile" else "Standby",
+                                        text = if (qc?.isFaceAttribActive == true) "${(qc.smileScore * 100).toInt()}% Smile" else "Ready",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = omniTextPrimary(isDark)

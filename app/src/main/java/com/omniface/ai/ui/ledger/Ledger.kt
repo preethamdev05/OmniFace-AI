@@ -415,12 +415,14 @@ fun LedgerScreen(
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = record.studentName,
                                     color = omniTextPrimary(isDark),
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,12 +430,15 @@ fun LedgerScreen(
                                         text = record.studentRoll,
                                         color = omniCyan(isDark),
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
                                     )
                                     Text(
                                         text = " • ${record.sessionDate} $timeStr",
                                         color = omniTextMuted(isDark),
-                                        fontSize = 10.sp
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
                                 }
                             }

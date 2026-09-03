@@ -38,6 +38,9 @@ aapt2
 
 # Python ML & Training caches
 __pycache__/
+*.pyc
+*.pyo
+models_cache/
 *.py[cod]
 *$py.class
 *.so

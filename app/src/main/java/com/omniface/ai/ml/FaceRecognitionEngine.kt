@@ -664,6 +664,11 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded && !faceBitmap.isRecycled) {
+            val emb = unified.extractEmbedding(faceBitmap)
+            if (emb.isNotEmpty() && emb[0] != 0f) return emb
+        }
         ensureInitialized()
         synchronized(engineMutex) {
             val interpreter = tfliteInterpreter

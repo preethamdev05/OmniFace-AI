@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -479,9 +480,18 @@ fun GoogleDriveBackupScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Encryption:", fontSize = 12.sp, color = omniTextSecondary(isDark), modifier = Modifier.weight(1f, fill = false))
+                                Text("Encryption:", fontSize = 12.sp, color = omniTextSecondary(isDark), maxLines = 1)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("AES-256-GCM (PIN Protected)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = omniEmerald(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    text = "AES-256-GCM (PIN Protected)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = omniEmerald(isDark),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
 
@@ -505,8 +515,78 @@ fun GoogleDriveBackupScreen(
                             } else {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("BACK UP NOW", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("BACK UP NOW (OAUTH SYNC)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Direct Android Storage / Drive Export Fallback Button
+                        OutlinedButton(
+                            onClick = {
+                                val fileName = "omniface_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.omni"
+                                exportDocumentLauncher.launch(fileName)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, omniCyan(isDark).copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("SAVE TO GOOGLE DRIVE VIA FILE PICKER", color = omniCyan(isDark), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+
+            // ── GOOGLE CLOUD OAUTH CONSOLE SHA-1 CARD ──
+            item {
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 20.dp
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Key, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("OAuth API Console Registration", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "If OAuth sync shows 'UnregisteredOnApiConsole', register this SHA-1 in your Google Cloud Console under OAuth 2.0 Client IDs for Android:",
+                            fontSize = 11.5.sp,
+                            color = omniTextSecondary(isDark)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9))
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = "10:14:10:81:1B:F9:89:37:5D:0E:D5:82:ED:C7:6B:9F:1B:CF:9C:C7",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = omniCyan(isDark),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("OmniFace SHA-1", "10:14:10:81:1B:F9:89:37:5D:0E:D5:82:ED:C7:6B:9F:1B:CF:9C:C7")
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "SHA-1 copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy SHA-1 Fingerprint", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

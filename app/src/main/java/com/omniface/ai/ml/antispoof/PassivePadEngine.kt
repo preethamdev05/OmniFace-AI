@@ -167,6 +167,10 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
     }
 
     override suspend fun run(input: Bitmap): PassivePadResult {
+        val unified = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded && !input.isRecycled) {
+            return unified.runPassivePad(input)
+        }
         val interp = interpreter
         if (interp == null || input.isRecycled) {
             // Heuristic fallback if model is uninitialized

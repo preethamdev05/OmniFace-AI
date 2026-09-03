@@ -192,47 +192,19 @@ class FaceSecurityPipeline(
                 faceBox = box
             )
 
-            // ── GATE 3 FIRST: Ultra-Fast 512-D Identity Embedding Extraction (Hexagon NPU sub-8ms) ──
+            val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
+            val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
+                unifiedEngine.processFace(
+                    faceCrop = faceCrop,
+                    headYaw = face.headEulerAngleY,
+                    headPitch = face.headEulerAngleX,
+                    leftEyeOpenProb = face.leftEyeOpenProbability,
+                    rightEyeOpenProb = face.rightEyeOpenProbability
+                )
+            } else null
+
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null
-
-            if ((qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) && faceCrop != null && !faceCrop.isRecycled) {
-                try {
-                    val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
-                        arrayOf(rightEye, leftEye, nose, mouthR, mouthL)
-                    } else null
-
-                    var embeddingInputBitmap: Bitmap = faceCrop
-                    var isTemporaryAligned = false
-
-                    if (raw5Pts != null) {
-                        val alignmentResult = UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
-                        if (alignmentResult != null && alignmentResult.alignmentError < 18.0f) {
-                            embeddingInputBitmap = alignmentResult.alignedBitmap
-                            isTemporaryAligned = true
-                        }
-                    }
-
-                    val embedding = recognitionEngine.extractEmbedding(embeddingInputBitmap)
-                    lastExtractedEmbedding = embedding
-
-                    if (isTemporaryAligned && embeddingInputBitmap != faceCrop && !embeddingInputBitmap.isRecycled) {
-                        embeddingInputBitmap.recycle()
-                    }
-
-                    matchResult = matcher.match(
-                        queryEmbedding = embedding,
-                        studentMap = studentMap,
-                        securityTier = securityTier,
-                        activeTier = recognitionEngine.activeHardwareTier
-                    )
-                    Log.i("OmniFacePipeline", "Gate 3 Result: roll=${matchResult.studentRoll}, name=${matchResult.studentName}, sim=${matchResult.similarity}, isMatch=${matchResult.isMatch}")
-                } catch (t: Throwable) {
-                    Log.e("OmniFacePipeline", "Gate 3 Extraction/Match Exception", t)
-                }
-            }
-
-            // ── GATE 2: Anti-Spoofing & Qualcomm AI Hub Telemetry ──
             var multiStageResult: MultiStageLivenessResult? = null
             var passivePadResult: PassivePadResult? = null
             var map3dResult: FaceMap3DMMResult? = null
@@ -241,33 +213,68 @@ class FaceSecurityPipeline(
             var meshResult: MediaPipeMeshResult? = null
             var hrnetResult: HRNetFaceResult? = null
 
-            if (faceCrop != null && !faceCrop.isRecycled) {
-                // 1. Passive PAD Liveness Assessment
-                if (config.isPassivePadEnabled || config.isMultiStageLivenessEnabled) {
-                    try {
-                        passivePadResult = passivePadEngine.run(faceCrop)
-                    } catch (_: Throwable) {}
-                }
+            if (unifiedResult != null) {
+                lastExtractedEmbedding = unifiedResult.embedding512
+                passivePadResult = unifiedResult.passivePad
+                map3dResult = unifiedResult.map3d
+                attrResult = unifiedResult.attributes
+                gazeResult = unifiedResult.gaze
+                meshResult = unifiedResult.mesh
+                hrnetResult = unifiedResult.hrnet
 
-                // 2. Qualcomm AI Hub 3DMM, Gaze, and 468-Point Mesh
-                if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
+                if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
                     try {
-                        if (config.isFaceMap3DMMEnabled) {
-                            map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
-                        }
-                        if (config.isEyeGazeEnabled) {
-                            gazeResult = qualcommEngine.estimateEyeGaze(
-                                eyeCropBitmap = faceCrop,
-                                headYaw = face.headEulerAngleY,
-                                headPitch = face.headEulerAngleX,
-                                leftEyeOpenProb = face.leftEyeOpenProbability,
-                                rightEyeOpenProb = face.rightEyeOpenProbability
-                            )
-                        }
-                        if (config.isMediaPipeMeshEnabled) {
-                            meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
-                        }
-                    } catch (_: Throwable) {}
+                        matchResult = matcher.match(
+                            queryEmbedding = unifiedResult.embedding512,
+                            studentMap = studentMap,
+                            securityTier = securityTier,
+                            activeTier = recognitionEngine.activeHardwareTier
+                        )
+                    } catch (t: Throwable) {
+                        Log.e("OmniFacePipeline", "Gate 3 Match Exception", t)
+                    }
+                }
+            } else {
+                // Fallback Path
+                if ((qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) && faceCrop != null && !faceCrop.isRecycled) {
+                    try {
+                        val embedding = recognitionEngine.extractEmbedding(faceCrop)
+                        lastExtractedEmbedding = embedding
+                        matchResult = matcher.match(
+                            queryEmbedding = embedding,
+                            studentMap = studentMap,
+                            securityTier = securityTier,
+                            activeTier = recognitionEngine.activeHardwareTier
+                        )
+                    } catch (t: Throwable) {
+                        Log.e("OmniFacePipeline", "Gate 3 Fallback Extraction/Match Exception", t)
+                    }
+                }
+                if (faceCrop != null && !faceCrop.isRecycled) {
+                    if (config.isPassivePadEnabled || config.isMultiStageLivenessEnabled) {
+                        try {
+                            passivePadResult = passivePadEngine.run(faceCrop)
+                        } catch (_: Throwable) {}
+                    }
+                    if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
+                        try {
+                            if (config.isFaceMap3DMMEnabled) {
+                                map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
+                            }
+                            if (config.isEyeGazeEnabled) {
+                                gazeResult = qualcommEngine.estimateEyeGaze(
+                                    eyeCropBitmap = faceCrop,
+                                    headYaw = face.headEulerAngleY,
+                                    headPitch = face.headEulerAngleX,
+                                    leftEyeOpenProb = face.leftEyeOpenProbability,
+                                    rightEyeOpenProb = face.rightEyeOpenProbability
+                                )
+                            }
+                            if (config.isMediaPipeMeshEnabled) {
+                                meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
+                            }
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
 
@@ -313,7 +320,8 @@ class FaceSecurityPipeline(
                 temporalLiveness = temporalResult,
                 matchResult = matchResult,
                 securityTier = securityTier,
-                multiStageLiveness = multiStageResult
+                multiStageLiveness = multiStageResult,
+                faceMap3DMM = map3dResult
             )
 
             fun mapPoint(pt: PointF?): PointF? {
