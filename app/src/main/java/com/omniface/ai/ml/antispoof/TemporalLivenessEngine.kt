@@ -25,6 +25,8 @@ data class TemporalLivenessResult(
     val naturalBlinkDetected: Boolean,
     val headTurnDetected: Boolean = false,
     val stable3DDepth: Boolean,
+    val heartRateBpm: Int = 72,
+    val rppgVitality: RppgVitalityResult? = null,
     val requiredAction: LivenessChallengeType? = null,
     val explanation: String
 )
@@ -48,6 +50,19 @@ class TemporalLivenessEngine {
     }
 
     private val trackHistory = ConcurrentHashMap<Int, ArrayDeque<TemporalFrameSample>>()
+    private val rppgEngine = RemotePpgPulseEngine()
+
+    fun recordRppgSample(bitmap: android.graphics.Bitmap, boundingBox: android.graphics.Rect) {
+        rppgEngine.extractRoiColorsAndAdd(bitmap, boundingBox)
+    }
+
+    fun recordRppgColorSample(r: Float, g: Float, b: Float) {
+        rppgEngine.addSample(r, g, b)
+    }
+
+    fun getRppgResult(): RppgVitalityResult {
+        return rppgEngine.evaluateVitality()
+    }
 
     fun recordSample(
         trackId: Int,
@@ -85,6 +100,8 @@ class TemporalLivenessEngine {
     }
 
     fun evaluateTemporalLiveness(trackId: Int): TemporalLivenessResult {
+        val rppg = rppgEngine.evaluateVitality()
+
         val queue = trackHistory[trackId] ?: return TemporalLivenessResult(
             isLive = true,
             temporalConfidence = 0.85f,
@@ -92,6 +109,8 @@ class TemporalLivenessEngine {
             naturalBlinkDetected = false,
             headTurnDetected = false,
             stable3DDepth = true,
+            heartRateBpm = rppg.heartRateBpm,
+            rppgVitality = rppg,
             requiredAction = null,
             explanation = "Initial frame sample"
         )
@@ -105,6 +124,8 @@ class TemporalLivenessEngine {
                 naturalBlinkDetected = false,
                 headTurnDetected = false,
                 stable3DDepth = true,
+                heartRateBpm = rppg.heartRateBpm,
+                rppgVitality = rppg,
                 requiredAction = null,
                 explanation = "Accumulating temporal sequence (${samples.size}/$MIN_SAMPLES_FOR_CONSENSUS)"
             )
@@ -150,7 +171,7 @@ class TemporalLivenessEngine {
 
         // 5. Anti-Spoof Dynamic Action Requirement: Flag static replay if strictly zero motion over 6+ frames
         val isStrictStaticPhoto = avgMotionPerFrame < 0.005f && eyeDelta < 0.05f && !headTurnOccurred && samples.size >= 6
-        val isLive = (avgPadScore >= 0.35f) && stable3DDepth && !isStrictStaticPhoto
+        val isLive = (avgPadScore >= 0.35f) && stable3DDepth && !isStrictStaticPhoto && rppg.isLive
 
         val requiredAction = when {
             isStrictStaticPhoto -> LivenessChallengeType.BLINK
@@ -159,15 +180,17 @@ class TemporalLivenessEngine {
         }
 
         // 6. Final Temporal Synthesis
-        val bonus = (if (blinkOccurred) 0.15f else 0f) + (if (headTurnOccurred) 0.15f else 0f)
-        val score = (avgPadScore * 0.50f + (if (stable3DDepth) 0.25f else 0f) + (if (hasMicroMotion) 0.15f else 0f) + bonus).coerceIn(0f, 1f)
+        val bonus = (if (blinkOccurred) 0.10f else 0f) + (if (headTurnOccurred) 0.10f else 0f) + (if (rppg.isPhysiological) 0.10f else 0f)
+        val score = (avgPadScore * 0.45f + (if (stable3DDepth) 0.25f else 0f) + (if (hasMicroMotion) 0.15f else 0f) + bonus).coerceIn(0f, 1f)
 
         val explanation = when {
             isStrictStaticPhoto -> "Static image detected — please blink or turn head slightly"
+            !rppg.isLive -> "No cardiovascular micro-pulsatility detected"
             !stable3DDepth -> "Planar 2D surface detected (Low 3D Topography)"
             avgPadScore < 0.35f -> "Temporal PAD replay / print attack detected"
             blinkOccurred -> "Live subject verified (Natural eye blink detected)"
             headTurnOccurred -> "Live subject verified (3D head rotation confirmed)"
+            rppg.isPhysiological -> "Live subject verified (rPPG pulse: ${rppg.heartRateBpm} BPM)"
             else -> "Live 3D subject verified (${samples.size} frames consensus)"
         }
 
@@ -178,6 +201,8 @@ class TemporalLivenessEngine {
             naturalBlinkDetected = blinkOccurred,
             headTurnDetected = headTurnOccurred,
             stable3DDepth = stable3DDepth,
+            heartRateBpm = rppg.heartRateBpm,
+            rppgVitality = rppg,
             requiredAction = requiredAction,
             explanation = explanation
         )
@@ -189,5 +214,6 @@ class TemporalLivenessEngine {
 
     fun clearAll() {
         trackHistory.clear()
+        rppgEngine.reset()
     }
 }

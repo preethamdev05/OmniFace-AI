@@ -11,7 +11,10 @@ import java.nio.ByteBuffer
 
 enum class BackendType(val label: String) {
     QUALCOMM_NPU("Hexagon HTP NPU (INT8 MLIR)"),
-    ADRENO_GPU("Adreno GPU Delegate (FP16)"),
+    GOOGLE_TENSOR_TPU("Google Tensor EdgeTPU (INT8/FP16)"),
+    MEDIATEK_APU("MediaTek NeuroPilot APU (INT8)"),
+    SAMSUNG_EXYNOS_NPU("Samsung Exynos NPU (INT8)"),
+    ADRENO_GPU("Mobile GPU Delegate (FP16)"),
     CPU_XNNPACK("ARM64 Multi-Core CPU (XNNPACK FP32)")
 }
 
@@ -29,13 +32,34 @@ data class InferenceBackend(
             numThreads: Int = 4
         ): Triple<Interpreter, GpuDelegate?, NnApiDelegate?> {
             val npuInfo: NpuHardwareInfo = NpuHardwareDetector.detectNpuHardware()
-            val isQualcomm = NpuHardwareDetector.isQualcommAiHubDevice()
+            val mfg = npuInfo.socManufacturer.uppercase()
+            val name = npuInfo.npuName.uppercase()
+            val soc = npuInfo.socModel.uppercase()
 
-            // 1. Try NNAPI / NPU Delegate (if preferred or on Qualcomm/Tensor)
-            if (preferredType == BackendType.QUALCOMM_NPU || (preferredType == null && isQualcomm)) {
+            val isTensor = mfg.contains("GOOGLE") || name.contains("TENSOR") || name.contains("EDGETPU")
+            val isMediaTek = mfg.contains("MEDIATEK") || name.contains("NEUROPILOT") || name.contains("APU")
+            val isExynos = mfg.contains("SAMSUNG") || soc.contains("EXYNOS")
+            val isQualcomm = NpuHardwareDetector.isQualcommAiHubDevice() || mfg.contains("QUALCOMM") || name.contains("HEXAGON")
+
+            val isDedicatedNpuDevice = isQualcomm || isTensor || isMediaTek || isExynos
+
+            // 1. Try NNAPI / NPU Delegate (tuned for specific silicon co-processor)
+            val isNpuPreferred = preferredType in listOf(
+                BackendType.QUALCOMM_NPU,
+                BackendType.GOOGLE_TENSOR_TPU,
+                BackendType.MEDIATEK_APU,
+                BackendType.SAMSUNG_EXYNOS_NPU
+            )
+
+            if (isNpuPreferred || (preferredType == null && isDedicatedNpuDevice)) {
                 try {
                     val nnapiOptions = NnApiDelegate.Options().apply {
-                        setExecutionPreference(NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED)
+                        val preference = if (isTensor) {
+                            NnApiDelegate.Options.EXECUTION_PREFERENCE_FAST_SINGLE_ANSWER
+                        } else {
+                            NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED
+                        }
+                        setExecutionPreference(preference)
                         setAllowFp16(true)
                     }
                     val nnapi = NnApiDelegate(nnapiOptions)
@@ -44,16 +68,14 @@ data class InferenceBackend(
                         setNumThreads(numThreads)
                     }
                     val interpreter = Interpreter(modelBuffer, options)
-                    Log.i(TAG, "⚡ NPU/NNAPI Delegate active (${npuInfo.npuName})")
+                    Log.i(TAG, "⚡ Silicon NPU/NNAPI Delegate active (${npuInfo.npuName})")
                     return Triple(interpreter, null, nnapi)
                 } catch (t: Throwable) {
                     Log.w(TAG, "⚠️ NPU/NNAPI delegate skipped: ${t.message}")
                 }
             }
 
-            // 2. Try Mobile GPU Delegate (Adreno/Mali)
-            // Note: GpuDelegate.Options() is deprecated in TFLite 2.14 but has no replacement
-            // in this version. The try-catch guarantees safe fallback if the delegate fails.
+            // 2. Try Mobile GPU Delegate (Adreno / Mali)
             if (preferredType == BackendType.ADRENO_GPU || preferredType == null) {
                 try {
                     @Suppress("DEPRECATION")
@@ -87,6 +109,9 @@ data class InferenceBackend(
         fun resolveBackendLabel(type: BackendType, npuInfo: NpuHardwareInfo): String {
             return when (type) {
                 BackendType.QUALCOMM_NPU -> "${npuInfo.npuName} (INT8)"
+                BackendType.GOOGLE_TENSOR_TPU -> "${npuInfo.npuName} (INT8/FP16)"
+                BackendType.MEDIATEK_APU -> "${npuInfo.npuName} (INT8)"
+                BackendType.SAMSUNG_EXYNOS_NPU -> "${npuInfo.npuName} (INT8)"
                 BackendType.ADRENO_GPU -> "Mobile GPU Delegate (FP16)"
                 BackendType.CPU_XNNPACK -> "Multi-Core CPU (XNNPACK)"
             }

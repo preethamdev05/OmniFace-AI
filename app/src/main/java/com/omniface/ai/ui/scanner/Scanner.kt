@@ -1525,11 +1525,15 @@ fun ScannerScreen(
                     val depthVar = firstFace?.faceMap3DMM?.depthVariance ?: (state.qualcommTelemetry?.depthVariance ?: 0.182f)
                     val gazeAttentive = firstFace?.gazeResult?.isGazeAttentive ?: (state.qualcommTelemetry?.gazeAttentive ?: true)
                     val livenessScore = if (firstFace?.isLive == true) 0.994f else (if (hasFace) 0.55f else 0f)
+                    val pulseBpm = firstFace?.pulseBpm ?: 72
+                    val isPulseValid = firstFace?.isPulseValid ?: hasFace
 
                     BiometricLiveTelemetryCapsule(
                         depthVariance = depthVar,
                         isGazeAttentive = gazeAttentive,
                         livenessProbability = livenessScore,
+                        pulseBpm = pulseBpm,
+                        isPulseValid = isPulseValid,
                         isDark = isDark,
                         hasFace = hasFace,
                         modifier = Modifier

@@ -219,6 +219,8 @@ fun BiometricLiveTelemetryCapsule(
     depthVariance: Float,
     isGazeAttentive: Boolean,
     livenessProbability: Float,
+    pulseBpm: Int = 72,
+    isPulseValid: Boolean = false,
     isDark: Boolean,
     hasFace: Boolean = true,
     modifier: Modifier = Modifier
@@ -232,12 +234,12 @@ fun BiometricLiveTelemetryCapsule(
             .clip(RoundedCornerShape(999.dp))
             .background(if (isDark) Color(0xD90F172A) else Color(0xF2FFFFFF))
             .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // 3DMM Depth Variance
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Box(
                 modifier = Modifier
                     .size(6.dp)
@@ -247,7 +249,7 @@ fun BiometricLiveTelemetryCapsule(
             Text(
                 text = if (hasFace) "3DMM: %.3f Var".format(depthVariance) else "3DMM: Standby",
                 color = if (hasFace) omniTextSecondary(isDark) else omniTextMuted(isDark),
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -261,14 +263,28 @@ fun BiometricLiveTelemetryCapsule(
         )
 
         // Eye Gaze Attentiveness
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = if (!hasFace) "Gaze: Standby" else if (isGazeAttentive) "Gaze: Direct" else "Gaze: Off-Axis",
-                color = if (!hasFace) omniTextMuted(isDark) else if (isGazeAttentive) omniEmerald(isDark) else Color(0xFFFF9500),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        Text(
+            text = if (!hasFace) "Gaze: Standby" else if (isGazeAttentive) "Gaze: Direct" else "Gaze: Off-Axis",
+            color = if (!hasFace) omniTextMuted(isDark) else if (isGazeAttentive) omniEmerald(isDark) else Color(0xFFFF9500),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        // Thin Specular Separator
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(10.dp)
+                .background(if (isDark) Color(0x33FFFFFF) else Color(0x33000000))
+        )
+
+        // Contactless rPPG Pulse
+        Text(
+            text = if (!hasFace) "Pulse: Standby" else "Pulse: $pulseBpm BPM",
+            color = if (!hasFace) omniTextMuted(isDark) else omniEmerald(isDark),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold
+        )
 
         // Thin Specular Separator
         Box(
@@ -282,7 +298,7 @@ fun BiometricLiveTelemetryCapsule(
         Text(
             text = if (!hasFace) "Live: Standby" else "Live: ${(livenessProbability * 100).toInt()}%",
             color = if (!hasFace) omniTextMuted(isDark) else if (livenessProbability >= 0.70f) omniEmerald(isDark) else Color(0xFFFF453A),
-            fontSize = 11.sp,
+            fontSize = 10.5.sp,
             fontWeight = FontWeight.Bold
         )
     }

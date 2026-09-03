@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,7 +72,9 @@ data class DashboardUiState(
         "08h" to 0, "09h" to 0, "10h" to 0, "11h" to 0,
         "12h" to 0, "13h" to 0, "14h" to 0, "15h" to 0,
         "16h" to 0, "17h" to 0
-    )
+    ),
+    val syncState: com.omniface.ai.sync.FleetSyncState = com.omniface.ai.sync.FleetSyncState.Idle,
+    val unsyncedCount: Int = 0
 )
 
 class DashboardViewModel : ViewModel() {
@@ -84,6 +87,29 @@ class DashboardViewModel : ViewModel() {
     init {
         observeDatabase()
         benchmarkEngine()
+        observeSyncState()
+    }
+
+    private fun observeSyncState() {
+        val context = OmniFaceApplication.instance.applicationContext
+        com.omniface.ai.sync.CloudFleetSyncEngine.initialize(context)
+
+        viewModelScope.launch {
+            com.omniface.ai.sync.CloudFleetSyncEngine.syncState.collect { s ->
+                _uiState.update { it.copy(syncState = s) }
+            }
+        }
+        viewModelScope.launch {
+            com.omniface.ai.sync.CloudFleetSyncEngine.unsyncedCount.collect { count ->
+                _uiState.update { it.copy(unsyncedCount = count) }
+            }
+        }
+    }
+
+    fun syncNow(context: Context) {
+        viewModelScope.launch {
+            com.omniface.ai.sync.CloudFleetSyncEngine.syncNow(context)
+        }
     }
 
     private fun observeDatabase() {
@@ -166,6 +192,7 @@ fun DashboardScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val todayDateFormatted = remember { SimpleDateFormat("EEE, MMM d, yyyy", Locale.getDefault()).format(Date()) }
 
     val animatedEnrolledCount by animateIntAsState(
@@ -357,14 +384,39 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val syncTileValue = when (val s = state.syncState) {
+                        is com.omniface.ai.sync.FleetSyncState.Syncing -> "Syncing..."
+                        is com.omniface.ai.sync.FleetSyncState.Synced -> "Fleet Synced"
+                        is com.omniface.ai.sync.FleetSyncState.OfflineReady -> {
+                            if (state.unsyncedCount > 0) "${state.unsyncedCount} Pending" else "Fleet Ready"
+                        }
+                        is com.omniface.ai.sync.FleetSyncState.Error -> "Sync Error"
+                        else -> if (state.unsyncedCount > 0) "${state.unsyncedCount} Pending" else "Fleet Ready"
+                    }
+                    val syncTileSubtitle = when (val s = state.syncState) {
+                        is com.omniface.ai.sync.FleetSyncState.Syncing -> s.message
+                        is com.omniface.ai.sync.FleetSyncState.Synced -> "${s.peerNodeCount} Node Active • Synced"
+                        is com.omniface.ai.sync.FleetSyncState.OfflineReady -> if (state.unsyncedCount > 0) "Tap to Sync Now" else "P2P Mesh Online"
+                        is com.omniface.ai.sync.FleetSyncState.Error -> s.error.take(24)
+                        else -> "Tap to Sync Now"
+                    }
+                    val syncTileColor = when (state.syncState) {
+                        is com.omniface.ai.sync.FleetSyncState.Synced -> omniEmerald(isDark)
+                        is com.omniface.ai.sync.FleetSyncState.Syncing -> if (isDark) AmberCore else LightAmberCore
+                        else -> omniCyan(isDark)
+                    }
+
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
                         title = LocalizationManager.get(StringKey.CLOUD_SYNC_INTEGRATION),
-                        value = LocalizationManager.get(StringKey.COMING_SOON),
-                        subtitle = LocalizationManager.get(StringKey.OFFLINE_FIRST_MODE),
-                        icon = Icons.Default.CloudQueue,
-                        accentColor = omniCyan(isDark),
-                        onClick = { onNavigate(Screen.Settings) }
+                        value = syncTileValue,
+                        subtitle = syncTileSubtitle,
+                        icon = Icons.Default.CloudSync,
+                        accentColor = syncTileColor,
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            viewModel.syncNow(context)
+                        }
                     )
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),

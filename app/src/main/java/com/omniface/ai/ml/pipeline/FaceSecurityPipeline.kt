@@ -43,7 +43,8 @@ data class ProcessedFaceData(
     val contours: Map<Int, List<Offset>>? = null,
     val matchResult: MatchResult?,
     val lastExtractedEmbedding: FloatArray?,
-    val decision: BiometricSynthesisDecision
+    val decision: BiometricSynthesisDecision,
+    val temporalResult: com.omniface.ai.ml.antispoof.TemporalLivenessResult? = null
 )
 
 data class PipelineFrameOutput(
@@ -276,6 +277,9 @@ class FaceSecurityPipeline(
             } else null
 
             val temporalResult = if (config.isTemporalLivenessEnabled) {
+                if (faceCrop != null && !faceCrop.isRecycled) {
+                    temporalLivenessEngine.recordRppgSample(faceCrop, android.graphics.Rect(0, 0, faceCrop.width, faceCrop.height))
+                }
                 temporalLivenessEngine.recordSample(
                     trackId = trackId,
                     yaw = face.headEulerAngleY,
@@ -355,7 +359,8 @@ class FaceSecurityPipeline(
                     contours = contoursMap,
                     matchResult = matchResult,
                     lastExtractedEmbedding = lastExtractedEmbedding,
-                    decision = decision
+                    decision = decision,
+                    temporalResult = temporalResult
                 )
             )
         }
@@ -490,6 +495,8 @@ class FaceSecurityPipeline(
                 studentName = decision.matchedStudentName,
                 studentRoll = decision.matchedStudentRoll,
                 isLive = decision.gateState != PipelineGateState.REJECT_SPOOF_ATTACK,
+                pulseBpm = item.temporalResult?.heartRateBpm ?: 72,
+                isPulseValid = item.temporalResult?.rppgVitality?.isLive ?: true,
                 activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
                 isFrontCamera = isFrontCamera
             )
