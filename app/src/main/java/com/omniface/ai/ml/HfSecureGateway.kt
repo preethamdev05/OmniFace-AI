@@ -127,9 +127,13 @@ object HfSecureGateway {
      * Priority 2: Direct Hugging Face resolve URL
      */
     fun buildResolveUrl(context: Context, filename: String = MODEL_FILENAME): String {
-        val gateway = getGatewayUrl(context) ?: DEFAULT_R2_CDN_URL
-        if (!gateway.isNullOrBlank()) {
-            return if (gateway.endsWith("/")) "${gateway}download/$filename" else if (!gateway.endsWith("/download") && !gateway.endsWith(".tflite")) "$gateway/download/$filename" else gateway
+        val gateway = (getGatewayUrl(context) ?: DEFAULT_R2_CDN_URL).trimEnd('/')
+        if (filename.contains("unified", ignoreCase = true)) {
+            return "$gateway/download/unified"
+        }
+        if (gateway.isNotBlank()) {
+            val cleanName = filename.removeSuffix(".tflite")
+            return "$gateway/download/$cleanName"
         }
         val repoId = getRepoId(context)
         return "https://huggingface.co/$repoId/resolve/main/$filename"

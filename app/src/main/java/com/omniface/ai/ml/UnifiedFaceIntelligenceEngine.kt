@@ -9,6 +9,7 @@ import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.ml.antispoof.PassivePadResult
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
+import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -91,12 +92,54 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
         loadUnifiedModel()
     }
 
+    fun getLocalUnifiedModelFile(): File {
+        return File(File(context.filesDir, "models"), MODEL_ASSET)
+    }
+
+    fun reloadModel(): Boolean {
+        loadUnifiedModel()
+        return isModelLoaded
+    }
+
     private fun loadUnifiedModel() {
         try {
-            val afd: AssetFileDescriptor = context.assets.openFd(MODEL_ASSET)
-            val channel = FileInputStream(afd.fileDescriptor).channel
-            val modelBuffer = channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
-            afd.close()
+            val localFile = getLocalUnifiedModelFile()
+            val externalDevFile = File("/storage/emulated/0/AI-HUB/FR/models/$MODEL_ASSET")
+
+            val modelBuffer: ByteBuffer = when {
+                localFile.exists() && localFile.length() > 10_000_000L -> {
+                    Log.i(TAG, "⚡ Loading unified model from app private storage: ${localFile.absolutePath} (${localFile.length() / 1024 / 1024} MB)")
+                    FileInputStream(localFile).channel.use { channel ->
+                        channel.map(FileChannel.MapMode.READ_ONLY, 0, localFile.length())
+                    }
+                }
+                runCatching { externalDevFile.exists() && externalDevFile.canRead() && externalDevFile.length() > 10_000_000L }.getOrDefault(false) -> {
+                    val buf = runCatching {
+                        Log.i(TAG, "⚡ Loading unified model from external test storage: ${externalDevFile.absolutePath}")
+                        FileInputStream(externalDevFile).channel.use { channel ->
+                            channel.map(FileChannel.MapMode.READ_ONLY, 0, externalDevFile.length())
+                        }
+                    }.getOrNull()
+                    buf ?: run {
+                        isModelLoaded = false
+                        return
+                    }
+                }
+                else -> {
+                    try {
+                        val afd: AssetFileDescriptor = context.assets.openFd(MODEL_ASSET)
+                        val channel = FileInputStream(afd.fileDescriptor).channel
+                        val buffer = channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
+                        afd.close()
+                        Log.i(TAG, "⚡ Loading unified model from assets: $MODEL_ASSET")
+                        buffer
+                    } catch (assetEx: Throwable) {
+                        Log.w(TAG, "Unified model not bundled in assets (${assetEx.message}). Model will be downloaded on-demand from CDN.")
+                        isModelLoaded = false
+                        return
+                    }
+                }
+            }
 
             // Detect hardware capabilities
             val npuInfo = NpuHardwareDetector.detectNpuHardware()

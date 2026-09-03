@@ -60,7 +60,7 @@ class ModelDownloadManager(private val context: Context) {
     companion object {
         private const val TAG = "OmniFaceModelDownloader"
         private const val MODELS_DIR = "models"
-        const val TARGET_MODEL_FILENAME = "mobilefacenet_512d_fp16.tflite"
+        const val TARGET_MODEL_FILENAME = "unified_omniface.tflite"
         private const val TMP_EXTENSION = ".download.tmp"
         private val TFLITE_MAGIC = byteArrayOf(0x1c.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 'T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte())
 
@@ -318,8 +318,9 @@ class ModelDownloadManager(private val context: Context) {
                 val renamed = tmpFile.renameTo(installedModelFile)
                 if (renamed) {
                     Log.i(TAG, "✅ Model successfully installed: ${installedModelFile.absolutePath} (${installedModelFile.length()} bytes)")
+                    UnifiedFaceIntelligenceEngine.getInstance(context).reloadModel()
                     _downloadState.value = ModelDownloadState.Ready(
-                        activeModelName = "AntelopeV2 Glint360K (512-D Ultra HD)",
+                        activeModelName = "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)",
                         modelSizeBytes = installedModelFile.length()
                     )
                     withContext(Dispatchers.Main) {
