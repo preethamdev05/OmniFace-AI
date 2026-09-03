@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.hardware.NpuHardwareDetector
+import com.omniface.ai.hardware.QrBadgeGenerator
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import android.util.Range
@@ -1346,6 +1347,75 @@ private fun RegistrationFormView(
                             Text(LocalizationManager.get(StringKey.AES_ENCRYPTED), color = EmeraldCore, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
+                }
+
+                // 2FA Digital ID QR Badge Card
+                val qrBitmap = remember(student.rollNumber) {
+                    QrBadgeGenerator.generateStudentQrBitmap(
+                        content = student.rollNumber,
+                        sizePx = 384,
+                        foregroundColor = android.graphics.Color.BLACK,
+                        backgroundColor = android.graphics.Color.WHITE
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 16.dp
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "2FA STUDENT DIGITAL BADGE",
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        )
+
+                        IOSGlassPill(
+                            text = "2FA Ready",
+                            icon = Icons.Default.QrCodeScanner,
+                            accentColor = omniCyan(isDark)
+                        )
+                    }
+
+                    if (qrBitmap != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(130.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White)
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = qrBitmap.asImageBitmap(),
+                                    contentDescription = "Student 2FA QR Badge",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "ID: ${student.rollNumber} • Present to kiosk camera for 2-Factor Auth",
+                        color = omniTextMuted(isDark),
+                        fontSize = 11.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
