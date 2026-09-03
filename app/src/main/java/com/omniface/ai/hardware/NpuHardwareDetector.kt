@@ -43,7 +43,7 @@ object NpuHardwareDetector {
         val socModelRaw = getSystemProp("ro.soc.model").ifEmpty {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Build.SOC_MODEL ?: ""
+                    Build.SOC_MODEL
                 } else ""
             } catch (_: Throwable) { "" }
         }.ifEmpty { try { Build.HARDWARE ?: "" } catch (_: Throwable) { "" } }
@@ -51,7 +51,7 @@ object NpuHardwareDetector {
         val socManufacturerRaw = getSystemProp("ro.soc.manufacturer").ifEmpty {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Build.SOC_MANUFACTURER ?: ""
+                    Build.SOC_MANUFACTURER
                 } else ""
             } catch (_: Throwable) { "" }
         }.ifEmpty { try { Build.MANUFACTURER ?: "" } catch (_: Throwable) { "" } }

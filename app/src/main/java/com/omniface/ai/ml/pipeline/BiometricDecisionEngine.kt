@@ -93,7 +93,7 @@ object BiometricDecisionEngine {
         val livenessScore = multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
         // Confirmed spoof rejection: passive PAD failure OR multi-stage + temporal consensus failure OR primary attack vector
-        val isConfirmedSpoof = (!isPassiveLive && (passivePad?.spoofProbability ?: 0f) >= 0.70f) ||
+        val isConfirmedSpoof = (!isPassiveLive && passivePad.spoofProbability >= 0.70f) ||
                                (!isMultiStageLive && !isTemporalLive && livenessScore < 0.45f) ||
                                (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.35f) ||
                                (!isTemporalLive && temporalLiveness.explanation.contains("Static"))
