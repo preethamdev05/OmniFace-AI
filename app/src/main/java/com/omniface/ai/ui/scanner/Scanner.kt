@@ -209,7 +209,6 @@ class ScannerViewModel : ViewModel() {
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
 
     private var recognitionEngine: FaceRecognitionEngine? = null
-    private val livenessDetector = LivenessDetector()
     private val qualcommIntelligenceEngine: QualcommFaceIntelligenceEngine? = try {
         QualcommFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
     } catch (_: Throwable) {
