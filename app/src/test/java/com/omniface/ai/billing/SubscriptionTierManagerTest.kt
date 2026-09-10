@@ -22,7 +22,7 @@ class SubscriptionTierManagerTest {
     @Test
     fun testPremiumTierInvariants() {
         val tier = SubscriptionTier.PREMIUM
-        assertEquals("Premium Pro", tier.title)
+        assertEquals("Premium", tier.title)
         assertEquals(250, tier.maxStudents)
         assertEquals(199, tier.priceInrMonthly)
         assertTrue(tier.allowsReportExports)
@@ -33,11 +33,49 @@ class SubscriptionTierManagerTest {
     }
 
     @Test
+    fun testProTierInvariants() {
+        val tier = SubscriptionTier.PRO
+        assertEquals("Pro", tier.title)
+        assertEquals(500, tier.maxStudents)
+        assertEquals(349, tier.priceInrMonthly)
+        assertTrue(tier.allowsReportExports)
+        assertTrue(tier.allowsCloudSync)
+        assertTrue(tier.allowsMultiDevice)
+        assertFalse(tier.displaysAds)
+        assertFalse(tier.hasWebDashboard)
+    }
+
+    @Test
+    fun testInstitutionTierInvariants() {
+        val tier = SubscriptionTier.INSTITUTION
+        assertEquals("Institution", tier.title)
+        assertEquals(Int.MAX_VALUE, tier.maxStudents)
+        assertEquals(0, tier.priceInrMonthly)
+        assertTrue(tier.allowsReportExports)
+        assertTrue(tier.allowsCloudSync)
+        assertTrue(tier.allowsMultiDevice)
+        assertFalse(tier.displaysAds)
+        assertTrue(tier.hasWebDashboard)
+
+        val features = tier.getFeaturesList()
+        assertTrue(features.contains("500+ users"))
+        assertTrue(features.contains("Unlimited devices"))
+        assertTrue(features.contains("Multi-admin"))
+        assertTrue(features.contains("Departments"))
+        assertTrue(features.contains("Classes"))
+        assertTrue(features.contains("Staff roles"))
+        assertTrue(features.contains("Audit logs"))
+        assertTrue(features.contains("Advanced reporting"))
+        assertTrue(features.contains("Custom onboarding"))
+        assertTrue(features.contains("Custom pricing"))
+    }
+
+    @Test
     fun testBusinessTierInvariants() {
         val tier = SubscriptionTier.BUSINESS
         assertEquals("Enterprise Business", tier.title)
         assertEquals(Int.MAX_VALUE, tier.maxStudents)
-        assertEquals(999, tier.priceInrMonthly)
+        assertEquals(0, tier.priceInrMonthly)
         assertTrue(tier.allowsReportExports)
         assertTrue(tier.allowsCloudSync)
         assertTrue(tier.allowsMultiDevice)
@@ -46,8 +84,8 @@ class SubscriptionTierManagerTest {
     }
 
     @Test
-    fun testOfflineGracePeriodIs30Days() {
-        val expectedGraceMs = TimeUnit.DAYS.toMillis(30)
+    fun testOfflineGracePeriodIs14Days() {
+        val expectedGraceMs = TimeUnit.DAYS.toMillis(14)
         assertEquals(expectedGraceMs, SubscriptionTierManager.OFFLINE_GRACE_PERIOD_MS)
     }
 

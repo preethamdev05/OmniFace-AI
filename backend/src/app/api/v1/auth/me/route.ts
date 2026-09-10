@@ -1,20 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authenticateSession } from '@/lib/api-auth';
 
 export async function GET(req: NextRequest) {
-  const sessionCookie = req.cookies.get('omniface_session')?.value;
-  if (!sessionCookie) {
+  const session = await authenticateSession(req);
+  if (!session) {
     return NextResponse.json({ authenticated: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   return NextResponse.json({
     authenticated: true,
     user: {
-      id: 'usr_admin_01',
-      email: 'admin@omniface.ai',
-      fullName: 'Fleet Administrator',
-      role: 'SUPERADMIN',
-      orgName: 'National Institute of Technology',
-      tier: 'BUSINESS',
+      id: session.userId,
+      email: session.email,
+      fullName: session.fullName,
+      role: session.role,
+      orgId: session.orgId,
+      orgName: session.orgName,
+      tier: session.tier,
     },
   });
 }

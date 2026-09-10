@@ -5,17 +5,41 @@ import { useToast } from '@/components/Toast';
 
 type PlanTier = 'FREE' | 'PREMIUM' | 'PRO' | 'INSTITUTION';
 
+interface InvoiceItem {
+  id: string;
+  invoiceNumber: string;
+  amountInr: number;
+  status: string;
+  dueDate?: string;
+  paidAt?: string;
+  createdAt: string;
+}
+
 export default function SubscriptionPage() {
   const [activeTier, setActiveTier] = useState<PlanTier>('PRO');
   const [subStatus, setSubStatus] = useState<'ACTIVE' | 'GRACE_PERIOD' | 'ARCHIVE_READ_ONLY'>('ACTIVE');
-  const [enrolledCount, setEnrolledCount] = useState(247);
+  const [enrolledCount, setEnrolledCount] = useState(0);
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState<PlanTier>('PRO');
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const [viewingInvoice, setViewingInvoice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [viewingInvoice, setViewingInvoice] = useState<InvoiceItem | null>(null);
   const { showToast } = useToast();
 
-  useEffect(() => {
+  // Institution lead form fields
+  const [institutionForm, setInstitutionForm] = useState({
+    organizationName: '',
+    contactName: '',
+    email: '',
+    phone: '',
+    expectedSeats: 500,
+    notes: '',
+  });
+
+  // Google Play purchase token manual input
+  const [purchaseTokenInput, setPurchaseTokenInput] = useState('');
+
+  const fetchSubscription = () => {
     fetch('/api/v1/subscriptions')
       .then((res) => res.json())
       .then((data) => {
@@ -23,53 +47,103 @@ export default function SubscriptionPage() {
           const tier = data.subscription.tier as PlanTier;
           if (tier) setActiveTier(tier);
           if (data.subscription.status) setSubStatus(data.subscription.status);
-          if (data.subscription.enrolledCount) setEnrolledCount(data.subscription.enrolledCount);
+          if (data.subscription.enrolledCount !== undefined) {
+            setEnrolledCount(data.subscription.enrolledCount);
+          }
+        }
+        if (Array.isArray(data.invoices)) {
+          setInvoices(data.invoices);
+        } else {
+          setInvoices([]);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Failed to load subscription:', err);
+      });
+  };
+
+  useEffect(() => {
+    fetchSubscription();
   }, []);
 
   const getPlanPrice = (tier: PlanTier) => {
     switch (tier) {
       case 'FREE': return 0;
       case 'PREMIUM': return 199;
-      case 'PRO': return 399;
-      case 'INSTITUTION': return 1499;
+      case 'PRO': return 349;
+      case 'INSTITUTION': return 0;
     }
   };
 
-  const handleSimulatePayment = async () => {
-    setProcessingPayment(true);
-    const amount = getPlanPrice(selectedPlanForCheckout);
+  const handleInstitutionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!institutionForm.organizationName || !institutionForm.contactName || !institutionForm.email) {
+      showToast('Please fill all required fields.', 'warning');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/v1/institution/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(institutionForm),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Institutional deployment inquiry submitted successfully!', 'success');
+        setShowCheckoutModal(false);
+        setInstitutionForm({
+          organizationName: '',
+          contactName: '',
+          email: '',
+          phone: '',
+          expectedSeats: 500,
+          notes: '',
+        });
+      } else {
+        showToast(data.error || 'Failed to submit inquiry', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Network error submitting inquiry', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGooglePlayTokenVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!purchaseTokenInput.trim()) {
+      showToast('Please enter a valid Google Play purchase token.', 'warning');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/v1/subscriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orgId: '00000000-0000-0000-0000-000000000001',
           tier: selectedPlanForCheckout,
-          provider: selectedPlanForCheckout === 'INSTITUTION' ? 'WEBSITE_CUSTOM' : 'GOOGLE_PLAY',
-          purchaseToken: 'sub_tok_' + Math.random().toString(36).substring(2, 12),
+          provider: 'GOOGLE_PLAY',
+          purchaseToken: purchaseTokenInput.trim(),
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setActiveTier(selectedPlanForCheckout);
-        setSubStatus('ACTIVE');
+        showToast(`Verified! ${selectedPlanForCheckout} Plan activated.`, 'success');
         setShowCheckoutModal(false);
-        showToast(`Payment successful! ${selectedPlanForCheckout} Plan activated.`, 'success');
+        setPurchaseTokenInput('');
+        fetchSubscription();
       } else {
-        setActiveTier(selectedPlanForCheckout);
-        setShowCheckoutModal(false);
-        showToast(`${selectedPlanForCheckout} tier activated!`, 'info');
+        showToast(data.error || 'Failed to verify Google Play purchase token', 'error');
       }
-    } catch {
-      setActiveTier(selectedPlanForCheckout);
-      setShowCheckoutModal(false);
-      showToast(`${selectedPlanForCheckout} tier activated (offline mode)`, 'info');
+    } catch (err: any) {
+      showToast(err?.message || 'Network error verifying purchase token', 'error');
     } finally {
-      setProcessingPayment(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -81,17 +155,17 @@ export default function SubscriptionPage() {
             Subscription & Institutional Licensing
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Institutional plans, Google Play consumer billing, and custom institutional invoices
+            Institutional plans, Google Play consumer billing, and custom enterprise deployments
           </p>
         </div>
 
-        <button onClick={() => setShowCheckoutModal(true)} className="btn btn-primary">
+        <button onClick={() => { setSelectedPlanForCheckout('PRO'); setShowCheckoutModal(true); }} className="btn btn-primary">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
           <span>Renew / Change Plan</span>
         </button>
       </div>
 
-      {/* Upgrade Funnel Warning Alert (247 / 250 capacity warning) */}
+      {/* Capacity Warning Alert (Approaching 250 on Premium) */}
       {enrolledCount >= 240 && enrolledCount <= 250 && activeTier === 'PREMIUM' && (
         <div style={{ background: 'rgba(234, 179, 8, 0.12)', border: '1px solid rgba(234, 179, 8, 0.4)', borderRadius: '12px', padding: '16px 20px', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -99,7 +173,7 @@ export default function SubscriptionPage() {
             <div>
               <strong style={{ color: 'var(--text-main)', fontSize: '14px' }}>Capacity Alert: {enrolledCount} / 250 Seats Enrolled</strong>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                You are approaching your plan limit. Upgrade to Pro (500 people, ₹399/mo) to prevent registration interruption.
+                You are approaching your plan limit. Upgrade to Pro (500 people, ₹349/mo) to prevent registration interruption.
               </div>
             </div>
           </div>
@@ -163,13 +237,13 @@ export default function SubscriptionPage() {
               : 'Free Starter plan supporting up to 25 people for local offline kiosk attendance.'}
           </div>
           <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-dim)' }}>
-            Next Renewal Date: <strong style={{ color: 'var(--text-main)' }}>October 10, 2026</strong> • Grace Period Policy: <strong style={{ color: 'var(--text-main)' }}>14 Days Guaranteed</strong>
+            Enrolled: <strong style={{ color: 'var(--text-main)' }}>{enrolledCount} members</strong> • Grace Period Policy: <strong style={{ color: 'var(--text-main)' }}>14 Days Guaranteed</strong>
           </div>
         </div>
 
         <div style={{ textAlign: 'right' }}>
           <div className="tnum" style={{ fontSize: '32px', fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.03em' }}>
-            {activeTier === 'INSTITUTION' ? 'Custom' : activeTier === 'PRO' ? '₹399' : activeTier === 'PREMIUM' ? '₹199' : '₹0'}
+            {activeTier === 'INSTITUTION' ? 'Custom' : activeTier === 'PRO' ? '₹349' : activeTier === 'PREMIUM' ? '₹199' : '₹0'}
             {activeTier !== 'INSTITUTION' && <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)' }}> / month</span>}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
@@ -201,13 +275,9 @@ export default function SubscriptionPage() {
               <li>✗ No web dashboard</li>
               <li>✗ In-app ads displayed</li>
             </ul>
-            <button
-              onClick={() => { setActiveTier('FREE'); showToast('Downgraded to Free Starter', 'info'); }}
-              className="btn btn-secondary"
-              style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
-            >
-              {activeTier === 'FREE' ? 'Active Plan' : 'Downgrade to Free'}
-            </button>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', textAlign: 'center', marginTop: 'auto' }}>
+              {activeTier === 'FREE' ? 'Current Tier' : 'Default Starter Tier'}
+            </div>
           </div>
 
           {/* Plan 2: Premium (₹199/month, Google Play) */}
@@ -234,66 +304,68 @@ export default function SubscriptionPage() {
               className={activeTier === 'PREMIUM' ? 'btn btn-secondary' : 'btn btn-primary'}
               style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
             >
-              {activeTier === 'PREMIUM' ? 'Active on Google Play' : 'Subscribe (₹199 / mo)'}
+              {activeTier === 'PREMIUM' ? 'Active Plan' : 'Select Premium (₹199/mo)'}
             </button>
           </div>
 
-          {/* Plan 3: Pro (₹399/month, Google Play) */}
+          {/* Plan 3: Pro (₹349/month, Google Play) */}
           <div style={{ background: 'var(--surface-raised)', border: activeTier === 'PRO' ? '2px solid var(--primary)' : '1px solid rgba(6, 182, 212, 0.3)', borderRadius: '12px', padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
             <div style={{ position: 'absolute', top: '-11px', right: '16px', background: 'var(--primary)', color: '#03141e', padding: '2px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700 }}>
               POPULAR
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Pro</h3>
-              <span className="badge badge-success">500 PEOPLE</span>
+              <span className="badge badge-success">500 USERS</span>
             </div>
             <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
-              ₹399<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / month</span>
+              ₹349<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / month</span>
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Google Play Subscription</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Google Play In-App Billing</div>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
-              <li>✓ Up to <strong>500 people</strong> capacity</li>
+              <li>✓ Up to <strong>500 users</strong> capacity</li>
               <li>✓ Everything in Premium</li>
-              <li>✓ More hardware devices</li>
               <li>✓ Multiple classes & sections</li>
-              <li>✓ Advanced aggregated reports</li>
+              <li>✓ Advanced reports & audit log</li>
               <li>✓ Higher storage & sync limits</li>
               <li>✓ Priority support</li>
             </ul>
             <button
               onClick={() => { setSelectedPlanForCheckout('PRO'); setShowCheckoutModal(true); }}
-              className="btn btn-primary"
+              className={activeTier === 'PRO' ? 'btn btn-secondary' : 'btn btn-primary'}
               style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
             >
-              {activeTier === 'PRO' ? 'Current Pro Plan (₹399)' : 'Upgrade to Pro (₹399 / mo)'}
+              {activeTier === 'PRO' ? 'Active Plan' : 'Select Pro (₹349/mo)'}
             </button>
           </div>
 
-          {/* Plan 4: Institution (500+ people, Custom Website Billing) */}
-          <div style={{ background: 'var(--surface-raised)', border: activeTier === 'INSTITUTION' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          {/* Plan 4: Institution (Custom pricing, 500+ users) */}
+          <div style={{ background: 'var(--surface)', border: activeTier === 'INSTITUTION' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Institution</h3>
-              <span className="badge badge-primary">500+ SEATS</span>
+              <span className="badge badge-primary">500+ USERS</span>
             </div>
-            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
-              Custom<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / quote</span>
+            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
+              Custom<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> pricing</span>
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Website Sales & GST Invoicing</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Custom Pricing & Onboarding</div>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
-              <li>✓ <strong>500+ people</strong> tailored deployment</li>
-              <li>✓ Full Web Dashboard administrative center</li>
-              <li>✓ Multiple administrators & staff roles</li>
-              <li>✓ Departments, classes & sections</li>
-              <li>✓ Multiple attendance devices & management</li>
-              <li>✓ REST API access & device pairing</li>
-              <li>✓ Statutory audit logs & dedicated SLA</li>
+              <li>✓ <strong>500+ users</strong></li>
+              <li>✓ <strong>Unlimited devices</strong></li>
+              <li>✓ <strong>Multi-admin</strong></li>
+              <li>✓ <strong>Departments</strong></li>
+              <li>✓ <strong>Classes</strong></li>
+              <li>✓ <strong>Staff roles</strong></li>
+              <li>✓ <strong>Audit logs</strong></li>
+              <li>✓ <strong>Advanced reporting</strong></li>
+              <li>✓ <strong>Custom onboarding</strong></li>
+              <li>✓ <strong>Custom pricing</strong></li>
             </ul>
             <button
               onClick={() => { setSelectedPlanForCheckout('INSTITUTION'); setShowCheckoutModal(true); }}
               className="btn btn-primary"
               style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
             >
-              {activeTier === 'INSTITUTION' ? 'Manage Institution Plan' : 'Contact Sales / Custom Quote'}
+              Contact Sales / Demo
             </button>
           </div>
         </div>
@@ -303,94 +375,203 @@ export default function SubscriptionPage() {
       <div>
         <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '16px' }}>Invoices & Payment Records</h2>
         <div className="table-surface">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Invoice Number</th>
-                <th>Period</th>
-                <th>Plan Tier</th>
-                <th>Amount (INR)</th>
-                <th>Channel</th>
-                <th>Status</th>
-                <th>Receipt</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="tnum" style={{ fontWeight: 600 }}>INV-2026-09-8812</td>
-                <td>Sep 10, 2026 – Oct 10, 2026</td>
-                <td>Pro (500 Seats)</td>
-                <td className="tnum" style={{ fontWeight: 600 }}>₹399.00</td>
-                <td>Google Play Billing</td>
-                <td><span className="badge badge-success">PAID</span></td>
-                <td>
-                  <button
-                    onClick={() => setViewingInvoice('INV-2026-09-8812')}
-                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
-                  >
-                    View Receipt
-                  </button>
-                </td>
-              </tr>
-              <tr>
-                <td className="tnum" style={{ fontWeight: 600 }}>INV-2026-08-7401</td>
-                <td>Aug 10, 2026 – Sep 10, 2026</td>
-                <td>Premium (250 Seats)</td>
-                <td className="tnum" style={{ fontWeight: 600 }}>₹199.00</td>
-                <td>Google Play Billing</td>
-                <td><span className="badge badge-success">PAID</span></td>
-                <td>
-                  <button
-                    onClick={() => setViewingInvoice('INV-2026-08-7401')}
-                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
-                  >
-                    View Receipt
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          {invoices.length === 0 ? (
+            <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              No billing invoices on file. Invoices generated for custom institutional contracts or Google Play receipts will appear here.
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Invoice Number</th>
+                  <th>Issued Date</th>
+                  <th>Amount (INR)</th>
+                  <th>Status</th>
+                  <th>Receipt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <td className="tnum" style={{ fontWeight: 600 }}>{inv.invoiceNumber}</td>
+                    <td>{new Date(inv.createdAt).toLocaleDateString()}</td>
+                    <td className="tnum" style={{ fontWeight: 600 }}>₹{inv.amountInr}.00</td>
+                    <td>
+                      <span className={`badge ${inv.status === 'PAID' ? 'badge-success' : 'badge-warning'}`}>
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => setViewingInvoice(inv)}
+                        style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
+                      >
+                        View Receipt
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      {/* Checkout Modal */}
+      {/* Modal: Institution Lead Capture or Google Play Activation */}
       {showCheckoutModal && (
         <div className="modal-overlay" onClick={() => setShowCheckoutModal(false)}>
-          <div className="modal-dialog" style={{ maxWidth: '480px', padding: '28px' }} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-              {selectedPlanForCheckout === 'INSTITUTION' ? 'Institution Plan Inquiry' : 'Plan Activation'}
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '20px' }}>
-              OmniFace AI {selectedPlanForCheckout} Plan
-            </p>
+          <div className="modal-dialog" style={{ maxWidth: '520px', padding: '28px' }} onClick={(e) => e.stopPropagation()}>
+            {selectedPlanForCheckout === 'INSTITUTION' ? (
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
+                  Institutional Deployment Inquiry
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '20px' }}>
+                  For institutions with 500+ members, multi-branch kiosks, and custom compliance requirements.
+                </p>
 
-            <div style={{ background: 'var(--surface)', padding: '16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Selected Plan:</span>
-                <strong style={{ color: 'var(--text-main)' }}>{selectedPlanForCheckout}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Price:</span>
-                <strong style={{ color: 'var(--primary)' }}>
-                  {selectedPlanForCheckout === 'INSTITUTION' ? 'Custom Quote' : `₹${getPlanPrice(selectedPlanForCheckout)} / mo`}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Billing Channel:</span>
-                <span style={{ color: 'var(--text-main)' }}>
-                  {selectedPlanForCheckout === 'INSTITUTION' ? 'Website / Custom Sales' : 'Google Play Store'}
-                </span>
-              </div>
-            </div>
+                <form onSubmit={handleInstitutionSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                      Organization / Institution Name <span style={{ color: 'var(--danger)' }}>*</span>
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="e.g. National Institute of Technology"
+                      value={institutionForm.organizationName}
+                      onChange={(e) => setInstitutionForm({ ...institutionForm, organizationName: e.target.value })}
+                      style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                    />
+                  </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => setShowCheckoutModal(false)} className="btn btn-secondary">
-                Cancel
-              </button>
-              <button onClick={handleSimulatePayment} disabled={processingPayment} className="btn btn-primary">
-                {processingPayment ? 'Processing...' : selectedPlanForCheckout === 'INSTITUTION' ? 'Request Institutional Quote' : `Activate ${selectedPlanForCheckout}`}
-              </button>
-            </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                        Contact Person Name <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="e.g. Dr. Rajesh Kumar"
+                        value={institutionForm.contactName}
+                        onChange={(e) => setInstitutionForm({ ...institutionForm, contactName: e.target.value })}
+                        style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                        Official Email <span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <input
+                        required
+                        type="email"
+                        placeholder="admin@nit.edu.in"
+                        value={institutionForm.email}
+                        onChange={(e) => setInstitutionForm({ ...institutionForm, email: e.target.value })}
+                        style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        value={institutionForm.phone}
+                        onChange={(e) => setInstitutionForm({ ...institutionForm, phone: e.target.value })}
+                        style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                        Expected Seats
+                      </label>
+                      <input
+                        type="number"
+                        min="100"
+                        step="50"
+                        value={institutionForm.expectedSeats}
+                        onChange={(e) => setInstitutionForm({ ...institutionForm, expectedSeats: parseInt(e.target.value) || 500 })}
+                        style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      Deployment Requirements / Notes
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. 8 turnstiles across 2 campuses, on-premise attendance sync requirements."
+                      value={institutionForm.notes}
+                      onChange={(e) => setInstitutionForm({ ...institutionForm, notes: e.target.value })}
+                      style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)', fontSize: '13px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                    <button type="button" onClick={() => setShowCheckoutModal(false)} className="btn btn-secondary">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+                      {isSubmitting ? 'Submitting...' : 'Submit Institutional Inquiry'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
+                  {selectedPlanForCheckout} Plan Activation
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
+                  OmniFace AI {selectedPlanForCheckout} Plan (₹{getPlanPrice(selectedPlanForCheckout)} / mo)
+                </p>
+
+                <div style={{ background: 'var(--surface-raised)', padding: '16px', borderRadius: '8px', marginBottom: '18px', border: '1px solid var(--border)', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--text-main)', fontWeight: 600 }}>
+                    <span>📱</span>
+                    <span>Direct In-App Subscription</span>
+                  </div>
+                  <p style={{ color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                    Consumer plans (Premium & Pro) can be subscribed directly with 1-tap on your paired Android Kiosk tablet via Google Play Store billing.
+                  </p>
+                </div>
+
+                <form onSubmit={handleGooglePlayTokenVerify} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                      Verify Google Play Purchase Token
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Paste purchase token from Play Store receipt..."
+                      value={purchaseTokenInput}
+                      onChange={(e) => setPurchaseTokenInput(e.target.value)}
+                      style={{ width: '100%', padding: '10px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)', fontSize: '13px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                      Tokens are validated against Google Play Developer verification services.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                    <button type="button" onClick={() => setShowCheckoutModal(false)} className="btn btn-secondary">
+                      Close
+                    </button>
+                    <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+                      {isSubmitting ? 'Verifying...' : `Verify & Activate ${selectedPlanForCheckout}`}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -405,14 +586,9 @@ export default function SubscriptionPage() {
                 <div style={{ fontSize: '11px', color: '#64748b' }}>OmniFace AI Technologies • India</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: '#0284c7' }}>{viewingInvoice}</div>
-                <div style={{ fontSize: '11px', color: '#64748b' }}>Date: Sep 10, 2026</div>
+                <div style={{ fontWeight: 700, color: '#0284c7' }}>{viewingInvoice.invoiceNumber}</div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>Date: {new Date(viewingInvoice.createdAt).toLocaleDateString()}</div>
               </div>
-            </div>
-
-            <div style={{ fontSize: '13px', marginBottom: '16px' }}>
-              <div style={{ color: '#64748b', fontSize: '11px' }}>Organization:</div>
-              <div style={{ fontWeight: 700 }}>National Institute of Technology</div>
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px', fontSize: '12px' }}>
@@ -424,8 +600,8 @@ export default function SubscriptionPage() {
               </thead>
               <tbody>
                 <tr>
-                  <td style={{ padding: '8px' }}>OmniFace Pro Monthly License (500 Seats)</td>
-                  <td style={{ padding: '8px', textAlign: 'right' }}>₹399.00</td>
+                  <td style={{ padding: '8px' }}>OmniFace License</td>
+                  <td style={{ padding: '8px', textAlign: 'right' }}>₹{viewingInvoice.amountInr}.00</td>
                 </tr>
               </tbody>
             </table>

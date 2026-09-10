@@ -328,21 +328,21 @@ object AndroidSecurityUtils {
      * Opens (or creates) an AES256-GCM EncryptedSharedPreferences backed by the Android Keystore master key.
      * Falls back to plain MODE_PRIVATE prefs on devices that fail MasterKey creation (rare edge cases).
      */
-    private fun getEncryptedPrefs(context: Context): android.content.SharedPreferences {
+    fun getEncryptedPrefs(context: Context, fileName: String = ENCRYPTED_PREFS_FILE): android.content.SharedPreferences {
         return try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
             EncryptedSharedPreferences.create(
                 context,
-                ENCRYPTED_PREFS_FILE,
+                fileName,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (t: Throwable) {
             android.util.Log.w("AndroidSecurityUtils", "EncryptedSharedPreferences unavailable, falling back to plain prefs: ${t.message}")
-            context.getSharedPreferences(ENCRYPTED_PREFS_FILE, android.content.Context.MODE_PRIVATE)
+            context.getSharedPreferences(fileName, android.content.Context.MODE_PRIVATE)
         }
     }
 

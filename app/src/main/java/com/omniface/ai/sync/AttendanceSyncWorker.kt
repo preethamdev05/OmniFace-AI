@@ -65,8 +65,15 @@ class AttendanceSyncWorker(
         }
     }
 
-        val deviceToken = prefs.getString("DEVICE_TOKEN", null)
-        val orgId = prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
+    private fun dispatchSyncPayload(
+        endpoint: String,
+        deviceId: String,
+        records: List<AttendanceRecordEntity>
+    ): Boolean {
+        val prefs = applicationContext.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+        val securePrefs = AndroidSecurityUtils.getEncryptedPrefs(applicationContext, "OMNIFACE_SECURE_DEVICE_PREFS")
+        val deviceToken = securePrefs.getString("DEVICE_TOKEN", null) ?: prefs.getString("DEVICE_TOKEN", null)
+        val orgId = securePrefs.getString("ORGANIZATION_ID", null) ?: prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
 
         val payloadString = buildPayloadString(deviceId, records, orgId)
         val requestTimestamp = System.currentTimeMillis()

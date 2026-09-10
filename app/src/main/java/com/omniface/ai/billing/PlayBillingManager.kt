@@ -35,6 +35,8 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
 
     // Google Play Console Product & Plan IDs
     const val PRODUCT_ID_PREMIUM_MONTHLY = "omniface_premium_monthly_199"
+    const val PRODUCT_ID_PRO_MONTHLY = "omniface_pro_monthly_349"
+    const val PRODUCT_ID_PRO_MONTHLY_LEGACY = "omniface_pro_monthly_399"
     const val BASE_PLAN_ID_DEFAULT = "monthly-auto-renewing"
 
     // Subscription Duration: 30 days
@@ -53,8 +55,14 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     private val _premiumProductDetails = MutableStateFlow<ProductDetails?>(null)
     val premiumProductDetails: StateFlow<ProductDetails?> = _premiumProductDetails.asStateFlow()
 
+    private val _proProductDetails = MutableStateFlow<ProductDetails?>(null)
+    val proProductDetails: StateFlow<ProductDetails?> = _proProductDetails.asStateFlow()
+
     private val _formattedPrice = MutableStateFlow("₹199 / month")
     val formattedPrice: StateFlow<String> = _formattedPrice.asStateFlow()
+
+    private val _proFormattedPrice = MutableStateFlow("₹349 / month")
+    val proFormattedPrice: StateFlow<String> = _proFormattedPrice.asStateFlow()
 
     private val _billingEvents = MutableSharedFlow<BillingEvent>(extraBufferCapacity = 10)
     val billingEvents: SharedFlow<BillingEvent> = _billingEvents.asSharedFlow()
@@ -155,7 +163,7 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     }
 
     /**
-     * Queries Google Play for the ₹199 Premium subscription product details.
+     * Queries Google Play for both Premium (₹199) and Pro (₹349) subscription product details.
      */
     fun querySubscriptionProductDetails(onComplete: ((ProductDetails?) -> Unit)? = null) {
         val client = billingClient
@@ -169,6 +177,10 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
             QueryProductDetailsParams.Product.newBuilder()
                 .setProductId(PRODUCT_ID_PREMIUM_MONTHLY)
                 .setProductType(BillingClient.ProductType.SUBS)
+                .build(),
+            QueryProductDetailsParams.Product.newBuilder()
+                .setProductId(PRODUCT_ID_PRO_MONTHLY)
+                .setProductType(BillingClient.ProductType.SUBS)
                 .build()
         )
 
@@ -178,20 +190,31 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
 
         client.queryProductDetailsAsync(params) { billingResult, productDetailsList ->
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && !productDetailsList.isNullOrEmpty()) {
-                val details = productDetailsList.firstOrNull {
+                val premiumDetails = productDetailsList.firstOrNull {
                     it.productId == PRODUCT_ID_PREMIUM_MONTHLY
                 }
-                _premiumProductDetails.value = details
-
-                details?.subscriptionOfferDetails?.firstOrNull()?.let { offer ->
+                _premiumProductDetails.value = premiumDetails
+                premiumDetails?.subscriptionOfferDetails?.firstOrNull()?.let { offer ->
                     val phase = offer.pricingPhases.pricingPhaseList.firstOrNull()
                     if (phase != null) {
                         _formattedPrice.value = "${phase.formattedPrice} / month"
-                        Log.i(TAG, "Retrieved Play Store subscription price: ${phase.formattedPrice}")
+                        Log.i(TAG, "Retrieved Play Store Premium price: ${phase.formattedPrice}")
                     }
                 }
 
-                onComplete?.invoke(details)
+                val proDetails = productDetailsList.firstOrNull {
+                    it.productId == PRODUCT_ID_PRO_MONTHLY
+                }
+                _proProductDetails.value = proDetails
+                proDetails?.subscriptionOfferDetails?.firstOrNull()?.let { offer ->
+                    val phase = offer.pricingPhases.pricingPhaseList.firstOrNull()
+                    if (phase != null) {
+                        _proFormattedPrice.value = "${phase.formattedPrice} / month"
+                        Log.i(TAG, "Retrieved Play Store Pro price: ${phase.formattedPrice}")
+                    }
+                }
+
+                onComplete?.invoke(premiumDetails ?: proDetails)
             } else {
                 Log.w(TAG, "Failed to query product details or empty: ${billingResult.debugMessage}")
                 onComplete?.invoke(null)
@@ -200,10 +223,11 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     }
 
     /**
-     * Launches the native Google Play Purchase Flow for ₹199/mo Premium.
+     * Launches the native Google Play Purchase Flow for a target subscription tier.
      */
     fun launchBillingFlow(
         activity: Activity,
+        targetProductId: String = PRODUCT_ID_PREMIUM_MONTHLY,
         onLaunched: ((Boolean, String) -> Unit)? = null
     ) {
         val client = billingClient
@@ -211,9 +235,15 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
         // Fallback for Debug builds without Google Play Services
         if (client == null || !client.isReady) {
             if (BuildConfig.DEBUG) {
-                Log.i(TAG, "Debug build sandbox fallback: activating Premium locally.")
-                activateSandboxPremium()
-                onLaunched?.invoke(true, "Sandbox Premium Activated (Debug Mode)")
+                if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
+                    Log.i(TAG, "Debug build sandbox fallback: activating Pro locally.")
+                    activateSandboxPro()
+                    onLaunched?.invoke(true, "Sandbox Pro Activated (Debug Mode)")
+                } else {
+                    Log.i(TAG, "Debug build sandbox fallback: activating Premium locally.")
+                    activateSandboxPremium()
+                    onLaunched?.invoke(true, "Sandbox Premium Activated (Debug Mode)")
+                }
                 return
             } else {
                 startConnection()
@@ -222,17 +252,34 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
             }
         }
 
-        val details = _premiumProductDetails.value
+        val details = if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
+            _proProductDetails.value
+        } else {
+            _premiumProductDetails.value
+        }
+
         if (details == null) {
             // Attempt to query on-demand
             querySubscriptionProductDetails { loadedDetails ->
-                if (loadedDetails != null) {
-                    executeBillingFlow(activity, loadedDetails, onLaunched)
+                val resolvedDetails = if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
+                    _proProductDetails.value
+                } else {
+                    _premiumProductDetails.value
+                }
+
+                if (resolvedDetails != null) {
+                    executeBillingFlow(activity, resolvedDetails, onLaunched)
                 } else {
                     if (BuildConfig.DEBUG) {
-                        Log.i(TAG, "Product details not configured on Play Console. Using debug sandbox.")
-                        activateSandboxPremium()
-                        onLaunched?.invoke(true, "Sandbox Premium Activated (Console Pending)")
+                        if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
+                            Log.i(TAG, "Pro product details not configured on Play Console. Using debug sandbox.")
+                            activateSandboxPro()
+                            onLaunched?.invoke(true, "Sandbox Pro Activated (Console Pending)")
+                        } else {
+                            Log.i(TAG, "Premium product details not configured on Play Console. Using debug sandbox.")
+                            activateSandboxPremium()
+                            onLaunched?.invoke(true, "Sandbox Premium Activated (Console Pending)")
+                        }
                     } else {
                         onLaunched?.invoke(false, "Unable to load subscription details from Google Play.")
                     }
@@ -309,12 +356,19 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
      * Processes a single purchase: checks state, acknowledges if necessary, and persists tier.
      */
     private fun handlePurchase(purchase: Purchase) {
-        val isTargetProduct = purchase.products.contains(PRODUCT_ID_PREMIUM_MONTHLY)
+        val isTargetProduct = purchase.products.contains(PRODUCT_ID_PREMIUM_MONTHLY) ||
+                purchase.products.contains(PRODUCT_ID_PRO_MONTHLY)
         if (!isTargetProduct) return
+
+        val matchedProduct = if (purchase.products.contains(PRODUCT_ID_PRO_MONTHLY)) {
+            PRODUCT_ID_PRO_MONTHLY
+        } else {
+            PRODUCT_ID_PREMIUM_MONTHLY
+        }
 
         when (purchase.purchaseState) {
             Purchase.PurchaseState.PURCHASED -> {
-                Log.i(TAG, "💰 Valid purchase detected for $PRODUCT_ID_PREMIUM_MONTHLY: token=${purchase.purchaseToken.take(12)}...")
+                Log.i(TAG, "💰 Valid purchase detected for $matchedProduct: token=${purchase.purchaseToken.take(12)}...")
 
                 // Immediate acknowledgment (Mandatory within 3 days or Google auto-refunds)
                 if (!purchase.isAcknowledged) {
@@ -366,12 +420,17 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
      */
     private fun applyActiveSubscription(purchase: Purchase) {
         val expiryTime = purchase.purchaseTime + SUBSCRIPTION_DURATION_MS
+        val tier = if (purchase.products.contains(PRODUCT_ID_PRO_MONTHLY)) {
+            SubscriptionTier.PRO
+        } else {
+            SubscriptionTier.PREMIUM
+        }
         SubscriptionTierManager.setSubscription(
-            tier = SubscriptionTier.PREMIUM,
+            tier = tier,
             expiryTimestampMs = expiryTime,
             purchaseToken = purchase.purchaseToken
         )
-        syncSubscriptionWithBackend(SubscriptionTier.PREMIUM, purchase.purchaseToken)
+        syncSubscriptionWithBackend(tier, purchase.purchaseToken)
     }
 
     /**
@@ -455,15 +514,24 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                         SubscriptionTier.FREE
                     }
 
-                    val finalTier = if (remoteTier == SubscriptionTier.BUSINESS) {
-                        Log.i(TAG, "🏛️ Active Enterprise Business license detected on Web Dashboard! Unlocking kiosk fleet.")
+                    val finalTier = if (remoteTier == SubscriptionTier.BUSINESS || remoteTier == SubscriptionTier.INSTITUTION) {
+                        Log.i(TAG, "🏛️ Active Enterprise/Institution license detected on Web Dashboard! Unlocking kiosk fleet.")
                         val validUntil = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(365)
                         SubscriptionTierManager.setSubscription(
-                            tier = SubscriptionTier.BUSINESS,
+                            tier = SubscriptionTier.INSTITUTION,
                             expiryTimestampMs = validUntil,
-                            purchaseToken = "web_business_license"
+                            purchaseToken = "web_institution_license"
                         )
-                        SubscriptionTier.BUSINESS
+                        SubscriptionTier.INSTITUTION
+                    } else if (remoteTier == SubscriptionTier.PRO) {
+                        Log.i(TAG, "⚡ Active Pro license detected on Web Dashboard. Elevating kiosk.")
+                        val validUntil = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(30)
+                        SubscriptionTierManager.setSubscription(
+                            tier = SubscriptionTier.PRO,
+                            expiryTimestampMs = validUntil,
+                            purchaseToken = "web_pro_license"
+                        )
+                        SubscriptionTier.PRO
                     } else if (remoteTier == SubscriptionTier.PREMIUM && SubscriptionTierManager.isFreeTier()) {
                         Log.i(TAG, "👑 Active Premium license detected on Web Dashboard. Elevating kiosk.")
                         val validUntil = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(30)
@@ -512,7 +580,8 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
                 var foundActive = false
                 for (purchase in purchasesList) {
-                    if (purchase.products.contains(PRODUCT_ID_PREMIUM_MONTHLY) &&
+                    if ((purchase.products.contains(PRODUCT_ID_PREMIUM_MONTHLY) ||
+                                purchase.products.contains(PRODUCT_ID_PRO_MONTHLY)) &&
                         purchase.purchaseState == Purchase.PurchaseState.PURCHASED
                     ) {
                         handlePurchase(purchase)
@@ -523,7 +592,7 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                 if (!foundActive && !SubscriptionTierManager.isFreeTier()) {
                     // Check if current subscription in local prefs is a Google Play sub that has expired
                     val activeTier = SubscriptionTierManager.currentTier.value
-                    if (activeTier == SubscriptionTier.PREMIUM) {
+                    if (activeTier == SubscriptionTier.PREMIUM || activeTier == SubscriptionTier.PRO) {
                         Log.i(TAG, "No active subscription found on Play Store. Evaluating offline grace period.")
                         SubscriptionTierManager.evaluateCurrentTier()
                     }
@@ -550,9 +619,10 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
 
         syncPurchasesInternal { success, count ->
             if (success) {
-                if (SubscriptionTierManager.currentTier.value == SubscriptionTier.PREMIUM) {
-                    onResult(true, "Premium subscription restored successfully!")
-                    _billingEvents.tryEmit(BillingEvent.RestoreResult(true, "Premium restored."))
+                val current = SubscriptionTierManager.currentTier.value
+                if (current == SubscriptionTier.PREMIUM || current == SubscriptionTier.PRO) {
+                    onResult(true, "${current.title} subscription restored successfully!")
+                    _billingEvents.tryEmit(BillingEvent.RestoreResult(true, "${current.title} restored."))
                 } else {
                     onResult(false, "No active subscription found for this Google account.")
                     _billingEvents.tryEmit(BillingEvent.RestoreResult(false, "No active subscription found."))
@@ -596,5 +666,19 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
             purchaseToken = mockToken
         )
         _billingEvents.tryEmit(BillingEvent.PurchaseSuccess(mockToken, "SANDBOX-ORDER-123"))
+    }
+
+    /**
+     * Activates 30-day Pro for development & sandbox environments.
+     */
+    fun activateSandboxPro() {
+        val expiryTime = System.currentTimeMillis() + SUBSCRIPTION_DURATION_MS
+        val mockToken = "gp_sub_pro_sandbox_${System.currentTimeMillis()}"
+        SubscriptionTierManager.setSubscription(
+            tier = SubscriptionTier.PRO,
+            expiryTimestampMs = expiryTime,
+            purchaseToken = mockToken
+        )
+        _billingEvents.tryEmit(BillingEvent.PurchaseSuccess(mockToken, "SANDBOX-PRO-ORDER-123"))
     }
 }

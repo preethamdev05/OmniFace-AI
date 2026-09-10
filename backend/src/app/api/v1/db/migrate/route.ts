@@ -251,9 +251,127 @@ CREATE TABLE IF NOT EXISTS "audit_logs" (
 	"user_agent" text,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS "idx_attendance_events_org_date" ON "attendance_events" ("organization_id", "session_date");
+CREATE INDEX IF NOT EXISTS "idx_attendance_events_event_id" ON "attendance_events" ("event_id");
+CREATE INDEX IF NOT EXISTS "idx_devices_org_status" ON "devices" ("organization_id", "status");
+CREATE INDEX IF NOT EXISTS "idx_students_org_dept" ON "students" ("organization_id", "department_id");
+CREATE INDEX IF NOT EXISTS "idx_students_org_roll" ON "students" ("organization_id", "roll_number");
+CREATE INDEX IF NOT EXISTS "idx_classes_org_dept" ON "classes" ("organization_id", "department_id");
+CREATE INDEX IF NOT EXISTS "idx_student_classes_org_class" ON "student_classes" ("organization_id", "class_id");
+CREATE INDEX IF NOT EXISTS "idx_face_templates_org_roll" ON "face_templates" ("organization_id", "student_roll");
+CREATE INDEX IF NOT EXISTS "idx_audit_logs_org_created" ON "audit_logs" ("organization_id", "created_at");
+
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "type" varchar(64) DEFAULT 'SCHOOL';
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "tier" varchar(32) DEFAULT 'FREE';
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "status" varchar(32) DEFAULT 'ACTIVE';
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "max_people" integer DEFAULT 25;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "max_devices" integer DEFAULT 1;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "max_kiosks" integer DEFAULT 1;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "contact_email" varchar(255) DEFAULT 'admin@omniface.internal';
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "contact_phone" varchar(32);
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "grace_period_end" timestamp;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "default_start_time" varchar(16) DEFAULT '09:00';
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "grace_minutes" integer DEFAULT 15;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "auto_evaluate_status" integer DEFAULT 1;
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "dpdp_compliance" integer DEFAULT 1;
+
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "firebase_uid" varchar(128);
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_url" text;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "org_id" uuid;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" varchar(32) DEFAULT 'ADMIN';
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "created_at" timestamp DEFAULT now();
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DEFAULT now();
+
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "created_at" timestamp DEFAULT now();
+ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DEFAULT now();
+
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "reason" text;
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "ip_address" varchar(64);
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "user_agent" text;
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "old_values" text;
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "new_values" text;
+
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "battery_pct" integer;
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "temperature" real;
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "thermal_state" varchar(32) DEFAULT 'NOMINAL';
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "active_fps" integer DEFAULT 30;
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "last_heartbeat_at" timestamp;
+ALTER TABLE "devices" ADD COLUMN IF NOT EXISTS "ip_address" varchar(64);
+CREATE INDEX IF NOT EXISTS "idx_devices_org_heartbeat" ON "devices" ("organization_id", "last_heartbeat_at");
+
+INSERT INTO "organizations" ("id", "name", "type", "tier", "max_people", "max_devices", "contact_email", "status")
+VALUES ('00000000-0000-0000-0000-000000000001', 'OmniFace Enterprise Default', 'CORPORATE', 'INSTITUTION', 1000, 10, 'admin@omniface.internal', 'ACTIVE')
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "users" ("id", "email", "full_name", "org_id", "role")
+VALUES ('00000000-0000-0000-0000-000000000002', 'admin@omniface.internal', 'Platform Admin', '00000000-0000-0000-0000-000000000001', 'ADMIN')
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "organization_members" ("organization_id", "user_id", "role", "status")
+VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'ADMIN', 'ACTIVE')
+ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS "staff_invitations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+	"email" varchar(255) NOT NULL,
+	"full_name" varchar(255),
+	"role" varchar(32) DEFAULT 'TEACHER' NOT NULL,
+	"token_hash" varchar(128) NOT NULL UNIQUE,
+	"status" varchar(32) DEFAULT 'PENDING' NOT NULL,
+	"expires_at" timestamp NOT NULL,
+	"invited_by_user_id" uuid REFERENCES "users"("id") ON DELETE SET NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "institution_leads" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_name" varchar(255) NOT NULL,
+	"contact_name" varchar(255) NOT NULL,
+	"email" varchar(255) NOT NULL,
+	"phone" varchar(32),
+	"expected_seats" integer DEFAULT 500 NOT NULL,
+	"status" varchar(32) DEFAULT 'NEW' NOT NULL,
+	"notes" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "idx_face_templates_embedding_hnsw" ON "face_templates" USING hnsw ("embedding" vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS "idx_staff_invitations_token" ON "staff_invitations" ("token_hash");
+CREATE INDEX IF NOT EXISTS "idx_staff_invitations_org" ON "staff_invitations" ("organization_id");
+CREATE INDEX IF NOT EXISTS "idx_institution_leads_status" ON "institution_leads" ("status");
 `;
 
 export async function POST(req: NextRequest) {
+  const secretHeader = req.headers.get('X-Migration-Secret') || req.headers.get('x-migration-secret');
+  const authHeader = req.headers.get('authorization')?.replace('Bearer ', '');
+  const providedSecret = secretHeader || authHeader;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const expectedSecret = process.env.MIGRATION_SECRET;
+
+  if (isProduction && (!expectedSecret || expectedSecret === 'omniface_migration_secret_root_2026')) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Forbidden: Database migration route disabled in production without custom MIGRATION_SECRET.',
+      },
+      { status: 403 }
+    );
+  }
+
+  const effectiveExpected = expectedSecret || 'omniface_migration_secret_root_2026';
+  if (!providedSecret || providedSecret !== effectiveExpected) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Forbidden: Valid X-Migration-Secret header is required to execute database migrations.',
+      },
+      { status: 403 }
+    );
+  }
+
   if (!isDbConfigured()) {
     return NextResponse.json(
       {

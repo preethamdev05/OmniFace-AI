@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/Toast';
 
 interface AttendanceRow {
@@ -18,96 +18,10 @@ interface AttendanceRow {
   serverEvaluated: boolean;
 }
 
-const mockAttendance: AttendanceRow[] = [
-  {
-    id: 'rec_01',
-    recordId: 'rec_01',
-    studentRoll: 'CS-2024-042',
-    studentName: 'Aarav Sharma',
-    department: 'Computer Science',
-    sessionDate: '2026-09-10',
-    clockInTime: '09:04 AM',
-    confidencePct: 99.4,
-    securityTier: 'HIGH',
-    status: 'PRESENT',
-    sha256Hash: 'a7b3c82d4e5f61203498adfe1902834b9281a0ec94726481029384756182a93c',
-    serverEvaluated: true,
-  },
-  {
-    id: 'rec_02',
-    recordId: 'rec_02',
-    studentRoll: 'EC-2024-019',
-    studentName: 'Priya Patel',
-    department: 'Electronics & Comm.',
-    sessionDate: '2026-09-10',
-    clockInTime: '09:02 AM',
-    confidencePct: 98.7,
-    securityTier: 'STRICT',
-    status: 'PRESENT',
-    sha256Hash: 'f4e2d1c0b9a89786756453423120191817161514131211100908070605040302',
-    serverEvaluated: true,
-  },
-  {
-    id: 'rec_03',
-    recordId: 'rec_03',
-    studentRoll: 'ME-2024-011',
-    studentName: 'Rohan Deshmukh',
-    department: 'Mechanical Eng.',
-    sessionDate: '2026-09-10',
-    clockInTime: '09:28 AM',
-    confidencePct: 97.5,
-    securityTier: 'HIGH',
-    status: 'LATE',
-    sha256Hash: '89ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef01',
-    serverEvaluated: true,
-  },
-  {
-    id: 'rec_04',
-    recordId: 'rec_04',
-    studentRoll: 'CS-2024-008',
-    studentName: 'Ananya Reddy',
-    department: 'Computer Science',
-    sessionDate: '2026-09-10',
-    clockInTime: '08:55 AM',
-    confidencePct: 99.1,
-    securityTier: 'STRICT',
-    status: 'PRESENT',
-    sha256Hash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-    serverEvaluated: true,
-  },
-  {
-    id: 'rec_05',
-    recordId: 'rec_05',
-    studentRoll: 'SF-2023-003',
-    studentName: 'Dr. Vikram Joshi',
-    department: 'Staff & Faculty',
-    sessionDate: '2026-09-10',
-    clockInTime: '08:45 AM',
-    confidencePct: 99.8,
-    securityTier: 'STRICT',
-    status: 'PRESENT',
-    sha256Hash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
-    serverEvaluated: true,
-  },
-  {
-    id: 'rec_06',
-    recordId: 'rec_06',
-    studentRoll: 'CS-2024-015',
-    studentName: 'Kabir Verma',
-    department: 'Computer Science',
-    sessionDate: '2026-09-10',
-    clockInTime: '—',
-    confidencePct: 0,
-    securityTier: 'HIGH',
-    status: 'ABSENT',
-    sha256Hash: '0000000000000000000000000000000000000000000000000000000000000000',
-    serverEvaluated: true,
-  },
-];
-
 export default function AttendancePage() {
-  const [records, setRecords] = useState<AttendanceRow[]>(mockAttendance);
-  const [selectedDate, setSelectedDate] = useState('2026-09-10');
+  const [records, setRecords] = useState<AttendanceRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [selectedRecordForAdjustment, setSelectedRecordForAdjustment] = useState<AttendanceRow | null>(null);
   const [newStatus, setNewStatus] = useState<'PRESENT' | 'LATE' | 'ABSENT' | 'EXCUSED'>('PRESENT');
@@ -115,45 +29,41 @@ export default function AttendancePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { showToast } = useToast();
 
-  const fetchLive = () => {
-    fetch('/api/v1/analytics/summary')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.recentActivity && data.recentActivity.length > 0) {
-          const mapped: AttendanceRow[] = data.recentActivity.map((r: any) => ({
-            id: r.id,
-            recordId: r.id,
-            studentRoll: r.studentRoll,
-            studentName: r.studentName,
-            department: r.department || 'General',
-            sessionDate: r.sessionDate || selectedDate,
-            clockInTime: r.time || '09:00 AM',
-            confidencePct: r.confidencePct || 98,
-            securityTier: r.securityTier || 'HIGH',
-            status: (r.status as any) || 'PRESENT',
-            sha256Hash: r.sha256Hash || '0'.repeat(64),
-            serverEvaluated: true,
-          }));
-          setRecords(mapped);
+  const fetchAttendance = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const url = new URL('/api/v1/attendance', window.location.origin);
+      if (selectedDate) url.searchParams.set('date', selectedDate);
+      if (filterStatus && filterStatus !== 'ALL') url.searchParams.set('status', filterStatus);
+
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.records)) {
+          setRecords(data.records);
+        } else {
+          setRecords([]);
         }
-      })
-      .catch(() => {});
-  };
+      } else {
+        setRecords([]);
+      }
+    } catch (err: any) {
+      console.error('Failed to load attendance:', err);
+      showToast('Could not load attendance records from server', 'error');
+      setRecords([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedDate, filterStatus, showToast]);
 
   useEffect(() => {
-    fetchLive();
-  }, []);
-
-  const filtered = records.filter((r) => {
-    if (filterStatus !== 'ALL' && r.status !== filterStatus) return false;
-    return true;
-  });
+    fetchAttendance();
+  }, [fetchAttendance]);
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRecordForAdjustment) return;
 
-    // Foundational Decision 5: Mandatory reason required
     if (!adjustmentReason || adjustmentReason.trim().length < 3) {
       showToast('Mandatory reason is required for audit compliance (min 3 chars).', 'error');
       return;
@@ -174,27 +84,19 @@ export default function AttendancePage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setRecords(records.map((r) =>
-          r.id === selectedRecordForAdjustment.id
-            ? { ...r, status: newStatus }
-            : r
-        ));
+        setRecords((prev) =>
+          prev.map((r) =>
+            r.id === selectedRecordForAdjustment.id ? { ...r, status: newStatus } : r
+          )
+        );
         showToast(`Attendance adjusted to ${newStatus} with audit log recorded`, 'success');
         setSelectedRecordForAdjustment(null);
         setAdjustmentReason('');
       } else {
         showToast(data.error || 'Failed to adjust attendance', 'error');
       }
-    } catch {
-      // Offline fallback
-      setRecords(records.map((r) =>
-        r.id === selectedRecordForAdjustment.id
-          ? { ...r, status: newStatus }
-          : r
-      ));
-      showToast(`Status updated to ${newStatus} (offline simulation)`, 'info');
-      setSelectedRecordForAdjustment(null);
-      setAdjustmentReason('');
+    } catch (err: any) {
+      showToast(err?.message || 'Network error while adjusting attendance', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -213,10 +115,13 @@ export default function AttendancePage() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={fetchLive} className="btn btn-secondary">
-            <span>↻ Refresh</span>
+          <button onClick={fetchAttendance} disabled={isLoading} className="btn btn-secondary">
+            <span>{isLoading ? '↻ Refreshing...' : '↻ Refresh'}</span>
           </button>
-          <a href="/api/v1/reports/export?month=2026-09&department=All" className="btn btn-primary">
+          <a
+            href={`/api/v1/reports/export?month=${selectedDate.substring(0, 7)}&department=All`}
+            className="btn btn-primary"
+          >
             <span>Export CSV</span>
           </a>
         </div>
@@ -263,72 +168,93 @@ export default function AttendancePage() {
 
       {/* Attendance Ledger Table */}
       <div className="table-surface">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Roll Number</th>
-              <th>Member Name</th>
-              <th>Department</th>
-              <th>Clock-In</th>
-              <th>Evaluation Mode</th>
-              <th>Biometric Match</th>
-              <th>Status</th>
-              <th>Cryptographic Proof</th>
-              <th>Audit Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r) => (
-              <tr key={r.id}>
-                <td className="tnum" style={{ fontWeight: 600 }}>{r.studentRoll}</td>
-                <td style={{ fontWeight: 500 }}>{r.studentName}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{r.department}</td>
-                <td className="tnum" style={{ color: 'var(--text-muted)' }}>{r.clockInTime}</td>
-                <td>
-                  <span className="badge badge-primary">SERVER EVALUATED</span>
-                </td>
-                <td className="tnum">
-                  <span style={{ color: r.confidencePct > 0 ? 'var(--success)' : 'var(--text-dim)', fontWeight: 600 }}>
-                    {r.confidencePct > 0 ? `${r.confidencePct}%` : 'N/A'}
-                  </span>
-                </td>
-                <td>
-                  <span
-                    className={`badge ${
-                      r.status === 'PRESENT'
-                        ? 'badge-success'
-                        : r.status === 'LATE'
-                        ? 'badge-warning'
-                        : r.status === 'ABSENT'
-                        ? 'badge-warning'
-                        : 'badge-primary'
-                    }`}
-                  >
-                    {r.status}
-                  </span>
-                </td>
-                <td>
-                  <span className="hash-pill" title={r.sha256Hash}>
-                    {r.sha256Hash.substring(0, 10)}...{r.sha256Hash.substring(r.sha256Hash.length - 4)}
-                  </span>
-                </td>
-                <td>
-                  <button
-                    onClick={() => {
-                      setSelectedRecordForAdjustment(r);
-                      setNewStatus(r.status === 'PRESENT' ? 'ABSENT' : 'PRESENT');
-                      setAdjustmentReason('');
-                    }}
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '11px' }}
-                  >
-                    Adjust Status
-                  </button>
-                </td>
+        {isLoading ? (
+          <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div className="spin-icon" style={{ fontSize: '24px', marginBottom: '8px' }}>↻</div>
+            <div>Loading live attendance records...</div>
+          </div>
+        ) : records.length === 0 ? (
+          <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: '32px', marginBottom: '12px' }}>📋</div>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
+              No attendance events recorded for this selection
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '420px', margin: '0 auto' }}>
+              Attendance marked offline or online by paired Android kiosks will synchronize and appear here in real-time.
+            </p>
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Roll Number</th>
+                <th>Member Name</th>
+                <th>Department</th>
+                <th>Clock-In</th>
+                <th>Evaluation Mode</th>
+                <th>Biometric Match</th>
+                <th>Status</th>
+                <th>Cryptographic Proof</th>
+                <th>Audit Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {records.map((r) => (
+                <tr key={r.id}>
+                  <td className="tnum" style={{ fontWeight: 600 }}>{r.studentRoll}</td>
+                  <td style={{ fontWeight: 500 }}>{r.studentName}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{r.department}</td>
+                  <td className="tnum" style={{ color: 'var(--text-muted)' }}>{r.clockInTime}</td>
+                  <td>
+                    <span className="badge badge-primary">SERVER EVALUATED</span>
+                  </td>
+                  <td className="tnum">
+                    <span style={{ color: r.confidencePct > 0 ? 'var(--success)' : 'var(--text-dim)', fontWeight: 600 }}>
+                      {r.confidencePct > 0 ? `${r.confidencePct}%` : 'N/A'}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        r.status === 'PRESENT'
+                          ? 'badge-success'
+                          : r.status === 'LATE'
+                          ? 'badge-warning'
+                          : r.status === 'ABSENT'
+                          ? 'badge-warning'
+                          : 'badge-primary'
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  </td>
+                  <td>
+                    {r.sha256Hash ? (
+                      <span className="hash-pill" title={r.sha256Hash}>
+                        {r.sha256Hash.substring(0, 10)}...{r.sha256Hash.substring(r.sha256Hash.length - 4)}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--text-dim)', fontSize: '12px' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => {
+                        setSelectedRecordForAdjustment(r);
+                        setNewStatus(r.status === 'PRESENT' ? 'ABSENT' : 'PRESENT');
+                        setAdjustmentReason('');
+                      }}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: '11px' }}
+                    >
+                      Adjust Status
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Manual Status Adjustment Modal with Mandatory Audit Reason */}

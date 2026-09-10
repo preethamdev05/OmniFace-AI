@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { isDbConfigured, getDb } from '@/db';
-import { subscriptions, organizations, faceTemplates, students } from '@/db/schema';
+import { subscriptions, organizations, faceTemplates, students, invoices } from '@/db/schema';
 import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { eq, desc } from 'drizzle-orm';
+import { requireSession, authenticateDevice, authenticateSession } from '@/lib/api-auth';
+import { verifyGooglePlayPurchase } from '@/lib/google-play-billing';
 
 const VerifySubscriptionSchema = z.object({
-  orgId: z.string().optional().default(DEFAULT_ORG_ID),
   tier: z.enum(['FREE', 'PREMIUM', 'PRO', 'PROFESSIONAL', 'INSTITUTION', 'BUSINESS']),
   provider: z.enum(['GOOGLE_PLAY', 'WEBSITE_CUSTOM', 'RAZORPAY', 'OFFLINE_LICENSE']).default('GOOGLE_PLAY'),
   purchaseToken: z.string().optional(),
@@ -17,16 +18,20 @@ const VerifySubscriptionSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get('orgId') || DEFAULT_ORG_ID;
+    const auth = await requireSession(req, 'VIEWER');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const orgId = auth.user.orgId;
 
-    // Plans: Free (25), Premium (250, ₹199), Pro (500, ₹399), Institution (500+, Custom)
+    // Plans: Free (25), Premium (250, ₹199), Pro (500, ₹349), Institution (500+, Custom)
     let activeTier = 'PRO';
     let validUntilDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     let graceUntilDate = new Date(validUntilDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 14-day grace period
     let provider = 'GOOGLE_PLAY';
     let status = 'ACTIVE';
-    let enrolledCount = 184;
+    let enrolledCount = 0;
+    let invoiceList: any[] = [];
 
     if (isDbConfigured()) {
       const database = getDb();
@@ -87,6 +92,22 @@ export async function GET(req: NextRequest) {
               if (orgRows[0].status) status = orgRows[0].status;
             }
           }
+
+          // Query organization invoices
+          invoiceList = await database
+            .select({
+              id: invoices.id,
+              invoiceNumber: invoices.invoiceNumber,
+              amountInr: invoices.amountInr,
+              status: invoices.status,
+              dueDate: invoices.dueDate,
+              paidAt: invoices.paidAt,
+              createdAt: invoices.createdAt,
+            })
+            .from(invoices)
+            .where(eq(invoices.organizationId, orgId))
+            .orderBy(desc(invoices.createdAt))
+            .limit(10);
         } catch (dbErr) {
           console.warn('PostgreSQL subscription query warning:', dbErr);
         }
@@ -101,7 +122,7 @@ export async function GET(req: NextRequest) {
       switch (tier) {
         case 'FREE': return { peopleLimit: 25, priceInr: 0, billing: 'None' };
         case 'PREMIUM': return { peopleLimit: 250, priceInr: 199, billing: 'Google Play' };
-        case 'PRO': return { peopleLimit: 500, priceInr: 399, billing: 'Google Play' };
+        case 'PRO': return { peopleLimit: 500, priceInr: 349, billing: 'Google Play' };
         case 'INSTITUTION': return { peopleLimit: 500, priceInr: 0, isCustom: true, billing: 'Website / Sales' };
         default: return { peopleLimit: 25, priceInr: 0, billing: 'None' };
       }
@@ -120,7 +141,7 @@ export async function GET(req: NextRequest) {
     } else if (activeTier === 'PREMIUM' && enrolledCount >= 240) {
       upgradeAlert = {
         level: 'WARNING',
-        message: `${enrolledCount} / 250 capacity reached. Upgrade to Pro (₹399/mo) for 500 people & priority support.`,
+        message: `${enrolledCount} / 250 capacity reached. Upgrade to Pro (₹349/mo) for 500 people & priority support.`,
         targetPlan: 'PRO',
       };
     } else if (activeTier === 'PRO' && enrolledCount >= 490) {
@@ -147,11 +168,31 @@ export async function GET(req: NextRequest) {
         isReadOnlyArchive: status === 'ARCHIVE_READ_ONLY',
         upgradeAlert,
       },
+      invoices: invoiceList,
       availablePlans: [
-        { tier: 'FREE', title: 'Free Starter', limit: '25 people', priceInr: 0, billing: '—', allowsDashboard: false },
-        { tier: 'PREMIUM', title: 'Premium', limit: '250 people', priceInr: 199, billing: 'Google Play', allowsDashboard: true },
-        { tier: 'PRO', title: 'Pro', limit: '500 people', priceInr: 399, billing: 'Google Play', allowsDashboard: true },
-        { tier: 'INSTITUTION', title: 'Institution', limit: '500+ people', priceInr: null, billing: 'Website / Sales', allowsDashboard: true },
+        { tier: 'FREE', title: 'Free Starter', limit: '25 users', priceInr: 0, billing: '—', allowsDashboard: false },
+        { tier: 'PREMIUM', title: 'Premium', limit: '250 users', priceInr: 199, billing: 'Google Play', allowsDashboard: true },
+        { tier: 'PRO', title: 'Pro', limit: '500 users', priceInr: 349, billing: 'Google Play', allowsDashboard: true },
+        {
+          tier: 'INSTITUTION',
+          title: 'Institution',
+          limit: '500+ users',
+          priceInr: null,
+          billing: 'Custom Pricing / Sales',
+          allowsDashboard: true,
+          features: [
+            '500+ users',
+            'Unlimited devices',
+            'Multi-admin',
+            'Departments',
+            'Classes',
+            'Staff roles',
+            'Audit logs',
+            'Advanced reporting',
+            'Custom onboarding',
+            'Custom pricing',
+          ],
+        },
       ],
     }, { status: 200 });
   } catch (error: any) {
@@ -164,6 +205,34 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    // Dual authentication: either web user session (ADMIN) or paired Android device
+    let orgId: string | null = null;
+    let isOwner = false;
+
+    const session = await authenticateSession(req);
+    if (session) {
+      if (session.role !== 'ADMIN' && session.role !== 'OWNER') {
+        return NextResponse.json(
+          { success: false, error: 'Forbidden: ADMIN or OWNER role required' },
+          { status: 403 }
+        );
+      }
+      orgId = session.orgId;
+      isOwner = session.role === 'OWNER';
+    } else {
+      const device = await authenticateDevice(req);
+      if (device) {
+        orgId = device.organizationId;
+      }
+    }
+
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized: Valid administrative session or registered kiosk device token required' },
+        { status: 401 }
+      );
+    }
+
     const rawBody = await req.json();
     const result = VerifySubscriptionSchema.safeParse(rawBody);
 
@@ -174,11 +243,62 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let { orgId, tier, provider, purchaseToken, razorpayPaymentId, razorpaySubscriptionId } = result.data;
+    let { tier, provider, purchaseToken, razorpayPaymentId, razorpaySubscriptionId } = result.data;
 
     // Normalize
     if (tier === 'PROFESSIONAL') tier = 'PRO';
     if (tier === 'BUSINESS') tier = 'INSTITUTION';
+
+    // Institution plan requires sales agreement or OWNER activation
+    if (tier === 'INSTITUTION' && !isOwner) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Institution tier (500+ seats) requires customized sales agreement. Please submit an institutional inquiry.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Verify Google Play purchase token
+    let verifiedOrderId: string | undefined = undefined;
+    if (provider === 'GOOGLE_PLAY' && tier !== 'FREE') {
+      if (!purchaseToken) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Google Play purchase token is required to verify subscription.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const verification = await verifyGooglePlayPurchase(purchaseToken, tier);
+      if (!verification.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: verification.error || 'Google Play purchase token verification failed.',
+          },
+          { status: 400 }
+        );
+      }
+      verifiedOrderId = verification.orderId;
+    } else if (
+      tier !== 'FREE' &&
+      !purchaseToken &&
+      !razorpayPaymentId &&
+      !razorpaySubscriptionId &&
+      !isOwner
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Proof of purchase (Google Play purchase token or transaction ID) is required to activate paid tier.',
+        },
+        { status: 400 }
+      );
+    }
 
     const validUntilDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     const graceUntilDate = new Date(validUntilDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 14-day grace
@@ -186,7 +306,7 @@ export async function POST(req: NextRequest) {
     const priceMap: Record<string, number> = {
       FREE: 0,
       PREMIUM: 199,
-      PRO: 399,
+      PRO: 349,
       INSTITUTION: 1499,
     };
     const peopleLimitMap: Record<string, number> = {
@@ -212,7 +332,7 @@ export async function POST(req: NextRequest) {
             tier,
             status: 'ACTIVE',
             billingProvider: provider,
-            externalSubscriptionId: razorpaySubscriptionId || razorpayPaymentId || purchaseToken || null,
+            externalSubscriptionId: verifiedOrderId || razorpaySubscriptionId || razorpayPaymentId || purchaseToken || null,
             purchaseToken: purchaseToken || null,
             amountInr: paidAmount,
             peopleLimit,
@@ -247,6 +367,7 @@ export async function POST(req: NextRequest) {
           provider,
           amountInr: paidAmount,
           peopleLimit,
+          orderId: verifiedOrderId,
           validUntil: validUntilDate.toISOString(),
           graceUntil: graceUntilDate.toISOString(),
         },

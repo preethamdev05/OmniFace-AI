@@ -1,10 +1,17 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
+import { devices, auditLogs } from '@/db/schema';
+import { requireSession } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSession(req, 'ADMIN');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const orgId = auth.user.orgId;
+
     const body = await req.json();
     const { model, location, fingerprint } = body;
 
@@ -22,7 +29,28 @@ export async function POST(req: NextRequest) {
     if (isDbConfigured()) {
       const database = getDb();
       if (database) {
-        await ensureDefaultOrganization(database);
+        // Register provisioned kiosk in devices table
+        await database.insert(devices).values({
+          organizationId: orgId,
+          deviceIdentifier: kioskId,
+          deviceName: location ? `${location} (${kioskId})` : (model || 'Enterprise Android Kiosk'),
+          deviceToken: apiKey,
+          status: 'ONLINE',
+          isPaired: 1,
+          hardwareHash: deviceFingerprint,
+          pairedAt: new Date(),
+        });
+
+        // Audit log
+        await database.insert(auditLogs).values({
+          organizationId: orgId,
+          userId: auth.user.userId,
+          action: 'DEVICE_PROVISIONED',
+          entityType: 'DEVICE',
+          entityId: kioskId,
+          newValues: JSON.stringify({ kioskId, location, model }),
+          reason: 'Administrative kiosk node provisioned via QR configuration',
+        });
       }
     }
 
@@ -33,7 +61,7 @@ export async function POST(req: NextRequest) {
       apiKey,
       secret: hmacSecret,
       fingerprint: deviceFingerprint,
-      orgId: DEFAULT_ORG_ID,
+      orgId,
       issuedAt: Date.now(),
     };
 
@@ -56,7 +84,7 @@ export async function POST(req: NextRequest) {
         qrString,
         qrConfig,
       },
-    });
+    }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err?.message || 'Kiosk provisioning failed' },

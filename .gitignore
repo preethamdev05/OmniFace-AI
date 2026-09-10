@@ -83,7 +83,6 @@ models/latest_pretrained/
 *.bak
 *~
 .directory
-.github/
 Omniface-AI.zip
 Omniface-AI/
 "omniface-ai (1)/"

@@ -1,6 +1,27 @@
 import { NextResponse } from 'next/server';
 import { isDbConfigured, getPool } from '@/db';
 
+const ALL_ENTERPRISE_TABLES = [
+  'organizations',
+  'users',
+  'organization_members',
+  'departments',
+  'classes',
+  'students',
+  'student_classes',
+  'devices',
+  'face_templates',
+  'attendance_sessions',
+  'attendance_events',
+  'attendance_adjustments',
+  'sync_operations',
+  'subscriptions',
+  'subscription_events',
+  'payments',
+  'invoices',
+  'audit_logs',
+];
+
 export async function GET() {
   const configured = isDbConfigured();
   if (!configured) {
@@ -14,16 +35,23 @@ export async function GET() {
 
   try {
     const pool = getPool();
+    const startTime = Date.now();
     const client = await pool.connect();
     try {
       const resTables = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-          AND table_name IN ('organizations', 'users', 'face_embeddings', 'attendance_records', 'subscriptions');
+        WHERE table_schema = 'public';
       `);
 
-      const tables = resTables.rows.map((r: any) => r.table_name);
+      const allFoundTables = resTables.rows.map((r: any) => r.table_name);
+      const tablesSet = new Set(allFoundTables);
+      
+      const legacyTables = ['organizations', 'users', 'face_embeddings', 'attendance_records', 'subscriptions']
+        .filter((t) => tablesSet.has(t));
+      
+      const missingEnterpriseTables = ALL_ENTERPRISE_TABLES.filter((t) => !tablesSet.has(t));
+      const latencyMs = Date.now() - startTime;
 
       let vectorEnabled = false;
       try {
@@ -36,9 +64,21 @@ export async function GET() {
       return NextResponse.json({
         status: 'connected',
         configured: true,
-        tables,
-        allTablesCreated: tables.length === 5,
+        tables: allFoundTables,
+        allTablesCreated: legacyTables.length >= 2, // Backward compatibility
+        allEnterpriseTablesCreated: missingEnterpriseTables.length === 0,
+        enterpriseTables: {
+          total: ALL_ENTERPRISE_TABLES.length,
+          verified: ALL_ENTERPRISE_TABLES.length - missingEnterpriseTables.length,
+          missing: missingEnterpriseTables,
+        },
         pgvectorEnabled: vectorEnabled,
+        latencyMs,
+        pool: {
+          total: pool.totalCount,
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+        },
         timestamp: Date.now(),
       });
     } finally {

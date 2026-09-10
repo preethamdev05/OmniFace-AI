@@ -15,55 +15,9 @@ interface AuditEntry {
   timestamp: string;
 }
 
-const mockAuditLogs: AuditEntry[] = [
-  {
-    id: 'aud_01',
-    action: 'ATTENDANCE_STATUS_ADJUSTED',
-    entityType: 'ATTENDANCE_EVENT',
-    entityId: 'rec_01 (Aarav Sharma)',
-    performedBy: 'Dr. Vikram Joshi (Admin)',
-    oldValues: JSON.stringify({ status: 'ABSENT' }),
-    newValues: JSON.stringify({ status: 'PRESENT' }),
-    reason: 'Student arrived with approved medical fitness certificate; camera turnstile was under calibration at 08:30.',
-    timestamp: '2026-09-10T09:15:00Z',
-  },
-  {
-    id: 'aud_02',
-    action: 'DEVICE_PAIRED',
-    entityType: 'DEVICE',
-    entityId: 'OMNIFACE-GATE-01',
-    performedBy: 'System Fleet Controller',
-    oldValues: null,
-    newValues: JSON.stringify({ name: 'Main Gate Terminal', model: 'Xiaomi 14', hwHash: 'a8b7c6d5e4f3...' }),
-    reason: 'Dual pairing completed via 6-digit OTP code 839201',
-    timestamp: '2026-09-10T08:00:00Z',
-  },
-  {
-    id: 'aud_03',
-    action: 'MEMBER_ENROLLED',
-    entityType: 'STUDENT',
-    entityId: 'CS-2024-042 (Tanvi Iyer)',
-    performedBy: 'Prof. Sunita Rao (Teacher)',
-    oldValues: null,
-    newValues: JSON.stringify({ roll: 'CS-2024-042', dept: 'Computer Science', vectors: 5 }),
-    reason: 'New student semester registration',
-    timestamp: '2026-09-09T14:30:00Z',
-  },
-  {
-    id: 'aud_04',
-    action: 'DEVICE_REVOKED',
-    entityType: 'DEVICE',
-    entityId: 'OMNIFACE-OLD-TABLET-99',
-    performedBy: 'Fleet Administrator',
-    oldValues: JSON.stringify({ status: 'ONLINE' }),
-    newValues: JSON.stringify({ status: 'REVOKED' }),
-    reason: 'Hardware tablet decommissioned due to battery retirement',
-    timestamp: '2026-09-08T11:20:00Z',
-  },
-];
-
 export default function AuditLogPage() {
-  const [logs, setLogs] = useState<AuditEntry[]>(mockAuditLogs);
+  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterAction, setFilterAction] = useState('ALL');
   const [search, setSearch] = useState('');
   const { showToast } = useToast();
@@ -72,19 +26,53 @@ export default function AuditLogPage() {
     fetch('/api/v1/audit-logs')
       .then((res) => res.json())
       .then((data) => {
-        if (data.logs && data.logs.length > 0) {
+        if (data.success && Array.isArray(data.logs)) {
           setLogs(data.logs);
+        } else {
+          setLogs([]);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        showToast('Failed to load live audit records from server.', 'error');
+        setLogs([]);
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  const handleExportCSV = () => {
+    if (logs.length === 0) {
+      showToast('No audit logs available to export.', 'warning');
+      return;
+    }
+
+    const headers = ['Timestamp', 'Action', 'Target Entity', 'Performed By', 'Old Values', 'New Values', 'Reason'];
+    const rows = logs.map((l) => [
+      l.timestamp,
+      l.action,
+      `"${(l.entityId || '').replace(/"/g, '""')}"`,
+      `"${(l.performedBy || '').replace(/"/g, '""')}"`,
+      `"${(l.oldValues || '').replace(/"/g, '""')}"`,
+      `"${(l.newValues || '').replace(/"/g, '""')}"`,
+      `"${(l.reason || '').replace(/"/g, '""')}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `omniface_audit_log_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Audit log CSV generated and downloaded.', 'success');
+  };
 
   const filtered = logs.filter((l) => {
     const matchAction = filterAction === 'ALL' || l.action === filterAction;
     const matchSearch =
-      l.entityId.toLowerCase().includes(search.toLowerCase()) ||
+      (l.entityId || '').toLowerCase().includes(search.toLowerCase()) ||
       (l.reason && l.reason.toLowerCase().includes(search.toLowerCase())) ||
-      l.performedBy.toLowerCase().includes(search.toLowerCase());
+      (l.performedBy || '').toLowerCase().includes(search.toLowerCase());
     return matchAction && matchSearch;
   });
 
@@ -101,8 +89,9 @@ export default function AuditLogPage() {
         </div>
 
         <button
-          onClick={() => showToast('Downloading cryptographic audit certificate CSV...', 'success')}
+          onClick={handleExportCSV}
           className="btn btn-secondary"
+          disabled={loading || logs.length === 0}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Export Audit Log</span>
@@ -154,6 +143,9 @@ export default function AuditLogPage() {
           }}
         >
           <option value="ALL">All Recorded Actions</option>
+          <option value="SETTINGS_CHANGED">Settings Changed</option>
+          <option value="STAFF_INVITED">Staff Invited</option>
+          <option value="INVITATION_ACCEPTED">Invitation Accepted</option>
           <option value="ATTENDANCE_STATUS_ADJUSTED">Attendance Adjusted</option>
           <option value="DEVICE_PAIRED">Device Paired</option>
           <option value="DEVICE_REVOKED">Device Revoked</option>
@@ -175,35 +167,55 @@ export default function AuditLogPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((l) => (
-              <tr key={l.id}>
-                <td className="tnum" style={{ color: 'var(--text-dim)', fontSize: '11px', whiteSpace: 'nowrap' }}>
-                  {new Date(l.timestamp).toLocaleString()}
-                </td>
-                <td>
-                  <span
-                    className={`badge ${
-                      l.action.includes('ADJUST')
-                        ? 'badge-warning'
-                        : l.action.includes('REVOKE')
-                        ? 'badge-danger'
-                        : 'badge-primary'
-                    }`}
-                  >
-                    {l.action}
-                  </span>
-                </td>
-                <td style={{ fontWeight: 600 }}>{l.entityId}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{l.performedBy}</td>
-                <td style={{ fontSize: '11px', fontFamily: 'monospace', maxWidth: '240px' }}>
-                  {l.oldValues && <span style={{ color: 'var(--danger)' }}>{l.oldValues} → </span>}
-                  {l.newValues && <span style={{ color: 'var(--success)' }}>{l.newValues}</span>}
-                </td>
-                <td style={{ color: 'var(--text-main)', maxWidth: '320px', lineHeight: 1.4 }}>
-                  {l.reason || '—'}
+            {loading ? (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                  Loading cryptographic audit ledger...
                 </td>
               </tr>
-            ))}
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '28px', marginBottom: '8px' }}>📜</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>No Audit Entries Found</div>
+                  <div style={{ fontSize: '12px' }}>
+                    {search || filterAction !== 'ALL'
+                      ? 'No audit log records match the selected filters.'
+                      : 'All administrative and system actions will be immutably recorded here.'}
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              filtered.map((l) => (
+                <tr key={l.id}>
+                  <td className="tnum" style={{ color: 'var(--text-dim)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                    {new Date(l.timestamp).toLocaleString()}
+                  </td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        l.action.includes('ADJUST')
+                          ? 'badge-warning'
+                          : l.action.includes('REVOKE')
+                          ? 'badge-danger'
+                          : 'badge-primary'
+                      }`}
+                    >
+                      {l.action}
+                    </span>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{l.entityId}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{l.performedBy}</td>
+                  <td style={{ fontSize: '11px', fontFamily: 'monospace', maxWidth: '240px' }}>
+                    {l.oldValues && <span style={{ color: 'var(--danger)' }}>{l.oldValues} → </span>}
+                    {l.newValues && <span style={{ color: 'var(--success)' }}>{l.newValues}</span>}
+                  </td>
+                  <td style={{ color: 'var(--text-main)', maxWidth: '320px', lineHeight: 1.4 }}>
+                    {l.reason || '—'}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

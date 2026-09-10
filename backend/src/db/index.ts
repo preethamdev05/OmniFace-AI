@@ -22,8 +22,8 @@ export function getPool(): Pool {
 
   const pool = new Pool({
     connectionString,
-    max: 10,
-    idleTimeoutMillis: 30000,
+    max: 8, // Strictly bounded below Supabase pooler ceiling of 15
+    idleTimeoutMillis: 15000,
     connectionTimeoutMillis: 5000,
     ssl: isCloud && !connectionString.includes('localhost') ? { rejectUnauthorized: false } : false,
   });
@@ -33,9 +33,7 @@ export function getPool(): Pool {
     console.error('Unexpected error on idle PostgreSQL client', err);
   });
 
-  if (process.env.NODE_ENV !== 'production') {
-    globalThis.__omniDbPool = pool;
-  }
+  globalThis.__omniDbPool = pool;
 
   return pool;
 }

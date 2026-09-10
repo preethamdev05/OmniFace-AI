@@ -1,137 +1,230 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
-import { attendanceRecords, faceEmbeddings } from '@/db/schema';
-import { desc, eq } from 'drizzle-orm';
+import { students, attendanceEvents, devices, departments, organizations, subscriptions } from '@/db/schema';
+import { desc, eq, and, inArray } from 'drizzle-orm';
+import { requireSession } from '@/lib/api-auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSession(req, 'VIEWER');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const orgId = auth.user.orgId;
+
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Check if database records exist for today
-    let dbRecords: any[] = [];
+    // Safe zeroed defaults
+    let totalEnrolled = 0;
+    let presentToday = 0;
+    let absentToday = 0;
+    let attendanceRatePct = 0;
+    let activeKiosks = 0;
+    let tier = 'PRO';
+    let deptDistribution: Array<{ department: string; total: number; present: number; ratePct: number }> = [];
+    let hourlyMap = new Map<string, number>();
+    let kioskList: Array<any> = [];
+    let recentActivityList: Array<any> = [];
+
     if (isDbConfigured()) {
       const database = getDb();
       if (database) {
         try {
-          dbRecords = await database
-            .select()
-            .from(attendanceRecords)
-            .where(eq(attendanceRecords.sessionDate, todayStr))
-            .orderBy(desc(attendanceRecords.timestamp))
-            .limit(100);
+          // 1. Total enrolled students for this org
+          const enrolledStudents = await database
+            .select({
+              id: students.id,
+              rollNumber: students.rollNumber,
+              fullName: students.fullName,
+              departmentId: students.departmentId,
+            })
+            .from(students)
+            .where(eq(students.organizationId, orgId));
+
+          totalEnrolled = enrolledStudents.length;
+
+          // 2. Organization tier
+          const orgRows = await database
+            .select({ tier: organizations.tier })
+            .from(organizations)
+            .where(eq(organizations.id, orgId))
+            .limit(1);
+          if (orgRows.length > 0 && orgRows[0].tier) {
+            tier = orgRows[0].tier;
+          }
+
+          // 3. Today's attendance events
+          const todayEvents = await database
+            .select({
+              id: attendanceEvents.id,
+              eventId: attendanceEvents.eventId,
+              recordId: attendanceEvents.recordId,
+              studentRoll: attendanceEvents.studentRoll,
+              studentName: attendanceEvents.studentName,
+              timestamp: attendanceEvents.timestamp,
+              sessionDate: attendanceEvents.sessionDate,
+              status: attendanceEvents.status,
+              confidencePct: attendanceEvents.confidencePct,
+              securityTier: attendanceEvents.securityTier,
+              sha256Hash: attendanceEvents.sha256Hash,
+            })
+            .from(attendanceEvents)
+            .where(
+              and(
+                eq(attendanceEvents.organizationId, orgId),
+                eq(attendanceEvents.sessionDate, todayStr)
+              )
+            )
+            .orderBy(desc(attendanceEvents.timestamp));
+
+          // Set of students present today
+          const presentRolls = new Set<string>();
+          for (const ev of todayEvents) {
+            if (ev.status === 'PRESENT' || ev.status === 'LATE') {
+              presentRolls.add(ev.studentRoll);
+            }
+
+            // Hourly breakdown
+            const evDate = new Date(Number(ev.timestamp));
+            if (!isNaN(evDate.getTime())) {
+              const hour = String(evDate.getHours()).padStart(2, '0');
+              const min = evDate.getMinutes() >= 30 ? '30' : '00';
+              const bucket = `${hour}:${min}`;
+              hourlyMap.set(bucket, (hourlyMap.get(bucket) || 0) + 1);
+            }
+          }
+
+          presentToday = presentRolls.size;
+          absentToday = Math.max(0, totalEnrolled - presentToday);
+          attendanceRatePct = totalEnrolled > 0
+            ? Math.round((presentToday / totalEnrolled) * 1000) / 10
+            : 0;
+
+          // 4. Department distribution
+          const deptRows = await database
+            .select({
+              id: departments.id,
+              name: departments.name,
+              code: departments.code,
+            })
+            .from(departments)
+            .where(eq(departments.organizationId, orgId));
+
+          const deptStudentMap = new Map<string, typeof enrolledStudents>();
+          for (const s of enrolledStudents) {
+            const dId = s.departmentId || 'unassigned';
+            if (!deptStudentMap.has(dId)) {
+              deptStudentMap.set(dId, []);
+            }
+            deptStudentMap.get(dId)!.push(s);
+          }
+
+          deptDistribution = deptRows.map((d) => {
+            const deptStudents = deptStudentMap.get(d.id) || [];
+            const deptTotal = deptStudents.length;
+            const deptPresent = deptStudents.filter((s) => presentRolls.has(s.rollNumber)).length;
+            const rate = deptTotal > 0 ? Math.round((deptPresent / deptTotal) * 1000) / 10 : 0;
+            return {
+              department: d.name,
+              total: deptTotal,
+              present: deptPresent,
+              ratePct: rate,
+            };
+          });
+
+          // 5. Active kiosks/devices
+          const deviceRows = await database
+            .select({
+              id: devices.id,
+              deviceIdentifier: devices.deviceIdentifier,
+              deviceName: devices.deviceName,
+              status: devices.status,
+              lastSyncAt: devices.lastSyncAt,
+              appVersion: devices.appVersion,
+            })
+            .from(devices)
+            .where(eq(devices.organizationId, orgId));
+
+          activeKiosks = deviceRows.filter((d) => d.status === 'ONLINE').length;
+
+          kioskList = deviceRows.map((d) => ({
+            id: d.deviceIdentifier,
+            name: d.deviceName,
+            status: d.status,
+            lastSync: d.lastSyncAt ? new Date(d.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never',
+            appVersion: d.appVersion || 'v2.0.0',
+          }));
+
+          // 6. Recent activity (latest 8 attendance events for this org)
+          const recentRows = await database
+            .select({
+              id: attendanceEvents.id,
+              eventId: attendanceEvents.eventId,
+              recordId: attendanceEvents.recordId,
+              studentRoll: attendanceEvents.studentRoll,
+              studentName: attendanceEvents.studentName,
+              timestamp: attendanceEvents.timestamp,
+              sessionDate: attendanceEvents.sessionDate,
+              confidencePct: attendanceEvents.confidencePct,
+              securityTier: attendanceEvents.securityTier,
+              status: attendanceEvents.status,
+              sha256Hash: attendanceEvents.sha256Hash,
+            })
+            .from(attendanceEvents)
+            .where(eq(attendanceEvents.organizationId, orgId))
+            .orderBy(desc(attendanceEvents.timestamp))
+            .limit(8);
+
+          recentActivityList = recentRows.map((r, i) => {
+            const evDate = new Date(Number(r.timestamp));
+            const timeStr = isNaN(evDate.getTime())
+              ? '—'
+              : evDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            return {
+              id: r.id || r.eventId || `rec_${i + 1}`,
+              studentRoll: r.studentRoll,
+              studentName: r.studentName,
+              department: 'Enrolled Member',
+              sessionDate: r.sessionDate,
+              time: timeStr,
+              confidencePct: r.confidencePct,
+              securityTier: r.securityTier,
+              status: r.status,
+              sha256Hash: r.sha256Hash || '',
+            };
+          });
         } catch (dbErr) {
-          console.error('PostgreSQL analytics summary query warning:', dbErr);
+          console.error('Analytics summary query warning:', dbErr);
         }
       }
     }
 
-    // Default baseline fallback
-    const analytics = {
-      summary: {
-        totalEnrolled: 184,
-        presentToday: dbRecords.length > 0 ? new Set(dbRecords.map((r) => r.studentRoll)).size : 167,
-        absentToday: dbRecords.length > 0 ? Math.max(0, 184 - new Set(dbRecords.map((r) => r.studentRoll)).size) : 17,
-        attendanceRatePct: dbRecords.length > 0 ? Math.round((new Set(dbRecords.map((r) => r.studentRoll)).size / 184) * 1000) / 10 : 90.8,
-        activeKiosks: 3,
-        tier: 'BUSINESS',
-      },
-      departmentDistribution: [
-        { department: 'Computer Science', total: 64, present: 60, ratePct: 93.8 },
-        { department: 'Electronics & Comm.', total: 48, present: 43, ratePct: 89.6 },
-        { department: 'Mechanical Eng.', total: 42, present: 37, ratePct: 88.1 },
-        { department: 'Staff & Faculty', total: 30, present: 27, ratePct: 90.0 },
-      ],
-      hourlyAttendance: [
-        { hour: '08:00', count: 18 },
-        { hour: '08:30', count: 52 },
-        { hour: '09:00', count: 74 },
-        { hour: '09:30', count: 15 },
-        { hour: '10:00', count: 8 },
-      ],
-      kioskStatus: [
-        { id: 'kiosk-gate-1', name: 'Main Gate Terminal', status: 'ONLINE', pingMs: 14, lastSync: '1 min ago', batteryPct: 98 },
-        { id: 'kiosk-academic-b', name: 'Academic Block B', status: 'ONLINE', pingMs: 22, lastSync: '3 min ago', batteryPct: 84 },
-        { id: 'kiosk-library', name: 'Central Library Kiosk', status: 'ONLINE', pingMs: 19, lastSync: '5 min ago', batteryPct: 100 },
-      ],
-      recentActivity: dbRecords.length > 0
-        ? dbRecords.slice(0, 8).map((r, i) => ({
-            id: r.recordId || `rec_${i + 1}`,
-            studentRoll: r.studentRoll,
-            studentName: r.studentName,
-            department: 'General',
-            sessionDate: r.sessionDate,
-            time: new Date(Number(r.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            confidencePct: r.confidencePct,
-            securityTier: r.securityTier,
-            status: 'PRESENT',
-            sha256Hash: r.sha256Hash,
-          }))
-        : [
-        {
-          id: 'rec_01',
-          studentRoll: 'CS-2024-042',
-          studentName: 'Aarav Sharma',
-          department: 'Computer Science',
-          sessionDate: todayStr,
-          time: '09:04 AM',
-          confidencePct: 99.4,
-          securityTier: 'HIGH',
-          status: 'PRESENT',
-          sha256Hash: 'a7b3c82d4e5f61203498adfe1902834b9281a0ec94726481029384756182a93c',
-        },
-        {
-          id: 'rec_02',
-          studentRoll: 'EC-2024-019',
-          studentName: 'Priya Patel',
-          department: 'Electronics & Comm.',
-          sessionDate: todayStr,
-          time: '09:02 AM',
-          confidencePct: 98.7,
-          securityTier: 'STRICT',
-          status: 'PRESENT',
-          sha256Hash: 'f4e2d1c0b9a89786756453423120191817161514131211100908070605040302',
-        },
-        {
-          id: 'rec_03',
-          studentRoll: 'ME-2024-011',
-          studentName: 'Rohan Deshmukh',
-          department: 'Mechanical Eng.',
-          sessionDate: todayStr,
-          time: '08:58 AM',
-          confidencePct: 97.5,
-          securityTier: 'HIGH',
-          status: 'PRESENT',
-          sha256Hash: '89ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef01',
-        },
-        {
-          id: 'rec_04',
-          studentRoll: 'CS-2024-008',
-          studentName: 'Ananya Reddy',
-          department: 'Computer Science',
-          sessionDate: todayStr,
-          time: '08:55 AM',
-          confidencePct: 99.1,
-          securityTier: 'STRICT',
-          status: 'PRESENT',
-          sha256Hash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-        },
-        {
-          id: 'rec_05',
-          studentRoll: 'SF-2023-003',
-          studentName: 'Dr. Vikram Joshi',
-          department: 'Staff & Faculty',
-          sessionDate: todayStr,
-          time: '08:45 AM',
-          confidencePct: 99.8,
-          securityTier: 'STRICT',
-          status: 'PRESENT',
-          sha256Hash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
-        },
-      ],
-    };
+    // Convert hourly map to sorted array
+    const hourlyAttendance = Array.from(hourlyMap.entries())
+      .map(([hour, count]) => ({ hour, count }))
+      .sort((a, b) => a.hour.localeCompare(b.hour));
 
-    return NextResponse.json(analytics);
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Failed to fetch analytics' }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      summary: {
+        totalEnrolled,
+        presentToday,
+        absentToday,
+        attendanceRatePct,
+        activeKiosks,
+        tier,
+      },
+      departmentDistribution: deptDistribution,
+      hourlyAttendance,
+      kioskStatus: kioskList,
+      recentActivity: recentActivityList,
+    }, { status: 200 });
+  } catch (error: any) {
+    console.error('Analytics summary failed:', error);
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Failed to generate analytics summary' },
+      { status: 500 }
+    );
   }
 }

@@ -214,4 +214,55 @@ object CloudFleetSyncEngine {
             connection.disconnect()
         }
     }
+
+    /**
+     * Dispatches real-time hardware telemetry and SRE heartbeat to fleet backend.
+     */
+    fun sendTelemetryHeartbeat(context: Context): Boolean {
+        return try {
+            val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+            val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/attendance/sync")
+                ?: "https://omniface.vercel.app/api/v1/attendance/sync"
+            val deviceId = prefs.getString("DEVICE_ID", "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
+            val heartbeatEndpoint = syncEndpoint.replace("/attendance/sync", "/devices/heartbeat")
+
+            val isLocalDev = heartbeatEndpoint.contains("127.0.0.1") || heartbeatEndpoint.contains("localhost") || heartbeatEndpoint.contains("10.0.2.2") || heartbeatEndpoint.contains("192.168.")
+            if (!heartbeatEndpoint.startsWith("https://") && !isLocalDev) {
+                return false
+            }
+
+            val deviceToken = prefs.getString("DEVICE_TOKEN", null)
+            val pendingCount = _unsyncedCount.value
+            val payload = FleetTopologyManager.createHeartbeatPayload(context, pendingCount)
+            payload.put("deviceId", deviceId)
+
+            val url = URL(heartbeatEndpoint)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 4000
+                readTimeout = 4000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("X-Device-ID", deviceId)
+                if (!deviceToken.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Token", deviceToken)
+                    setRequestProperty("Authorization", "Bearer $deviceToken")
+                }
+            }
+
+            try {
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(payload.toString())
+                    writer.flush()
+                }
+                conn.responseCode in 200..299
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Heartbeat dispatch error: ${e.message}")
+            false
+        }
+    }
 }

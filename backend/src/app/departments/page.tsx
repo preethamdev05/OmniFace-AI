@@ -1,56 +1,113 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@/components/Toast';
 
 interface DepartmentItem {
   id: string;
   name: string;
   code: string;
-  headOfDept: string;
-  studentCount: number;
-  classesCount: number;
+  description?: string | null;
+  studentCount?: number;
+  classesCount?: number;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
-const mockDepartments: DepartmentItem[] = [
-  { id: 'dept_01', name: 'Computer Science & Engineering', code: 'CSE', headOfDept: 'Dr. Anand Raman', studentCount: 64, classesCount: 4, status: 'ACTIVE' },
-  { id: 'dept_02', name: 'Electronics & Communication', code: 'ECE', headOfDept: 'Dr. Meera Nambiar', studentCount: 48, classesCount: 3, status: 'ACTIVE' },
-  { id: 'dept_03', name: 'Mechanical Engineering', code: 'MECH', headOfDept: 'Prof. Ramesh Rao', studentCount: 42, classesCount: 3, status: 'ACTIVE' },
-  { id: 'dept_04', name: 'Staff, Faculty & Administration', code: 'STAFF', headOfDept: 'Registrar Office', studentCount: 30, classesCount: 1, status: 'ACTIVE' },
-];
-
 export default function DepartmentsPage() {
-  const [deptList, setDeptList] = useState<DepartmentItem[]>(mockDepartments);
+  const [deptList, setDeptList] = useState<DepartmentItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [hod, setHod] = useState('');
+  const [description, setDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { showToast } = useToast();
 
-  const handleAddDept = (e: React.FormEvent) => {
+  const fetchDepartments = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/v1/departments');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.departments)) {
+          setDeptList(
+            data.departments.map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              code: d.code,
+              description: d.description,
+              studentCount: d.studentCount || 0,
+              classesCount: d.classesCount || 0,
+              status: 'ACTIVE',
+            }))
+          );
+        }
+      }
+    } catch (err: any) {
+      console.warn('Could not fetch departments:', err?.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDepartments();
+  }, []);
+
+  const handleAddDept = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !code) {
+    if (!name.trim() || !code.trim()) {
       showToast('Department name and code are required', 'error');
       return;
     }
 
-    const newDept: DepartmentItem = {
-      id: `dept_${Date.now()}`,
-      name,
-      code: code.toUpperCase(),
-      headOfDept: hod || 'Department Faculty Head',
-      studentCount: 0,
-      classesCount: 0,
-      status: 'ACTIVE',
-    };
+    try {
+      setIsSubmitting(true);
+      const res = await fetch('/api/v1/departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          code: code.trim().toUpperCase(),
+          description: description.trim() || undefined,
+        }),
+      });
 
-    setDeptList([...deptList, newDept]);
-    setShowAddModal(false);
-    setName('');
-    setCode('');
-    setHod('');
-    showToast(`Department "${name}" created successfully`, 'success');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Department "${name}" created successfully`, 'success');
+        setShowAddModal(false);
+        setName('');
+        setCode('');
+        setDescription('');
+        fetchDepartments();
+      } else {
+        showToast(data.error || 'Failed to create department', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error creating department', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteDept = async (id: string, deptName: string) => {
+    if (!confirm(`Are you sure you want to delete department "${deptName}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/v1/departments?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Department "${deptName}" deleted`, 'success');
+        setDeptList((prev) => prev.filter((d) => d.id !== id));
+      } else {
+        showToast(data.error || 'Failed to delete department', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error deleting department', 'error');
+    }
   };
 
   return (
@@ -61,7 +118,7 @@ export default function DepartmentsPage() {
             Academic Departments
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Manage departmental organizational units, student allocations, and faculty leadership
+            Manage departmental organizational units, student allocations, and institutional structure
           </p>
         </div>
 
@@ -71,41 +128,69 @@ export default function DepartmentsPage() {
         </button>
       </div>
 
-      <div className="table-surface">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Department Name</th>
-              <th>Code</th>
-              <th>Head of Department</th>
-              <th>Enrolled People</th>
-              <th>Classes</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deptList.map((d) => (
-              <tr key={d.id}>
-                <td style={{ fontWeight: 600 }}>{d.name}</td>
-                <td><span className="badge badge-primary">{d.code}</span></td>
-                <td style={{ color: 'var(--text-muted)' }}>{d.headOfDept}</td>
-                <td className="tnum" style={{ fontWeight: 600 }}>{d.studentCount}</td>
-                <td className="tnum">{d.classesCount} Classes</td>
-                <td><span className="badge badge-success">{d.status}</span></td>
-                <td>
-                  <button
-                    onClick={() => showToast(`Department details: ${d.name}`, 'info')}
-                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
-                  >
-                    Configure
-                  </button>
-                </td>
+      {isLoading ? (
+        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
+          Loading departments...
+        </div>
+      ) : deptList.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '64px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px' }}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 16px', display: 'block' }}>
+            <rect width="18" height="18" x="3" y="3" rx="2"/>
+            <path d="M9 3v18M15 9h6M15 15h6"/>
+          </svg>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px' }}>No Departments Configured Yet</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px', maxWidth: '380px', margin: '0 auto 20px' }}>
+            Organize courses, people, and rosters into departments (e.g. Computer Science, Mechanical Eng., General Staff).
+          </p>
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+            <span>Add First Department</span>
+          </button>
+        </div>
+      ) : (
+        <div className="table-surface">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Department Name</th>
+                <th>Code</th>
+                <th>Description</th>
+                <th>Enrolled People</th>
+                <th>Classes</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {deptList.map((d) => (
+                <tr key={d.id}>
+                  <td style={{ fontWeight: 600 }}>{d.name}</td>
+                  <td><span className="badge badge-primary">{d.code}</span></td>
+                  <td style={{ color: 'var(--text-muted)' }}>{d.description || '—'}</td>
+                  <td className="tnum" style={{ fontWeight: 600 }}>{d.studentCount}</td>
+                  <td className="tnum">{d.classesCount} Classes</td>
+                  <td><span className="badge badge-success">{d.status}</span></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button
+                        onClick={() => showToast(`Department details: ${d.name}`, 'info')}
+                        style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
+                      >
+                        Configure
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDept(d.id, d.name)}
+                        style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '12px' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
@@ -137,19 +222,21 @@ export default function DepartmentsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Head of Department / Lead</label>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Description (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Dr. Priya Sundaram"
-                  value={hod}
-                  onChange={(e) => setHod(e.target.value)}
+                  placeholder="e.g. Faculty, Labs and Students"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                   style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
                 />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary">Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Department</button>
+                <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+                  {isSubmitting ? 'Saving...' : 'Save Department'}
+                </button>
               </div>
             </form>
           </div>

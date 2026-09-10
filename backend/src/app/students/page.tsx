@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -16,21 +16,9 @@ interface StudentItem {
   enrolledAt: string;
 }
 
-const mockStudents: StudentItem[] = [
-  { id: '1', studentRoll: 'CS-2024-001', fullName: 'Aarav Sharma', department: 'Computer Science', semester: 'IV', vectorCount: 5, qualityScore: 98.4, status: 'ENROLLED', enrolledAt: '2026-08-10' },
-  { id: '2', studentRoll: 'CS-2024-008', fullName: 'Ananya Reddy', department: 'Computer Science', semester: 'IV', vectorCount: 5, qualityScore: 99.1, status: 'ENROLLED', enrolledAt: '2026-08-10' },
-  { id: '3', studentRoll: 'CS-2024-015', fullName: 'Kabir Verma', department: 'Computer Science', semester: 'IV', vectorCount: 5, qualityScore: 97.2, status: 'ENROLLED', enrolledAt: '2026-08-11' },
-  { id: '4', studentRoll: 'EC-2024-019', fullName: 'Priya Patel', department: 'Electronics & Comm.', semester: 'IV', vectorCount: 5, qualityScore: 98.7, status: 'ENROLLED', enrolledAt: '2026-08-11' },
-  { id: '5', studentRoll: 'EC-2024-025', fullName: 'Devanshi Shah', department: 'Electronics & Comm.', semester: 'IV', vectorCount: 5, qualityScore: 96.9, status: 'ENROLLED', enrolledAt: '2026-08-12' },
-  { id: '6', studentRoll: 'ME-2024-011', fullName: 'Rohan Deshmukh', department: 'Mechanical Eng.', semester: 'VI', vectorCount: 5, qualityScore: 97.5, status: 'ENROLLED', enrolledAt: '2026-08-12' },
-  { id: '7', studentRoll: 'ME-2024-018', fullName: 'Aditya Kulkarni', department: 'Mechanical Eng.', semester: 'VI', vectorCount: 5, qualityScore: 98.0, status: 'ENROLLED', enrolledAt: '2026-08-14' },
-  { id: '8', studentRoll: 'SF-2023-003', fullName: 'Dr. Vikram Joshi', department: 'Staff & Faculty', semester: 'N/A', vectorCount: 5, qualityScore: 99.8, status: 'ENROLLED', enrolledAt: '2026-07-01' },
-  { id: '9', studentRoll: 'SF-2023-009', fullName: 'Prof. Sunita Rao', department: 'Staff & Faculty', semester: 'N/A', vectorCount: 5, qualityScore: 99.2, status: 'ENROLLED', enrolledAt: '2026-07-01' },
-  { id: '10', studentRoll: 'CS-2024-042', fullName: 'Tanvi Iyer', department: 'Computer Science', semester: 'IV', vectorCount: 5, qualityScore: 98.6, status: 'ENROLLED', enrolledAt: '2026-08-15' },
-];
-
 export default function StudentsPage() {
-  const [students, setStudents] = useState<StudentItem[]>(mockStudents);
+  const [students, setStudents] = useState<StudentItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [department, setDepartment] = useState('ALL');
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -38,69 +26,95 @@ export default function StudentsPage() {
   const [newName, setNewName] = useState('');
   const [newDept, setNewDept] = useState('Computer Science');
   const [newSemester, setNewSemester] = useState('IV');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { showToast } = useToast();
 
-  useEffect(() => {
-    fetch('/api/v1/users')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.members && data.members.length > 0) {
+  const fetchStudents = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/v1/users');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.members)) {
           setStudents(data.members);
+        } else {
+          setStudents([]);
         }
-      })
-      .catch(() => {});
+      }
+    } catch (err: any) {
+      console.warn('Could not fetch students:', err?.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStudents();
   }, []);
 
   const filtered = students.filter((s) => {
     const matchDept = department === 'ALL' || s.department === department;
     const matchSearch =
-      s.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      s.studentRoll.toLowerCase().includes(search.toLowerCase());
+      (s.fullName || '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.studentRoll || '').toLowerCase().includes(search.toLowerCase());
     return matchDept && matchSearch;
   });
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRoll || !newName) {
+    if (!newRoll.trim() || !newName.trim()) {
       showToast('Roll number and Full Name are required', 'error');
       return;
     }
 
     try {
+      setIsSubmitting(true);
       const res = await fetch('/api/v1/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          studentRoll: newRoll,
-          fullName: newName,
+          studentRoll: newRoll.trim(),
+          fullName: newName.trim(),
           department: newDept,
           semester: newSemester,
         }),
       });
 
-      if (res.ok) {
-        const item: StudentItem = {
-          id: `std_${Date.now()}`,
-          studentRoll: newRoll,
-          fullName: newName,
-          department: newDept,
-          semester: newSemester,
-          vectorCount: 5,
-          qualityScore: 98.0,
-          status: 'ENROLLED',
-          enrolledAt: new Date().toISOString().split('T')[0],
-        };
-        setStudents([item, ...students]);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Student ${newName} enrolled successfully with 512-D vectors`, 'success');
         setShowAddModal(false);
         setNewRoll('');
         setNewName('');
-        showToast('Student enrolled successfully with mathematical biometric vector placeholder', 'success');
+        fetchStudents();
       } else {
-        showToast('Failed to save student', 'error');
+        showToast(data.error || 'Failed to save student', 'error');
       }
-    } catch {
-      showToast('Offline mode: student added locally', 'info');
-      setShowAddModal(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Error enrolling student', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteStudent = async (s: StudentItem) => {
+    if (!confirm(`Purge biometric vectors and enrollment for ${s.fullName} (${s.studentRoll}) under DPDP Act 2023?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/v1/users?id=${encodeURIComponent(s.id)}&roll=${encodeURIComponent(s.studentRoll)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Purged ${s.fullName} records`, 'success');
+        setStudents((prev) => prev.filter((item) => item.id !== s.id));
+      } else {
+        showToast(data.error || 'Failed to purge student', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error purging student', 'error');
     }
   };
 
@@ -124,9 +138,22 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Privacy Notice Banner */}
-      <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '10px', padding: '12px 18px', marginBottom: '20px', fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{ fontSize: '18px' }}>🛡️</span>
+      {/* DPDP Compliance Notice Banner */}
+      <div
+        style={{
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
+          borderRadius: '10px',
+          padding: '14px 18px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '13px',
+          color: 'var(--text-muted)',
+        }}
+      >
+        <span style={{ fontSize: '20px' }}>🛡️</span>
         <div>
           <strong style={{ color: 'var(--text-main)' }}>DPDP Act 2023 Compliant:</strong> Facial biometric templates are stored as 512-dimensional floating-point mathematical hashes. Raw camera photos are never saved or uploaded.
         </div>
@@ -174,42 +201,77 @@ export default function StudentsPage() {
       </div>
 
       {/* Students Table */}
-      <div className="table-surface">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Roll Number</th>
-              <th>Full Name</th>
-              <th>Department</th>
-              <th>Semester</th>
-              <th>Face Vectors</th>
-              <th>Quality Score</th>
-              <th>Status</th>
-              <th>Enrolled Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((s) => (
-              <tr key={s.id}>
-                <td className="tnum" style={{ fontWeight: 600 }}>{s.studentRoll}</td>
-                <td style={{ fontWeight: 500 }}>{s.fullName}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{s.department}</td>
-                <td>{s.semester}</td>
-                <td className="tnum">
-                  <span className="badge badge-primary">{s.vectorCount || 5} Angles (512-D)</span>
-                </td>
-                <td className="tnum" style={{ color: 'var(--success)', fontWeight: 600 }}>
-                  {s.qualityScore}%
-                </td>
-                <td>
-                  <span className="badge badge-success">{s.status}</span>
-                </td>
-                <td className="tnum" style={{ color: 'var(--text-dim)' }}>{s.enrolledAt}</td>
+      {isLoading ? (
+        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
+          Loading enrolled students...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '64px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px' }}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 16px', display: 'block' }}>
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px' }}>
+            {search || department !== 'ALL' ? 'No Matching Students Found' : 'No Students Enrolled Yet'}
+          </h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px', maxWidth: '380px', margin: '0 auto 20px' }}>
+            {search || department !== 'ALL'
+              ? 'Try changing your search query or department filter.'
+              : 'Enroll students with their roll numbers and 512-D ArcFace mathematical embeddings.'}
+          </p>
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+            <span>Enroll First Student</span>
+          </button>
+        </div>
+      ) : (
+        <div className="table-surface">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Roll Number</th>
+                <th>Full Name</th>
+                <th>Department</th>
+                <th>Semester</th>
+                <th>Face Vectors</th>
+                <th>Quality Score</th>
+                <th>Status</th>
+                <th>Enrolled Date</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr key={s.id}>
+                  <td className="tnum" style={{ fontWeight: 600 }}>{s.studentRoll}</td>
+                  <td style={{ fontWeight: 500 }}>{s.fullName}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{s.department}</td>
+                  <td>{s.semester}</td>
+                  <td className="tnum">
+                    <span className="badge badge-primary">{s.vectorCount || 5} Angles (512-D)</span>
+                  </td>
+                  <td className="tnum" style={{ color: 'var(--success)', fontWeight: 600 }}>
+                    {s.qualityScore}%
+                  </td>
+                  <td>
+                    <span className="badge badge-success">{s.status}</span>
+                  </td>
+                  <td className="tnum" style={{ color: 'var(--text-dim)' }}>{s.enrolledAt}</td>
+                  <td>
+                    <button
+                      onClick={() => handleDeleteStudent(s)}
+                      style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '12px' }}
+                    >
+                      Purge
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Enroll Student Modal */}
       {showAddModal && (
@@ -270,7 +332,9 @@ export default function StudentsPage() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
                 <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary">Cancel</button>
-                <button type="submit" className="btn btn-primary">Enroll</button>
+                <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+                  {isSubmitting ? 'Enrolling...' : 'Enroll'}
+                </button>
               </div>
             </form>
           </div>

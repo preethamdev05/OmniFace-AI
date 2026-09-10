@@ -1,28 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
-import { faceEmbeddings } from '@/db/schema';
-import { eq, gte } from 'drizzle-orm';
+import { faceTemplates, students as studentsTable } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+import { authenticateDevice } from '@/lib/api-auth';
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get('orgId');
-    const sinceTimestamp = parseInt(searchParams.get('since') || '0', 10);
-    const authHeader = req.headers.get('authorization');
-
-    if (!orgId) {
+    // Authenticate device via X-Device-Token or Authorization: Bearer <deviceToken>
+    const device = await authenticateDevice(req);
+    if (!device) {
       return NextResponse.json(
-        { success: false, error: 'Missing orgId parameter' },
-        { status: 400 }
-      );
-    }
-
-    if (!authHeader || !authHeader.startsWith('Bearer omni_')) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or missing Authorization bearer token' },
+        { success: false, error: 'Unauthorized kiosk device or missing device token' },
         { status: 401 }
       );
     }
+
+    const orgId = device.organizationId;
+    const { searchParams } = new URL(req.url);
+    const sinceTimestamp = parseInt(searchParams.get('since') || '0', 10);
 
     let templates: any[] = [];
     let students: any[] = [];
@@ -33,8 +28,8 @@ export async function GET(req: NextRequest) {
         try {
           const rows = await database
             .select()
-            .from(faceEmbeddings)
-            .where(eq(faceEmbeddings.orgId, orgId));
+            .from(faceTemplates)
+            .where(eq(faceTemplates.organizationId, orgId));
 
           templates = rows.map((r) => ({
             id: r.id,
@@ -45,18 +40,21 @@ export async function GET(req: NextRequest) {
             qualityScore: r.qualityScore,
           }));
 
-          const studentMap = new Map<string, any>();
-          for (const r of rows) {
-            if (!studentMap.has(r.studentRoll)) {
-              studentMap.set(r.studentRoll, {
-                roll: r.studentRoll,
-                name: r.fullName,
-                department: r.department,
-                semester: r.semester,
-              });
-            }
-          }
-          students = Array.from(studentMap.values());
+          const studentRows = await database
+            .select({
+              id: studentsTable.id,
+              rollNumber: studentsTable.rollNumber,
+              fullName: studentsTable.fullName,
+            })
+            .from(studentsTable)
+            .where(eq(studentsTable.organizationId, orgId));
+
+          students = studentRows.map((s) => ({
+            roll: s.rollNumber,
+            name: s.fullName,
+            department: 'Enrolled Member',
+            semester: 'I',
+          }));
         } catch (dbErr) {
           console.error('PostgreSQL sync pull query warning:', dbErr);
         }

@@ -7,5 +7,5 @@
         <domain includeSubdomains="true">10.0.2.2</domain>
     </domain-config>
     <!-- Base config enforces strict HTTPS for all public cloud backends (e.g. Vercel) -->
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

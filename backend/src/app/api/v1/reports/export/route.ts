@@ -1,46 +1,93 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isDbConfigured, getDb } from '@/db';
+import { attendanceEvents } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { requireSession } from '@/lib/api-auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSession(req, 'TEACHER');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const { user } = auth;
+    const orgId = user.orgId;
+
     const { searchParams } = new URL(req.url);
     const format = searchParams.get('format') || 'csv';
-    const month = searchParams.get('month') || '2026-09';
+    const month = searchParams.get('month') || new Date().toISOString().slice(0, 7);
     const dept = searchParams.get('department') || 'All';
 
     // CSV Header row
     const headers = [
+      'Event ID',
       'Roll Number',
-      'Student / Staff Name',
-      'Department',
-      'Total Working Days',
-      'Days Present',
-      'Days Absent',
-      'Late Marks',
-      'Attendance Rate (%)',
+      'Student Name',
+      'Date',
+      'Timestamp',
+      'Status',
+      'Confidence (%)',
       'Security Tier',
-      'Verification Status',
+      'Device ID',
+      'Verification Proof',
     ];
 
-    const dataRows = [
-      ['CS-2024-001', 'Aarav Sharma', 'Computer Science', '22', '21', '1', '0', '95.5%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['CS-2024-008', 'Ananya Reddy', 'Computer Science', '22', '22', '0', '0', '100.0%', 'STRICT', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['CS-2024-015', 'Kabir Verma', 'Computer Science', '22', '19', '3', '1', '86.4%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['EC-2024-019', 'Priya Patel', 'Electronics & Comm.', '22', '21', '1', '0', '95.5%', 'STRICT', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['EC-2024-025', 'Devanshi Shah', 'Electronics & Comm.', '22', '20', '2', '2', '90.9%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['ME-2024-011', 'Rohan Deshmukh', 'Mechanical Eng.', '22', '20', '2', '1', '90.9%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['ME-2024-018', 'Aditya Kulkarni', 'Mechanical Eng.', '22', '18', '4', '0', '81.8%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['SF-2023-003', 'Dr. Vikram Joshi', 'Staff & Faculty', '22', '22', '0', '0', '100.0%', 'STRICT', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['SF-2023-009', 'Prof. Sunita Rao', 'Staff & Faculty', '22', '22', '0', '0', '100.0%', 'STRICT', 'CRYPTOGRAPHICALLY_VERIFIED'],
-      ['CS-2024-042', 'Tanvi Iyer', 'Computer Science', '22', '21', '1', '0', '95.5%', 'HIGH', 'CRYPTOGRAPHICALLY_VERIFIED'],
-    ];
+    let dataRows: string[][] = [];
 
-    const csvContent = [headers.join(','), ...dataRows.map((row) => row.map((cell) => `"${cell}"`).join(','))].join('\n');
+    if (isDbConfigured()) {
+      const database = getDb();
+      if (database) {
+        try {
+          const events = await database
+            .select()
+            .from(attendanceEvents)
+            .where(eq(attendanceEvents.organizationId, orgId))
+            .orderBy(desc(attendanceEvents.timestamp))
+            .limit(1000);
+
+          dataRows = events.map((e) => [
+            e.eventId || e.id,
+            e.studentRoll || 'N/A',
+            e.studentName || 'Student',
+            e.sessionDate || '',
+            new Date(Number(e.timestamp)).toISOString(),
+            e.status,
+            `${e.confidencePct}%`,
+            e.securityTier,
+            e.deviceId,
+            e.sha256Hash ? 'CRYPTOGRAPHICALLY_VERIFIED' : 'STANDARD',
+          ]);
+        } catch (dbErr) {
+          console.warn('DB reports export query warning:', dbErr);
+        }
+      }
+    }
+
+    // Prevent CSV Formula Injection (CWE-1236)
+    function sanitizeCsvCell(value: any): string {
+      if (value === null || value === undefined) return '';
+      const str = String(value).replace(/"/g, '""');
+      // If cell starts with formula characters (=, +, -, @, \t, \r), prefix with single quote
+      if (/^[=+\-@\t\r]/.test(str)) {
+        return `'${str}`;
+      }
+      return str;
+    }
+
+    const csvContent = [
+      headers.join(','),
+      ...dataRows.map((row) => row.map((cell) => `"${sanitizeCsvCell(cell)}"`).join(',')),
+    ].join('\n');
+
+    // Sanitize parameters for Content-Disposition header against CRLF injection (CWE-113)
+    const safeMonth = month.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeDept = dept.replace(/[^a-zA-Z0-9_-]/g, '_');
 
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="OmniFace_Attendance_Report_${month}_${dept}.csv"`,
+        'Content-Disposition': `attachment; filename="OmniFace_Attendance_Report_${safeMonth}_${safeDept}.csv"`,
       },
     });
   } catch (err: any) {

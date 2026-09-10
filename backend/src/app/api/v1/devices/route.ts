@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
 import { devices, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
-import { eq, desc } from 'drizzle-orm';
+import { ensureDefaultOrganization } from '@/db/helpers';
+import { eq, and, desc } from 'drizzle-orm';
+import { requireSession } from '@/lib/api-auth';
 
 interface DeviceItem {
   id: string;
@@ -12,58 +13,27 @@ interface DeviceItem {
   status: 'ONLINE' | 'OFFLINE' | 'PAIRED' | 'REVOKED';
   lastSyncAt: string;
   lastAttendanceAt: string;
+  lastHeartbeatAt?: string;
   pendingEventsCount: number;
   hardwareHash: string;
   isPaired: boolean;
   pairedAt: string;
+  batteryPct?: number | null;
+  temperature?: number | null;
+  thermalState?: 'NOMINAL' | 'WARM' | 'CRITICAL';
+  activeFps?: number;
+  ipAddress?: string | null;
+  isStale?: boolean;
 }
-
-const mockDevices: DeviceItem[] = [
-  {
-    id: 'dev_01',
-    deviceIdentifier: 'OMNIFACE-GATE-01',
-    deviceName: 'Main Entrance Gate Kiosk',
-    appVersion: 'v2.0.0',
-    status: 'ONLINE',
-    lastSyncAt: '1 min ago',
-    lastAttendanceAt: '09:04 AM',
-    pendingEventsCount: 0,
-    hardwareHash: 'a8b7c6d5e4f3a2b10987654321fedcba0987654321fedcba0987654321fedcba',
-    isPaired: true,
-    pairedAt: '2026-08-01T08:00:00Z',
-  },
-  {
-    id: 'dev_02',
-    deviceIdentifier: 'OMNIFACE-BLOCKB-02',
-    deviceName: 'Academic Block B Terminal',
-    appVersion: 'v2.0.0',
-    status: 'ONLINE',
-    lastSyncAt: '3 min ago',
-    lastAttendanceAt: '09:02 AM',
-    pendingEventsCount: 0,
-    hardwareHash: 'f4e3d2c1b0a99887766554433221100ffeeddccbbaa99887766554433221100f',
-    isPaired: true,
-    pairedAt: '2026-08-05T09:30:00Z',
-  },
-  {
-    id: 'dev_03',
-    deviceIdentifier: 'OMNIFACE-LIB-03',
-    deviceName: 'Central Library Kiosk',
-    appVersion: 'v1.9.8',
-    status: 'ONLINE',
-    lastSyncAt: '5 min ago',
-    lastAttendanceAt: '08:45 AM',
-    pendingEventsCount: 2,
-    hardwareHash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-    isPaired: true,
-    pairedAt: '2026-08-10T14:15:00Z',
-  },
-];
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get('orgId') || DEFAULT_ORG_ID;
+    const auth = await requireSession(req);
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const { user } = auth;
+    const orgId = user.orgId;
 
     if (isDbConfigured()) {
       const database = getDb();
@@ -76,27 +46,41 @@ export async function GET(req: NextRequest) {
             .where(eq(devices.organizationId, orgId))
             .orderBy(desc(devices.createdAt));
 
-          if (rows.length > 0) {
-            const mapped: DeviceItem[] = rows.map((r) => ({
+          const sixtyMinsAgo = Date.now() - 60 * 60 * 1000;
+          const mapped: DeviceItem[] = rows.map((r) => {
+            const lastActivityTime = Math.max(
+              r.lastHeartbeatAt ? new Date(r.lastHeartbeatAt).getTime() : 0,
+              r.lastSyncAt ? new Date(r.lastSyncAt).getTime() : 0
+            );
+            const isStale = r.status === 'ONLINE' && (lastActivityTime === 0 || lastActivityTime < sixtyMinsAgo);
+
+            return {
               id: r.id,
               deviceIdentifier: r.deviceIdentifier,
               deviceName: r.deviceName,
               appVersion: r.appVersion || 'v2.0.0',
-              status: (r.status as any) || 'ONLINE',
+              status: isStale ? 'OFFLINE' : ((r.status as any) || 'ONLINE'),
               lastSyncAt: r.lastSyncAt ? new Date(r.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never',
               lastAttendanceAt: r.lastAttendanceAt ? new Date(r.lastAttendanceAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'None',
+              lastHeartbeatAt: r.lastHeartbeatAt ? new Date(r.lastHeartbeatAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never',
               pendingEventsCount: r.pendingEventsCount || 0,
               hardwareHash: r.hardwareHash || 'Unregistered HW Hash',
               isPaired: Boolean(r.isPaired),
               pairedAt: r.pairedAt ? r.pairedAt.toISOString() : r.createdAt.toISOString(),
-            }));
+              batteryPct: r.batteryPct ?? null,
+              temperature: r.temperature ?? null,
+              thermalState: (r.thermalState as any) || 'NOMINAL',
+              activeFps: r.activeFps || 30,
+              ipAddress: r.ipAddress || null,
+              isStale,
+            };
+          });
 
-            return NextResponse.json({
-              success: true,
-              devices: mapped,
-              totalCount: mapped.length,
-            });
-          }
+          return NextResponse.json({
+            success: true,
+            devices: mapped,
+            totalCount: mapped.length,
+          });
         } catch (dbErr) {
           console.warn('DB devices query error:', dbErr);
         }
@@ -105,8 +89,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      devices: mockDevices,
-      totalCount: mockDevices.length,
+      devices: [],
+      totalCount: 0,
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -118,6 +102,13 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requireSession(req, 'ADMIN');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+    const { user } = auth;
+    const orgId = user.orgId;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const deviceIdentifier = searchParams.get('deviceId');
@@ -135,16 +126,17 @@ export async function DELETE(req: NextRequest) {
             await database
               .update(devices)
               .set({ status: 'REVOKED', isPaired: 0, deviceToken: null, updatedAt: new Date() })
-              .where(eq(devices.id, id));
+              .where(and(eq(devices.organizationId, orgId), eq(devices.id, id)));
           } else if (deviceIdentifier) {
             await database
               .update(devices)
               .set({ status: 'REVOKED', isPaired: 0, deviceToken: null, updatedAt: new Date() })
-              .where(eq(devices.deviceIdentifier, deviceIdentifier));
+              .where(and(eq(devices.organizationId, orgId), eq(devices.deviceIdentifier, deviceIdentifier)));
           }
 
           await database.insert(auditLogs).values({
-            organizationId: DEFAULT_ORG_ID,
+            organizationId: orgId,
+            userId: user.userId,
             action: 'DEVICE_REVOKED',
             entityType: 'DEVICE',
             entityId: id || deviceIdentifier || '',

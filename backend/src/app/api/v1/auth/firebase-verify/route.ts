@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { verifyFirebaseIdToken, resolveUserFromFirebase } from '@/lib/auth';
+import { verifyFirebaseIdToken, resolveUserFromFirebase, signSessionToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,7 +20,15 @@ export async function POST(req: NextRequest) {
     // Resolve user & RBAC role (OWNER, ADMIN, TEACHER, VIEWER)
     const authenticatedUser = await resolveUserFromFirebase(firebasePayload);
 
-    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const sessionToken = signSessionToken({
+      userId: authenticatedUser.id,
+      email: authenticatedUser.email,
+      fullName: authenticatedUser.fullName,
+      role: authenticatedUser.role,
+      orgId: authenticatedUser.orgId,
+      orgName: authenticatedUser.orgName,
+      tier: authenticatedUser.tier,
+    });
 
     const response = NextResponse.json({
       success: true,

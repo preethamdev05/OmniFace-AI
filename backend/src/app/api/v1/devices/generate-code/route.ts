@@ -2,17 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { devices, organizations } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
+import { ensureDefaultOrganization } from '@/db/helpers';
+import { requireSession } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
   try {
-    let orgId = DEFAULT_ORG_ID;
-    try {
-      const body = await req.json();
-      if (body.orgId) orgId = body.orgId;
-    } catch {
-      // JSON body optional
+    const auth = await requireSession(req, 'ADMIN');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
     }
+    const { user } = auth;
+    const orgId = user.orgId;
 
     // Generate 6-digit numeric one-time code (valid 15 mins)
     const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();

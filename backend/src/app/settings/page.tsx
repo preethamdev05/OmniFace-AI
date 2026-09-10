@@ -1,27 +1,77 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@/components/Toast';
 
 export default function SettingsPage() {
-  const [orgName, setOrgName] = useState('National Institute of Technology');
+  const [orgName, setOrgName] = useState('');
   const [orgType, setOrgType] = useState('SCHOOL');
-  const [contactEmail, setContactEmail] = useState('preethamdev05@gmail.com');
-  const [contactPhone, setContactPhone] = useState('+91 98765 43210');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const [defaultStartTime, setDefaultStartTime] = useState('09:00');
   const [graceMinutes, setGraceMinutes] = useState(15);
   const [autoEvaluateStatus, setAutoEvaluateStatus] = useState(true);
   const [dpdpCompliance, setDpdpCompliance] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const { showToast } = useToast();
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetch('/api/v1/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          setOrgName(data.settings.orgName || '');
+          setOrgType(data.settings.orgType || 'SCHOOL');
+          setContactEmail(data.settings.contactEmail || '');
+          setContactPhone(data.settings.contactPhone || '');
+          setDefaultStartTime(data.settings.defaultStartTime || '09:00');
+          setGraceMinutes(data.settings.graceMinutes ?? 15);
+          setAutoEvaluateStatus(data.settings.autoEvaluateStatus !== false);
+          setDpdpCompliance(data.settings.dpdpCompliance !== false);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load settings:', err);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
-    setTimeout(() => {
+    if (!orgName.trim() || !contactEmail.trim()) {
+      showToast('Organization name and contact email are required', 'error');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      const res = await fetch('/api/v1/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgName: orgName.trim(),
+          orgType,
+          contactEmail: contactEmail.trim(),
+          contactPhone: contactPhone.trim(),
+          defaultStartTime,
+          graceMinutes: Number(graceMinutes),
+          autoEvaluateStatus,
+          dpdpCompliance,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Organization settings & attendance policy updated successfully', 'success');
+      } else {
+        showToast(data.error || 'Failed to update settings', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error updating settings', 'error');
+    } finally {
       setIsSaving(false);
-      showToast('Organization settings & attendance policy updated successfully', 'success');
-    }, 500);
+    }
   };
 
   return (

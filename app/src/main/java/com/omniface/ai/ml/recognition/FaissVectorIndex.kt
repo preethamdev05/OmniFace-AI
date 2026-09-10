@@ -310,25 +310,23 @@ class FaissVectorIndex(
 
         for (item in rawItems.values) {
             val sim = dotProductUnrolled(query, item.vector)
-            val dist = if (metricType == MetricType.L2_DISTANCE) {
-                sqrt(max(0.0f, 2.0f - 2.0f * sim))
-            } else {
-                1.0f - sim
-            }
-
-            val cand = FaissCandidate(
-                id = item.id,
-                studentRoll = item.studentRoll,
-                angleType = item.angleType,
-                similarity = sim,
-                distance = dist,
-                rank = 0
-            )
-
-            if (queue.size < k) {
-                queue.offer(cand)
-            } else if (sim > queue.peek()!!.similarity) {
-                queue.poll()
+            if (queue.size < k || sim > queue.peek()!!.similarity) {
+                val dist = if (metricType == MetricType.L2_DISTANCE) {
+                    sqrt(max(0.0f, 2.0f - 2.0f * sim))
+                } else {
+                    1.0f - sim
+                }
+                val cand = FaissCandidate(
+                    id = item.id,
+                    studentRoll = item.studentRoll,
+                    angleType = item.angleType,
+                    similarity = sim,
+                    distance = dist,
+                    rank = 0
+                )
+                if (queue.size >= k) {
+                    queue.poll()
+                }
                 queue.offer(cand)
             }
         }
@@ -362,20 +360,19 @@ class FaissVectorIndex(
             for (id in idsInCell) {
                 val item = rawItems[id] ?: continue
                 val sim = dotProductUnrolled(query, item.vector)
-                val dist = sqrt(max(0.0f, 2.0f - 2.0f * sim))
-                val cand = FaissCandidate(
-                    id = item.id,
-                    studentRoll = item.studentRoll,
-                    angleType = item.angleType,
-                    similarity = sim,
-                    distance = dist,
-                    rank = 0
-                )
-
-                if (queue.size < k) {
-                    queue.offer(cand)
-                } else if (sim > queue.peek()!!.similarity) {
-                    queue.poll()
+                if (queue.size < k || sim > queue.peek()!!.similarity) {
+                    val dist = sqrt(max(0.0f, 2.0f - 2.0f * sim))
+                    val cand = FaissCandidate(
+                        id = item.id,
+                        studentRoll = item.studentRoll,
+                        angleType = item.angleType,
+                        similarity = sim,
+                        distance = dist,
+                        rank = 0
+                    )
+                    if (queue.size >= k) {
+                        queue.poll()
+                    }
                     queue.offer(cand)
                 }
             }

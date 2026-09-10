@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { attendanceEvents, devices, subscriptions, organizations } from '@/db/schema';
 import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
-import { eq } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
+import { requireDevice } from '@/lib/api-auth';
 
 interface RawAttendanceRecord {
   record_id?: string;
@@ -33,6 +34,16 @@ interface SyncPayload {
 
 export async function POST(req: NextRequest) {
   try {
+    // Enforce device token authentication (X-Device-Token or Bearer)
+    const deviceAuth = await requireDevice(req);
+    if (deviceAuth.errorResponse) {
+      return deviceAuth.errorResponse;
+    }
+
+    const { device } = deviceAuth;
+    const deviceId = device.deviceId;
+    const orgId = device.organizationId;
+
     const rawBodyText = await req.text();
     let payload: SyncPayload;
     try {
@@ -43,9 +54,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    const deviceId = req.headers.get('X-Device-ID') || payload.device_id || payload.deviceId || 'UNKNOWN-TERMINAL';
-    const orgId = payload.orgId || DEFAULT_ORG_ID;
 
     // Check Read-Only Archive Mode (Foundational Decision 6: 14-day grace, then Read-Only Archive Mode)
     if (isDbConfigured()) {
@@ -83,13 +91,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // DoS Defense: Enforce maximum batch size limit per sync request
+    if (records.length > 1000) {
+      return NextResponse.json(
+        { success: false, status: 'error', error: 'Sync batch size exceeds maximum allowed limit of 1000 records' },
+        { status: 413 }
+      );
+    }
+
+    const serverNow = Date.now();
+    const maxForwardDriftMs = 15 * 60 * 1000; // 15 minutes max forward drift
+
     // Process, normalize, and server-evaluate each attendance record (Foundational Decision 3)
     const normalized = records.map((r) => {
       const recordId = r.record_id || r.recordId || crypto.randomUUID();
       const studentRoll = r.student_roll || r.studentRoll || 'UNKNOWN';
       const studentName = r.student_name || r.studentName || 'Student';
       const sessionDate = r.session_date || r.sessionDate || new Date().toISOString().split('T')[0];
-      const timestamp = r.timestamp || Date.now();
+      
+      // Clock drift clamping: prevent forward timestamp spoofing for lateness evasion
+      let timestamp = Number(r.timestamp) || serverNow;
+      if (timestamp > serverNow + maxForwardDriftMs) {
+        timestamp = serverNow;
+      }
+
       const confidencePct = Math.round(Number(r.confidence_pct ?? r.confidencePct ?? 95));
       const securityTier = r.security_tier || r.securityTier || 'HIGH';
       const sha256Hash = r.sha256_hash || r.sha256Hash || '';
@@ -126,27 +151,68 @@ export async function POST(req: NextRequest) {
       if (database) {
         try {
           await ensureDefaultOrganization(database);
+          // High-Performance Batch Deduplication & Ingestion (Phase 6 Optimization)
+          const rolls = Array.from(new Set(verifiedRecords.map((r) => r.studentRoll)));
+          const dates = Array.from(new Set(verifiedRecords.map((r) => r.sessionDate)));
+
+          // Single batch SELECT to find all existing records for these students on these dates
+          const existingEvents = await database
+            .select({
+              studentRoll: attendanceEvents.studentRoll,
+              sessionDate: attendanceEvents.sessionDate,
+            })
+            .from(attendanceEvents)
+            .where(
+              and(
+                eq(attendanceEvents.organizationId, orgId),
+                inArray(attendanceEvents.studentRoll, rolls),
+                inArray(attendanceEvents.sessionDate, dates)
+              )
+            );
+
+          const existingSet = new Set(
+            existingEvents.map((e) => `${e.studentRoll}_${e.sessionDate}`)
+          );
+
+          const seenInBatch = new Set<string>();
+          const recordsToInsert = [];
+
           for (const rec of verifiedRecords) {
-            await database
-              .insert(attendanceEvents)
-              .values({
-                organizationId: orgId,
-                eventId: rec.recordId,
-                recordId: rec.recordId,
-                studentRoll: rec.studentRoll,
-                studentName: rec.studentName,
-                timestamp: rec.timestamp,
-                sessionDate: rec.sessionDate,
-                confidencePct: rec.confidencePct,
-                securityTier: rec.securityTier,
-                sha256Hash: rec.sha256Hash || crypto.createHash('sha256').update(rec.recordId).digest('hex'),
-                hardwareHash: rec.sha256Hash,
-                deviceId: rec.deviceId,
-                status: rec.status,
-                serverEvaluated: 1,
-                offlineFlag: 1,
-              })
-              .onConflictDoNothing({ target: attendanceEvents.eventId });
+            const key = `${rec.studentRoll}_${rec.sessionDate}`;
+            if (existingSet.has(key) || seenInBatch.has(key)) {
+              continue; // Prevent same-day duplicate check-in
+            }
+            seenInBatch.add(key);
+
+            recordsToInsert.push({
+              organizationId: orgId,
+              eventId: rec.recordId,
+              recordId: rec.recordId,
+              studentRoll: rec.studentRoll,
+              studentName: rec.studentName,
+              timestamp: rec.timestamp,
+              sessionDate: rec.sessionDate,
+              confidencePct: rec.confidencePct,
+              securityTier: rec.securityTier,
+              sha256Hash: rec.sha256Hash || crypto.createHash('sha256').update(rec.recordId).digest('hex'),
+              hardwareHash: rec.sha256Hash,
+              deviceId: rec.deviceId,
+              status: rec.status,
+              serverEvaluated: 1,
+              offlineFlag: 1,
+            });
+          }
+
+          // Chunked batch insert (250 records per chunk) to stay well within Postgres parameter limits
+          const CHUNK_SIZE = 250;
+          for (let i = 0; i < recordsToInsert.length; i += CHUNK_SIZE) {
+            const chunk = recordsToInsert.slice(i, i + CHUNK_SIZE);
+            if (chunk.length > 0) {
+              await database
+                .insert(attendanceEvents)
+                .values(chunk)
+                .onConflictDoNothing({ target: attendanceEvents.eventId });
+            }
           }
 
           // Update device status and last sync in fleet table

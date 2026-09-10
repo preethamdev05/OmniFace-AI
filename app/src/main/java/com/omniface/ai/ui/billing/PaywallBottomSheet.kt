@@ -176,11 +176,11 @@ fun PaywallBottomSheet(
                 // Pro Plan
                 PlanSelectionCard(
                     title = "Pro",
-                    price = "₹399",
+                    price = "₹349",
                     period = "/ month",
                     badge = "PRO",
                     badgeColor = OmniViolet,
-                    features = listOf("500 people limit", "Advanced analytics", "Multiple shifts", "Dedicated sync"),
+                    features = listOf("500 users limit", "Advanced analytics", "Multiple classes", "Priority support"),
                     isSelected = selectedPlan == SubscriptionTier.PRO,
                     isDark = isDark,
                     modifier = Modifier.width(145.dp),
@@ -191,10 +191,10 @@ fun PaywallBottomSheet(
                 PlanSelectionCard(
                     title = "Institution",
                     price = "Custom",
-                    period = "sales",
+                    period = "pricing",
                     badge = "Institutes",
                     badgeColor = omniCyan(isDark),
-                    features = listOf("500+ people", "Web dashboard", "API access", "Audit logs & SLA"),
+                    features = listOf("500+ users", "Unlimited devices", "Multi-admin", "Departments & classes", "Audit logs & reports", "Custom onboarding"),
                     isSelected = selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS,
                     isDark = isDark,
                     modifier = Modifier.width(145.dp),
@@ -257,7 +257,7 @@ fun PaywallBottomSheet(
                 ) {
                     Icon(Icons.Default.WorkspacePremium, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("START PRO (₹399 / MO)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("START PRO (₹349 / MO)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             } else if (selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS) {
                 Button(

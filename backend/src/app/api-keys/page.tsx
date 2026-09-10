@@ -100,8 +100,8 @@ export default function ApiKeysPage() {
           records: [
             {
               record_id: testRecordId,
-              student_roll: 'CS-2024-001',
-              student_name: 'Aarav Sharma',
+              student_roll: 'DIAG-TEST-001',
+              student_name: 'Diagnostic Subject Alpha',
               session_date: new Date().toISOString().split('T')[0],
               timestamp: Date.now(),
               confidence_pct: 99,

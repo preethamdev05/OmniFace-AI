@@ -86,4 +86,22 @@ object FleetTopologyManager {
     fun reset() {
         _kioskNodes.value = emptyList()
     }
+
+    fun createHeartbeatPayload(context: Context, pendingCount: Int, activeFps: Int = 30): org.json.JSONObject {
+        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val battery = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
+        val ip = getLocalIpAddress() ?: "127.0.0.1"
+        val temp = ThermalGovernor.currentTemperature.value
+        val thermalState = ThermalGovernor.thermalState.value.name
+
+        return org.json.JSONObject().apply {
+            put("batteryPct", battery)
+            put("temperature", temp.toDouble())
+            put("thermalState", thermalState)
+            put("activeFps", activeFps)
+            put("pendingEventsCount", pendingCount)
+            put("ipAddress", ip)
+            put("appVersion", "v2.0.0")
+        }
+    }
 }

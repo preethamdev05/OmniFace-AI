@@ -39,6 +39,11 @@ object DevicePairingManager {
     private const val KEY_ORG_ID = "ORGANIZATION_ID"
     private const val KEY_PAIRED_AT = "DEVICE_PAIRED_AT"
     private const val KEY_SYNC_ENDPOINT = "SYNC_REST_ENDPOINT"
+    private const val SECURE_PREFS_NAME = "OMNIFACE_SECURE_DEVICE_PREFS"
+
+    private fun getSecurePrefs(context: Context): android.content.SharedPreferences {
+        return AndroidSecurityUtils.getEncryptedPrefs(context, SECURE_PREFS_NAME)
+    }
 
     private val _pairingState = MutableStateFlow<PairedDeviceInfo?>(null)
     val pairingState: StateFlow<PairedDeviceInfo?> = _pairingState.asStateFlow()
@@ -48,18 +53,34 @@ object DevicePairingManager {
     }
 
     fun isDevicePaired(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_IS_PAIRED, false) && !prefs.getString(KEY_DEVICE_TOKEN, null).isNullOrBlank()
+        val securePrefs = getSecurePrefs(context)
+        val plainPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val token = securePrefs.getString(KEY_DEVICE_TOKEN, null) ?: plainPrefs.getString(KEY_DEVICE_TOKEN, null)
+        val isPaired = securePrefs.getBoolean(KEY_IS_PAIRED, false) || plainPrefs.getBoolean(KEY_IS_PAIRED, false)
+        return isPaired && !token.isNullOrBlank()
     }
 
     fun getPairedDeviceInfo(context: Context): PairedDeviceInfo {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val isPaired = prefs.getBoolean(KEY_IS_PAIRED, false)
-        val deviceId = prefs.getString(KEY_DEVICE_ID, "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
-        val deviceName = prefs.getString(KEY_DEVICE_NAME, "Android Attendance Kiosk") ?: "Android Attendance Kiosk"
-        val orgId = prefs.getString(KEY_ORG_ID, "default-org") ?: "default-org"
-        val deviceToken = prefs.getString(KEY_DEVICE_TOKEN, null)
-        val pairedAt = prefs.getLong(KEY_PAIRED_AT, 0L)
+        val securePrefs = getSecurePrefs(context)
+        val plainPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        val isPaired = securePrefs.getBoolean(KEY_IS_PAIRED, false) || plainPrefs.getBoolean(KEY_IS_PAIRED, false)
+        val deviceId = securePrefs.getString(KEY_DEVICE_ID, null)
+            ?: plainPrefs.getString(KEY_DEVICE_ID, "OMNIFACE-TERMINAL-01")
+            ?: "OMNIFACE-TERMINAL-01"
+        val deviceName = securePrefs.getString(KEY_DEVICE_NAME, null)
+            ?: plainPrefs.getString(KEY_DEVICE_NAME, "Android Attendance Kiosk")
+            ?: "Android Attendance Kiosk"
+        val orgId = securePrefs.getString(KEY_ORG_ID, null)
+            ?: plainPrefs.getString(KEY_ORG_ID, "default-org")
+            ?: "default-org"
+        val deviceToken = securePrefs.getString(KEY_DEVICE_TOKEN, null)
+            ?: plainPrefs.getString(KEY_DEVICE_TOKEN, null)
+        val pairedAt = if (securePrefs.contains(KEY_PAIRED_AT)) {
+            securePrefs.getLong(KEY_PAIRED_AT, 0L)
+        } else {
+            plainPrefs.getLong(KEY_PAIRED_AT, 0L)
+        }
 
         return PairedDeviceInfo(
             isPaired = isPaired,
@@ -146,6 +167,17 @@ object DevicePairingManager {
                 val orgId = jsonResponse.optString("organizationId", "default-org")
                 val now = System.currentTimeMillis()
 
+                val securePrefs = getSecurePrefs(context)
+                securePrefs.edit().apply {
+                    putBoolean(KEY_IS_PAIRED, true)
+                    putString(KEY_DEVICE_ID, deviceId)
+                    putString(KEY_DEVICE_NAME, assignedName)
+                    putString(KEY_DEVICE_TOKEN, token)
+                    putString(KEY_ORG_ID, orgId)
+                    putLong(KEY_PAIRED_AT, now)
+                    apply()
+                }
+
                 prefs.edit().apply {
                     putBoolean(KEY_IS_PAIRED, true)
                     putString(KEY_DEVICE_ID, deviceId)
@@ -180,6 +212,12 @@ object DevicePairingManager {
     }
 
     fun unpairDevice(context: Context) {
+        val securePrefs = getSecurePrefs(context)
+        securePrefs.edit().apply {
+            putBoolean(KEY_IS_PAIRED, false)
+            remove(KEY_DEVICE_TOKEN)
+            apply()
+        }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().apply {
             putBoolean(KEY_IS_PAIRED, false)

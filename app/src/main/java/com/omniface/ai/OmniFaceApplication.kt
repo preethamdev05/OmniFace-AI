@@ -28,6 +28,12 @@ class OmniFaceApplication : Application() {
         super.onCreate()
         instance = this
 
+        // 0. Hardware Security Pre-Flight: Check if device is rooted or compromised
+        isDeviceRooted = AndroidSecurityUtils.isDeviceRooted()
+        if (isDeviceRooted) {
+            Log.w("OmniFaceSecurity", "DEVICE INTEGRITY WARNING: Root access / su binary detected. Kiosk security compromised.")
+        }
+
         // 1. Initialize Hardware KeyStore Encryption Master Key
         AndroidSecurityUtils.initMasterKey()
 
@@ -231,6 +237,10 @@ class OmniFaceApplication : Application() {
     companion object {
         lateinit var instance: OmniFaceApplication
             private set
+
+        @Volatile
+        var isDeviceRooted: Boolean = false
+            internal set
 
         @Volatile
         var cachedStudentMap: Map<String, String> = emptyMap()

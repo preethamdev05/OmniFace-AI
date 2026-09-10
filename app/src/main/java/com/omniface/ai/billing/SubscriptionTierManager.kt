@@ -43,7 +43,7 @@ enum class SubscriptionTier(
     PRO(
         title = "Pro",
         maxStudents = 500,
-        priceInrMonthly = 399,
+        priceInrMonthly = 349,
         allowsReportExports = true,
         allowsCloudSync = true,
         allowsMultiDevice = true,
@@ -64,7 +64,7 @@ enum class SubscriptionTier(
     PROFESSIONAL(
         title = "Professional",
         maxStudents = 500,
-        priceInrMonthly = 399,
+        priceInrMonthly = 349,
         allowsReportExports = true,
         allowsCloudSync = true,
         allowsMultiDevice = true,
@@ -81,7 +81,47 @@ enum class SubscriptionTier(
         allowsMultiDevice = true,
         displaysAds = false,
         hasWebDashboard = true
-    )
+    );
+
+    fun getFeaturesList(): List<String> {
+        return when (this) {
+            FREE -> listOf(
+                "25 users",
+                "Face recognition",
+                "Attendance marking",
+                "Local SQLite database",
+                "Single kiosk device"
+            )
+            PREMIUM -> listOf(
+                "250 users",
+                "Everything in Free",
+                "Auto cloud sync",
+                "Multi-device synchronization",
+                "Excel & PDF report exports",
+                "100% Ad-Free"
+            )
+            PRO, PROFESSIONAL -> listOf(
+                "500 users",
+                "Everything in Premium",
+                "Multiple classes & sections",
+                "Advanced reports & audit log",
+                "Higher storage & sync limits",
+                "Priority support"
+            )
+            INSTITUTION, BUSINESS -> listOf(
+                "500+ users",
+                "Unlimited devices",
+                "Multi-admin",
+                "Departments",
+                "Classes",
+                "Staff roles",
+                "Audit logs",
+                "Advanced reporting",
+                "Custom onboarding",
+                "Custom pricing"
+            )
+        }
+    }
 }
 
 enum class PaywallTriggerReason(val headline: String, val description: String) {

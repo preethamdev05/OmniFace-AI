@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, timestamp, integer, real, bigint, customType, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, varchar, timestamp, integer, real, bigint, customType, uuid, index } from 'drizzle-orm/pg-core';
 
 // Custom pgvector type for 512-dimensional ArcFace mathematical embeddings
 // Strictly stores mathematical vectors, NEVER raw camera face images.
@@ -31,6 +31,10 @@ export const organizations = pgTable('organizations', {
   maxKiosks: integer('max_kiosks').notNull().default(1), // backward compatibility
   contactEmail: varchar('contact_email', { length: 255 }).notNull(),
   contactPhone: varchar('contact_phone', { length: 32 }),
+  defaultStartTime: varchar('default_start_time', { length: 16 }).default('09:00'),
+  graceMinutes: integer('grace_minutes').default(15),
+  autoEvaluateStatus: integer('auto_evaluate_status').default(1),
+  dpdpCompliance: integer('dpdp_compliance').default(1),
   status: varchar('status', { length: 32 }).notNull().default('ACTIVE'), // ACTIVE, GRACE_PERIOD, ARCHIVE_READ_ONLY, SUSPENDED
   gracePeriodEnd: timestamp('grace_period_end'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -83,7 +87,9 @@ export const classes = pgTable('classes', {
   graceMinutes: integer('grace_minutes').notNull().default(15),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_classes_org_dept').on(table.organizationId, table.departmentId),
+]);
 
 // ── 6. Students / People Roster ──
 export const students = pgTable('students', {
@@ -97,7 +103,10 @@ export const students = pgTable('students', {
   status: varchar('status', { length: 32 }).notNull().default('ACTIVE'), // ACTIVE, INACTIVE, SUSPENDED
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_students_org_dept').on(table.organizationId, table.departmentId),
+  index('idx_students_org_roll').on(table.organizationId, table.rollNumber),
+]);
 
 // ── 7. Student Classes (Many-to-Many Enrollment) ──
 export const studentClasses = pgTable('student_classes', {
@@ -106,7 +115,9 @@ export const studentClasses = pgTable('student_classes', {
   studentId: uuid('student_id').references(() => students.id, { onDelete: 'cascade' }).notNull(),
   classId: uuid('class_id').references(() => classes.id, { onDelete: 'cascade' }).notNull(),
   enrolledAt: timestamp('enrolled_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_student_classes_org_class').on(table.organizationId, table.classId),
+]);
 
 // ── 8. Devices (Hardware Kiosks & Fleet) ──
 export const devices = pgTable('devices', {
@@ -125,9 +136,18 @@ export const devices = pgTable('devices', {
   isPaired: integer('is_paired').notNull().default(0),
   hardwareHash: varchar('hardware_hash', { length: 128 }),
   pairedAt: timestamp('paired_at'),
+  batteryPct: integer('battery_pct'),
+  temperature: real('temperature'),
+  thermalState: varchar('thermal_state', { length: 32 }).default('NOMINAL'), // NOMINAL, WARM, CRITICAL
+  activeFps: integer('active_fps').default(30),
+  lastHeartbeatAt: timestamp('last_heartbeat_at'),
+  ipAddress: varchar('ip_address', { length: 64 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_devices_org_status').on(table.organizationId, table.status),
+  index('idx_devices_org_heartbeat').on(table.organizationId, table.lastHeartbeatAt),
+]);
 
 // ── 9. Face Templates (Mathematical 512-D Vectors, Zero Raw Images) ──
 export const faceTemplates = pgTable('face_templates', {
@@ -145,7 +165,9 @@ export const faceTemplates = pgTable('face_templates', {
   templateVersion: varchar('template_version', { length: 32 }).notNull().default('v2.0'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_face_templates_org_roll').on(table.organizationId, table.studentRoll),
+]);
 export const faceEmbeddings = faceTemplates; // backward compatibility alias
 
 // ── 10. Attendance Sessions ──
@@ -185,7 +207,10 @@ export const attendanceEvents = pgTable('attendance_events', {
   serverEvaluated: integer('server_evaluated').notNull().default(1),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   syncedAt: timestamp('synced_at').defaultNow().notNull(),
-});
+}, (table) => [
+  index('idx_attendance_events_org_date').on(table.organizationId, table.sessionDate),
+  index('idx_attendance_events_event_id').on(table.eventId),
+]);
 export const attendanceRecords = attendanceEvents; // backward compatibility alias
 
 // ── 12. Attendance Adjustments (Audit Trail for Manual Status Changes) ──
@@ -284,4 +309,34 @@ export const auditLogs = pgTable('audit_logs', {
   ipAddress: varchar('ip_address', { length: 64 }),
   userAgent: text('user_agent'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_audit_logs_org_created').on(table.organizationId, table.createdAt),
+]);
+
+// ── 19. Staff Invitations (Cryptographic Hashed Token Invite Flow) ──
+export const staffInvitations = pgTable('staff_invitations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }).notNull(),
+  email: varchar('email', { length: 255 }).notNull(),
+  fullName: varchar('full_name', { length: 255 }),
+  role: varchar('role', { length: 32 }).notNull().default('TEACHER'),
+  tokenHash: varchar('token_hash', { length: 128 }).notNull().unique(),
+  status: varchar('status', { length: 32 }).notNull().default('PENDING'), // PENDING, ACCEPTED, REVOKED
+  expiresAt: timestamp('expires_at').notNull(),
+  invitedByUserId: uuid('invited_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── 20. Institution Sales Leads (Real B2B Enterprise Lead Pipeline) ──
+export const institutionLeads = pgTable('institution_leads', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationName: varchar('organization_name', { length: 255 }).notNull(),
+  contactName: varchar('contact_name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull(),
+  phone: varchar('phone', { length: 32 }),
+  expectedSeats: integer('expected_seats').notNull().default(500),
+  status: varchar('status', { length: 32 }).notNull().default('NEW'), // NEW, CONTACTED, DEMO, TRIAL, NEGOTIATION, ACTIVE, LOST
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

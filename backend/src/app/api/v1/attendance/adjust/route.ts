@@ -2,18 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
 import { attendanceEvents, attendanceAdjustments, auditLogs } from '@/db/schema';
 import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
-import { eq, or } from 'drizzle-orm';
+import { eq, or, and } from 'drizzle-orm';
+import { requireSession } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
   try {
+    // Enforce session authentication (TEACHER, ADMIN, OWNER)
+    const auth = await requireSession(req, 'TEACHER');
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+
+    const { user } = auth;
+    const sessionUserId = user.userId;
+    const sessionOrgId = user.orgId;
+
     const body = await req.json();
     const {
       attendanceEventId,
       recordId,
       newStatus,
       reason,
-      userId,
-      orgId = DEFAULT_ORG_ID,
     } = body;
 
     // Foundational Decision 5: Mandatory reason required for manual attendance adjustments
@@ -48,15 +57,18 @@ export async function POST(req: NextRequest) {
         try {
           await ensureDefaultOrganization(database);
 
-          // Locate attendance event by UUID or unique record_id / event_id
+          // Locate attendance event scoped to session organizationId
           const events = await database
             .select()
             .from(attendanceEvents)
             .where(
-              or(
-                attendanceEventId ? eq(attendanceEvents.id, attendanceEventId) : undefined,
-                recordId ? eq(attendanceEvents.eventId, recordId) : undefined,
-                recordId ? eq(attendanceEvents.recordId, recordId) : undefined
+              and(
+                eq(attendanceEvents.organizationId, sessionOrgId),
+                or(
+                  attendanceEventId ? eq(attendanceEvents.id, attendanceEventId) : undefined,
+                  recordId ? eq(attendanceEvents.eventId, recordId) : undefined,
+                  recordId ? eq(attendanceEvents.recordId, recordId) : undefined
+                )
               )
             )
             .limit(1);
@@ -74,9 +86,9 @@ export async function POST(req: NextRequest) {
 
             // 2. Insert into attendance_adjustments
             await database.insert(attendanceAdjustments).values({
-              organizationId: event.organizationId || orgId,
+              organizationId: sessionOrgId,
               attendanceEventId: event.id,
-              adjustedByUserId: userId || null,
+              adjustedByUserId: sessionUserId,
               previousStatus,
               newStatus: targetStatus,
               reason: reason.trim(),
@@ -84,8 +96,8 @@ export async function POST(req: NextRequest) {
 
             // 3. Record in audit_logs
             await database.insert(auditLogs).values({
-              organizationId: event.organizationId || orgId,
-              userId: userId || null,
+              organizationId: sessionOrgId,
+              userId: sessionUserId,
               action: 'ATTENDANCE_STATUS_ADJUSTED',
               entityType: 'ATTENDANCE_EVENT',
               entityId: event.eventId || event.id,
@@ -94,8 +106,13 @@ export async function POST(req: NextRequest) {
               reason: reason.trim(),
             });
           } else {
-            // DB configured but event not found
-            previousStatus = 'ABSENT';
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'Attendance record not found or does not belong to your organization.',
+              },
+              { status: 404 }
+            );
           }
         } catch (dbErr) {
           console.warn('DB attendance adjustment error:', dbErr);
