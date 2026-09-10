@@ -1,0 +1,398 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useToast } from '@/components/Toast';
+
+interface AttendanceRow {
+  id: string;
+  recordId: string;
+  studentRoll: string;
+  studentName: string;
+  department: string;
+  sessionDate: string;
+  clockInTime: string;
+  confidencePct: number;
+  securityTier: string;
+  status: 'PRESENT' | 'LATE' | 'ABSENT' | 'EXCUSED';
+  sha256Hash: string;
+  serverEvaluated: boolean;
+}
+
+const mockAttendance: AttendanceRow[] = [
+  {
+    id: 'rec_01',
+    recordId: 'rec_01',
+    studentRoll: 'CS-2024-042',
+    studentName: 'Aarav Sharma',
+    department: 'Computer Science',
+    sessionDate: '2026-09-10',
+    clockInTime: '09:04 AM',
+    confidencePct: 99.4,
+    securityTier: 'HIGH',
+    status: 'PRESENT',
+    sha256Hash: 'a7b3c82d4e5f61203498adfe1902834b9281a0ec94726481029384756182a93c',
+    serverEvaluated: true,
+  },
+  {
+    id: 'rec_02',
+    recordId: 'rec_02',
+    studentRoll: 'EC-2024-019',
+    studentName: 'Priya Patel',
+    department: 'Electronics & Comm.',
+    sessionDate: '2026-09-10',
+    clockInTime: '09:02 AM',
+    confidencePct: 98.7,
+    securityTier: 'STRICT',
+    status: 'PRESENT',
+    sha256Hash: 'f4e2d1c0b9a89786756453423120191817161514131211100908070605040302',
+    serverEvaluated: true,
+  },
+  {
+    id: 'rec_03',
+    recordId: 'rec_03',
+    studentRoll: 'ME-2024-011',
+    studentName: 'Rohan Deshmukh',
+    department: 'Mechanical Eng.',
+    sessionDate: '2026-09-10',
+    clockInTime: '09:28 AM',
+    confidencePct: 97.5,
+    securityTier: 'HIGH',
+    status: 'LATE',
+    sha256Hash: '89ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef01',
+    serverEvaluated: true,
+  },
+  {
+    id: 'rec_04',
+    recordId: 'rec_04',
+    studentRoll: 'CS-2024-008',
+    studentName: 'Ananya Reddy',
+    department: 'Computer Science',
+    sessionDate: '2026-09-10',
+    clockInTime: '08:55 AM',
+    confidencePct: 99.1,
+    securityTier: 'STRICT',
+    status: 'PRESENT',
+    sha256Hash: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+    serverEvaluated: true,
+  },
+  {
+    id: 'rec_05',
+    recordId: 'rec_05',
+    studentRoll: 'SF-2023-003',
+    studentName: 'Dr. Vikram Joshi',
+    department: 'Staff & Faculty',
+    sessionDate: '2026-09-10',
+    clockInTime: '08:45 AM',
+    confidencePct: 99.8,
+    securityTier: 'STRICT',
+    status: 'PRESENT',
+    sha256Hash: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
+    serverEvaluated: true,
+  },
+  {
+    id: 'rec_06',
+    recordId: 'rec_06',
+    studentRoll: 'CS-2024-015',
+    studentName: 'Kabir Verma',
+    department: 'Computer Science',
+    sessionDate: '2026-09-10',
+    clockInTime: '—',
+    confidencePct: 0,
+    securityTier: 'HIGH',
+    status: 'ABSENT',
+    sha256Hash: '0000000000000000000000000000000000000000000000000000000000000000',
+    serverEvaluated: true,
+  },
+];
+
+export default function AttendancePage() {
+  const [records, setRecords] = useState<AttendanceRow[]>(mockAttendance);
+  const [selectedDate, setSelectedDate] = useState('2026-09-10');
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [selectedRecordForAdjustment, setSelectedRecordForAdjustment] = useState<AttendanceRow | null>(null);
+  const [newStatus, setNewStatus] = useState<'PRESENT' | 'LATE' | 'ABSENT' | 'EXCUSED'>('PRESENT');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { showToast } = useToast();
+
+  const fetchLive = () => {
+    fetch('/api/v1/analytics/summary')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.recentActivity && data.recentActivity.length > 0) {
+          const mapped: AttendanceRow[] = data.recentActivity.map((r: any) => ({
+            id: r.id,
+            recordId: r.id,
+            studentRoll: r.studentRoll,
+            studentName: r.studentName,
+            department: r.department || 'General',
+            sessionDate: r.sessionDate || selectedDate,
+            clockInTime: r.time || '09:00 AM',
+            confidencePct: r.confidencePct || 98,
+            securityTier: r.securityTier || 'HIGH',
+            status: (r.status as any) || 'PRESENT',
+            sha256Hash: r.sha256Hash || '0'.repeat(64),
+            serverEvaluated: true,
+          }));
+          setRecords(mapped);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchLive();
+  }, []);
+
+  const filtered = records.filter((r) => {
+    if (filterStatus !== 'ALL' && r.status !== filterStatus) return false;
+    return true;
+  });
+
+  const handleAdjustSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRecordForAdjustment) return;
+
+    // Foundational Decision 5: Mandatory reason required
+    if (!adjustmentReason || adjustmentReason.trim().length < 3) {
+      showToast('Mandatory reason is required for audit compliance (min 3 chars).', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/v1/attendance/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendanceEventId: selectedRecordForAdjustment.id,
+          recordId: selectedRecordForAdjustment.recordId,
+          newStatus,
+          reason: adjustmentReason.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRecords(records.map((r) =>
+          r.id === selectedRecordForAdjustment.id
+            ? { ...r, status: newStatus }
+            : r
+        ));
+        showToast(`Attendance adjusted to ${newStatus} with audit log recorded`, 'success');
+        setSelectedRecordForAdjustment(null);
+        setAdjustmentReason('');
+      } else {
+        showToast(data.error || 'Failed to adjust attendance', 'error');
+      }
+    } catch {
+      // Offline fallback
+      setRecords(records.map((r) =>
+        r.id === selectedRecordForAdjustment.id
+          ? { ...r, status: newStatus }
+          : r
+      ));
+      showToast(`Status updated to ${newStatus} (offline simulation)`, 'info');
+      setSelectedRecordForAdjustment(null);
+      setAdjustmentReason('');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--text-main)', marginBottom: '4px' }}>
+            Attendance Control Center
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+            Live attendance registers, server schedule evaluation, and audited manual status adjustments
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={fetchLive} className="btn btn-secondary">
+            <span>↻ Refresh</span>
+          </button>
+          <a href="/api/v1/reports/export?month=2026-09&department=All" className="btn btn-primary">
+            <span>Export CSV</span>
+          </a>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          style={{
+            background: 'var(--surface-raised)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            color: 'var(--text-main)',
+            fontSize: '13px',
+            outline: 'none',
+          }}
+        />
+
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {['ALL', 'PRESENT', 'LATE', 'ABSENT', 'EXCUSED'].map((st) => (
+            <button
+              key={st}
+              onClick={() => setFilterStatus(st)}
+              style={{
+                background: filterStatus === st ? 'var(--primary-glow)' : 'transparent',
+                border: `1px solid ${filterStatus === st ? 'var(--primary)' : 'var(--border)'}`,
+                color: filterStatus === st ? 'var(--primary)' : 'var(--text-muted)',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {st}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Attendance Ledger Table */}
+      <div className="table-surface">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Roll Number</th>
+              <th>Member Name</th>
+              <th>Department</th>
+              <th>Clock-In</th>
+              <th>Evaluation Mode</th>
+              <th>Biometric Match</th>
+              <th>Status</th>
+              <th>Cryptographic Proof</th>
+              <th>Audit Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr key={r.id}>
+                <td className="tnum" style={{ fontWeight: 600 }}>{r.studentRoll}</td>
+                <td style={{ fontWeight: 500 }}>{r.studentName}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{r.department}</td>
+                <td className="tnum" style={{ color: 'var(--text-muted)' }}>{r.clockInTime}</td>
+                <td>
+                  <span className="badge badge-primary">SERVER EVALUATED</span>
+                </td>
+                <td className="tnum">
+                  <span style={{ color: r.confidencePct > 0 ? 'var(--success)' : 'var(--text-dim)', fontWeight: 600 }}>
+                    {r.confidencePct > 0 ? `${r.confidencePct}%` : 'N/A'}
+                  </span>
+                </td>
+                <td>
+                  <span
+                    className={`badge ${
+                      r.status === 'PRESENT'
+                        ? 'badge-success'
+                        : r.status === 'LATE'
+                        ? 'badge-warning'
+                        : r.status === 'ABSENT'
+                        ? 'badge-warning'
+                        : 'badge-primary'
+                    }`}
+                  >
+                    {r.status}
+                  </span>
+                </td>
+                <td>
+                  <span className="hash-pill" title={r.sha256Hash}>
+                    {r.sha256Hash.substring(0, 10)}...{r.sha256Hash.substring(r.sha256Hash.length - 4)}
+                  </span>
+                </td>
+                <td>
+                  <button
+                    onClick={() => {
+                      setSelectedRecordForAdjustment(r);
+                      setNewStatus(r.status === 'PRESENT' ? 'ABSENT' : 'PRESENT');
+                      setAdjustmentReason('');
+                    }}
+                    className="btn btn-secondary"
+                    style={{ padding: '4px 10px', fontSize: '11px' }}
+                  >
+                    Adjust Status
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Manual Status Adjustment Modal with Mandatory Audit Reason */}
+      {selectedRecordForAdjustment && (
+        <div className="modal-overlay" onClick={() => setSelectedRecordForAdjustment(null)}>
+          <div className="modal-dialog" style={{ maxWidth: '480px', padding: '28px' }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
+              Adjust Attendance Status
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
+              Adjusting record for <strong style={{ color: 'var(--text-main)' }}>{selectedRecordForAdjustment.studentName}</strong> ({selectedRecordForAdjustment.studentRoll})
+            </p>
+
+            <form onSubmit={handleAdjustSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface-raised)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Current Status:</span>
+                <span className="badge badge-warning">{selectedRecordForAdjustment.status}</span>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  New Evaluated Status
+                </label>
+                <select
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value as any)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)' }}
+                >
+                  <option value="PRESENT">PRESENT</option>
+                  <option value="LATE">LATE</option>
+                  <option value="ABSENT">ABSENT</option>
+                  <option value="EXCUSED">EXCUSED (Approved Leave)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-main)', fontWeight: 600, marginBottom: '6px' }}>
+                  Mandatory Audit Reason <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Student submitted written medical excuse slip approved by HOD; turnstile camera was under maintenance."
+                  value={adjustmentReason}
+                  onChange={(e) => setAdjustmentReason(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-main)', fontSize: '13px', resize: 'vertical' }}
+                />
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                  All status adjustments are permanently recorded in the immutable audit log with administrator identity and timestamp.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                <button type="button" onClick={() => setSelectedRecordForAdjustment(null)} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+                  {isSubmitting ? 'Recording Audit...' : 'Confirm Adjustment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -17,10 +17,13 @@ export async function ensureDefaultOrganization(db: Database): Promise<string> {
         id: DEFAULT_ORG_ID,
         name: 'OmniFace Enterprise Default',
         type: 'CORPORATE',
-        tier: 'BUSINESS',
+        tier: 'INSTITUTION',
+        maxPeople: 1000,
+        maxDevices: 10,
+        maxKiosks: 10,
         contactEmail: 'preethamdev05@gmail.com',
         contactPhone: '',
-        maxKiosks: 10,
+        status: 'ACTIVE',
       });
     }
     return DEFAULT_ORG_ID;

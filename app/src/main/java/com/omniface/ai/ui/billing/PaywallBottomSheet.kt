@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -140,7 +141,9 @@ fun PaywallBottomSheet(
 
             // Plan Cards
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Free Plan (Current)
@@ -149,10 +152,10 @@ fun PaywallBottomSheet(
                     price = "₹0",
                     period = "forever",
                     badge = "Current",
-                    features = listOf("Up to 25 people", "Local database", "Standard scanner"),
+                    features = listOf("25 people limit", "Face recognition", "Offline operation", "Local database"),
                     isSelected = selectedPlan == SubscriptionTier.FREE,
                     isDark = isDark,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.width(135.dp),
                     onClick = { selectedPlan = SubscriptionTier.FREE }
                 )
 
@@ -163,25 +166,39 @@ fun PaywallBottomSheet(
                     period = "/ month",
                     badge = "POPULAR",
                     badgeColor = omniEmerald(isDark),
-                    features = listOf("Up to 250 people", "Excel & PDF exports", "Google Drive sync", "Zero ads"),
+                    features = listOf("250 people limit", "Auto cloud sync", "Excel/PDF export", "Multi-device fleet"),
                     isSelected = selectedPlan == SubscriptionTier.PREMIUM,
                     isDark = isDark,
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.width(145.dp),
                     onClick = { selectedPlan = SubscriptionTier.PREMIUM }
                 )
 
-                // Business Plan
+                // Pro Plan
                 PlanSelectionCard(
-                    title = "Business",
-                    price = "₹999",
+                    title = "Pro",
+                    price = "₹399",
                     period = "/ month",
+                    badge = "PRO",
+                    badgeColor = OmniViolet,
+                    features = listOf("500 people limit", "Advanced analytics", "Multiple shifts", "Dedicated sync"),
+                    isSelected = selectedPlan == SubscriptionTier.PRO,
+                    isDark = isDark,
+                    modifier = Modifier.width(145.dp),
+                    onClick = { selectedPlan = SubscriptionTier.PRO }
+                )
+
+                // Institution Plan
+                PlanSelectionCard(
+                    title = "Institution",
+                    price = "Custom",
+                    period = "sales",
                     badge = "Institutes",
                     badgeColor = omniCyan(isDark),
-                    features = listOf("Unlimited people", "Web dashboard", "Multi-kiosk sync", "Priority support"),
-                    isSelected = selectedPlan == SubscriptionTier.BUSINESS,
+                    features = listOf("500+ people", "Web dashboard", "API access", "Audit logs & SLA"),
+                    isSelected = selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS,
                     isDark = isDark,
-                    modifier = Modifier.weight(1f),
-                    onClick = { selectedPlan = SubscriptionTier.BUSINESS }
+                    modifier = Modifier.width(145.dp),
+                    onClick = { selectedPlan = SubscriptionTier.INSTITUTION }
                 )
             }
 
@@ -215,7 +232,34 @@ fun PaywallBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("START PREMIUM — $playPrice".uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
-            } else if (selectedPlan == SubscriptionTier.BUSINESS) {
+            } else if (selectedPlan == SubscriptionTier.PRO) {
+                Button(
+                    onClick = {
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            PlayBillingManager.launchBillingFlow(activity) { launched, msg ->
+                                if (!launched) {
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else {
+                            SubscriptionTierManager.setSubscription(SubscriptionTier.PRO, System.currentTimeMillis() + java.util.concurrent.TimeUnit.DAYS.toMillis(30))
+                            Toast.makeText(context, "🎉 Welcome to OmniFace Pro! All features unlocked.", Toast.LENGTH_LONG).show()
+                            onUpgradeSuccess?.invoke()
+                            onDismiss()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OmniViolet),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.WorkspacePremium, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("START PRO (₹399 / MO)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            } else if (selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS) {
                 Button(
                     onClick = {
                         val portalUrl = "https://omniface.vercel.app/subscription"
@@ -224,7 +268,7 @@ fun PaywallBottomSheet(
                         try {
                             context.startActivity(intent)
                         } catch (_: Exception) {
-                            Toast.makeText(context, "Contact preethamdev05@gmail.com for Business Plan setup.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Contact sales at omniface.ai for Institution Plan setup.", Toast.LENGTH_LONG).show()
                         }
                     },
                     modifier = Modifier
@@ -235,7 +279,7 @@ fun PaywallBottomSheet(
                 ) {
                     Icon(Icons.Default.Business, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("GET BUSINESS PLAN (₹999 / MO)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("CONTACT INSTITUTION SALES", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             } else {
                 OutlinedButton(

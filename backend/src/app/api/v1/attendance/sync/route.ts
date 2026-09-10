@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
-import { attendanceRecords } from '@/db/schema';
+import { attendanceEvents, devices, subscriptions, organizations } from '@/db/schema';
 import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
+import { eq } from 'drizzle-orm';
 
 interface RawAttendanceRecord {
   record_id?: string;
@@ -20,6 +21,7 @@ interface RawAttendanceRecord {
   securityTier?: string;
   sha256_hash?: string;
   sha256Hash?: string;
+  status?: string;
 }
 
 interface SyncPayload {
@@ -43,9 +45,35 @@ export async function POST(req: NextRequest) {
     }
 
     const deviceId = req.headers.get('X-Device-ID') || payload.device_id || payload.deviceId || 'UNKNOWN-TERMINAL';
-    const deviceFingerprint = req.headers.get('X-Device-Fingerprint') || '';
-    const requestTimestamp = req.headers.get('X-Timestamp') || Date.now().toString();
-    const hmacSignature = req.headers.get('X-HMAC-Signature') || '';
+    const orgId = payload.orgId || DEFAULT_ORG_ID;
+
+    // Check Read-Only Archive Mode (Foundational Decision 6: 14-day grace, then Read-Only Archive Mode)
+    if (isDbConfigured()) {
+      const database = getDb();
+      if (database) {
+        try {
+          await ensureDefaultOrganization(database);
+          const orgRows = await database
+            .select({ status: organizations.status })
+            .from(organizations)
+            .where(eq(organizations.id, orgId))
+            .limit(1);
+
+          if (orgRows.length > 0 && orgRows[0].status === 'ARCHIVE_READ_ONLY') {
+            return NextResponse.json(
+              {
+                success: false,
+                status: 'archive_read_only',
+                error: 'Organization is in permanent Read-Only Archive Mode. Kiosk attendance sync is paused. Historical registers and exports remain accessible.',
+              },
+              { status: 403 }
+            );
+          }
+        } catch (orgErr) {
+          console.warn('Organization status check warning:', orgErr);
+        }
+      }
+    }
 
     const records = payload.records || [];
     if (!Array.isArray(records)) {
@@ -55,7 +83,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Process & normalize each attendance record
+    // Process, normalize, and server-evaluate each attendance record (Foundational Decision 3)
     const normalized = records.map((r) => {
       const recordId = r.record_id || r.recordId || crypto.randomUUID();
       const studentRoll = r.student_roll || r.studentRoll || 'UNKNOWN';
@@ -65,6 +93,13 @@ export async function POST(req: NextRequest) {
       const confidencePct = Math.round(Number(r.confidence_pct ?? r.confidencePct ?? 95));
       const securityTier = r.security_tier || r.securityTier || 'HIGH';
       const sha256Hash = r.sha256_hash || r.sha256Hash || '';
+
+      // Server evaluation based on organization schedule threshold (default 09:00 + 15m grace)
+      const dateObj = new Date(timestamp);
+      const minutesOfDay = dateObj.getHours() * 60 + dateObj.getMinutes();
+      const scheduleStartMinutes = 9 * 60; // 09:00 AM
+      const graceMinutes = 15;
+      const evaluatedStatus = minutesOfDay <= (scheduleStartMinutes + graceMinutes) ? 'PRESENT' : 'LATE';
 
       return {
         recordId,
@@ -76,6 +111,7 @@ export async function POST(req: NextRequest) {
         securityTier,
         sha256Hash,
         deviceId,
+        status: evaluatedStatus,
       };
     });
 
@@ -92,9 +128,10 @@ export async function POST(req: NextRequest) {
           await ensureDefaultOrganization(database);
           for (const rec of verifiedRecords) {
             await database
-              .insert(attendanceRecords)
+              .insert(attendanceEvents)
               .values({
-                orgId: DEFAULT_ORG_ID,
+                organizationId: orgId,
+                eventId: rec.recordId,
                 recordId: rec.recordId,
                 studentRoll: rec.studentRoll,
                 studentName: rec.studentName,
@@ -103,10 +140,26 @@ export async function POST(req: NextRequest) {
                 confidencePct: rec.confidencePct,
                 securityTier: rec.securityTier,
                 sha256Hash: rec.sha256Hash || crypto.createHash('sha256').update(rec.recordId).digest('hex'),
-                kioskId: rec.deviceId,
+                hardwareHash: rec.sha256Hash,
+                deviceId: rec.deviceId,
+                status: rec.status,
+                serverEvaluated: 1,
+                offlineFlag: 1,
               })
-              .onConflictDoNothing({ target: attendanceRecords.recordId });
+              .onConflictDoNothing({ target: attendanceEvents.eventId });
           }
+
+          // Update device status and last sync in fleet table
+          await database
+            .update(devices)
+            .set({
+              lastSyncAt: new Date(),
+              lastAttendanceAt: new Date(),
+              status: 'ONLINE',
+              pendingEventsCount: 0,
+              updatedAt: new Date(),
+            })
+            .where(eq(devices.deviceIdentifier, deviceId));
         } catch (dbErr) {
           console.error('PostgreSQL attendance sync persistence warning:', dbErr);
         }
@@ -116,7 +169,7 @@ export async function POST(req: NextRequest) {
     const responseData = {
       success: true,
       status: 'synced',
-      message: `Successfully synchronized ${verifiedRecords.length} records from terminal ${deviceId}`,
+      message: `Successfully synchronized and evaluated ${verifiedRecords.length} records from terminal ${deviceId}`,
       deviceId,
       receivedCount: records.length,
       syncedCount: verifiedRecords.length,
@@ -125,7 +178,6 @@ export async function POST(req: NextRequest) {
 
     const responseBody = JSON.stringify(responseData);
 
-    // If client provided HMAC, optionally sign response
     const hmacSecret = process.env.OMNIFACE_SYNC_SECRET || 'OMNIFACE_DEFAULT_SYNC_SECRET';
     const serverSignature = crypto.createHmac('sha256', hmacSecret).update(responseBody).digest('hex');
 

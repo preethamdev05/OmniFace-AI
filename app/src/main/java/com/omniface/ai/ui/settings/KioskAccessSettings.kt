@@ -25,15 +25,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.omniface.ai.data.local.ScannerMode
 import com.omniface.ai.data.local.ScannerPreferences
+import com.omniface.ai.hardware.DevicePairingManager
 import com.omniface.ai.hardware.KioskLockController
+import com.omniface.ai.hardware.PairingResult
 import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.i18n.LocalizationManager
 import com.omniface.ai.i18n.StringKey
 import com.omniface.ai.security.findFragmentActivity
 import com.omniface.ai.ui.components.*
 import com.omniface.ai.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun KioskAccessSettingsSubScreen(
@@ -44,10 +48,17 @@ fun KioskAccessSettingsSubScreen(
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
     val activity = context as? Activity
+    val scope = rememberCoroutineScope()
     var currentMode by remember { mutableStateOf(ScannerPreferences.getScannerMode()) }
     var showPinDialog by remember { mutableStateOf(false) }
     var enteredPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
+
+    var showPairDialog by remember { mutableStateOf(false) }
+    var pairingCodeInput by remember { mutableStateOf("") }
+    var isPairingLoading by remember { mutableStateOf(false) }
+    var pairingError by remember { mutableStateOf<String?>(null) }
+    var pairedInfo by remember { mutableStateOf(DevicePairingManager.getPairedDeviceInfo(context)) }
 
     BackHandler(enabled = showPinDialog) {
         showPinDialog = false
@@ -149,6 +160,117 @@ fun KioskAccessSettingsSubScreen(
                     pinError = null
                 }) {
                     Text(LocalizationManager.get(StringKey.CANCEL_ACTION), color = omniTextMuted(isDark))
+                }
+            }
+        )
+    }
+
+    BackHandler(enabled = showPairDialog) {
+        if (!isPairingLoading) {
+            showPairDialog = false
+            pairingCodeInput = ""
+            pairingError = null
+        }
+    }
+
+    if (showPairDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!isPairingLoading) {
+                    showPairDialog = false
+                    pairingCodeInput = ""
+                    pairingError = null
+                }
+            },
+            containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.QrCodeScanner,
+                    contentDescription = null,
+                    tint = omniCyan(isDark),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Pair with Web Dashboard",
+                    color = omniTextPrimary(isDark),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Enter the 6-digit one-time pairing code displayed on the Web Dashboard under Devices -> Pair Terminal.",
+                        color = omniTextSecondary(isDark),
+                        fontSize = 13.sp
+                    )
+
+                    OutlinedTextField(
+                        value = pairingCodeInput,
+                        onValueChange = {
+                            if (it.length <= 6) {
+                                pairingCodeInput = it.filter { c -> c.isDigit() }
+                                pairingError = null
+                            }
+                        },
+                        placeholder = { Text("e.g. 123456", color = omniTextMuted(isDark), fontSize = 14.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = pairingError != null,
+                        supportingText = pairingError?.let { err -> { Text(err, color = Color(0xFFFF453A), fontSize = 11.sp) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pairingCodeInput.length != 6) {
+                            pairingError = "Please enter all 6 digits."
+                            return@Button
+                        }
+                        scope.launch {
+                            isPairingLoading = true
+                            pairingError = null
+                            when (val res = DevicePairingManager.pairWithCode(context, pairingCodeInput)) {
+                                is PairingResult.Success -> {
+                                    pairedInfo = DevicePairingManager.getPairedDeviceInfo(context)
+                                    showPairDialog = false
+                                    pairingCodeInput = ""
+                                    Toast.makeText(context, "🎉 Paired as ${res.deviceName}!", Toast.LENGTH_SHORT).show()
+                                }
+                                is PairingResult.Failure -> {
+                                    pairingError = res.message
+                                }
+                            }
+                            isPairingLoading = false
+                        }
+                    },
+                    enabled = !isPairingLoading && pairingCodeInput.length == 6,
+                    colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    if (isPairingLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else {
+                        Text("Pair Terminal", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPairDialog = false
+                        pairingCodeInput = ""
+                        pairingError = null
+                    },
+                    enabled = !isPairingLoading
+                ) {
+                    Text("Cancel", color = omniTextSecondary(isDark))
                 }
             }
         )
@@ -380,6 +502,34 @@ fun KioskAccessSettingsSubScreen(
                             IOSGlassPill(
                                 text = LocalizationManager.get(StringKey.COMING_SOON),
                                 accentColor = Color(0xFF007AFF)
+                            )
+                        }
+                    )
+                }
+            }
+
+            // 5. Cloud Dashboard Device Pairing
+            item {
+                val isPaired = pairedInfo?.isPaired == true
+                IOSCard(cornerRadius = 20.dp) {
+                    SettingRow(
+                        title = "Dashboard Pairing",
+                        subtitle = if (isPaired) "Paired • Terminal: ${pairedInfo?.deviceId} (${pairedInfo?.organizationId})" else "Link this Android terminal to your Web Admin Dashboard",
+                        icon = if (isPaired) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                        trailing = {
+                            CupertinoActionPill(
+                                text = if (isPaired) "Unpair" else "Pair Terminal",
+                                icon = if (isPaired) Icons.Default.LinkOff else Icons.Default.QrCodeScanner,
+                                isDestructive = isPaired,
+                                onClick = {
+                                    if (isPaired) {
+                                        DevicePairingManager.unpairDevice(context)
+                                        pairedInfo = DevicePairingManager.getPairedDeviceInfo(context)
+                                        Toast.makeText(context, "Device unpaired from dashboard", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showPairDialog = true
+                                    }
+                                }
                             )
                         }
                     )

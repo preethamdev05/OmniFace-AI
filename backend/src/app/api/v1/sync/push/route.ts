@@ -64,7 +64,9 @@ export async function POST(req: NextRequest) {
             await database
               .insert(attendanceRecords)
               .values({
+                organizationId: orgId || DEFAULT_ORG_ID,
                 orgId: orgId || DEFAULT_ORG_ID,
+                eventId: rec.recordId,
                 recordId: rec.recordId,
                 studentRoll: rec.studentRoll,
                 studentName: rec.studentName,
@@ -73,9 +75,10 @@ export async function POST(req: NextRequest) {
                 confidencePct: rec.confidencePct,
                 securityTier: rec.securityTier,
                 sha256Hash: rec.sha256Hash,
+                deviceId: rec.kioskId || 'kiosk-alpha',
                 kioskId: rec.kioskId || 'kiosk-alpha',
               })
-              .onConflictDoNothing({ target: attendanceRecords.recordId });
+              .onConflictDoNothing({ target: attendanceRecords.eventId });
           }
         } catch (dbErr) {
           console.error('PostgreSQL sync push persistence warning:', dbErr);

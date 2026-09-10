@@ -31,7 +31,7 @@ enum class SubscriptionTier(
         hasWebDashboard = false
     ),
     PREMIUM(
-        title = "Premium Pro",
+        title = "Premium",
         maxStudents = 250,
         priceInrMonthly = 199,
         allowsReportExports = true,
@@ -40,20 +40,42 @@ enum class SubscriptionTier(
         displaysAds = false,
         hasWebDashboard = false
     ),
-    PROFESSIONAL(
-        title = "Professional",
-        maxStudents = 1000,
-        priceInrMonthly = 499,
+    PRO(
+        title = "Pro",
+        maxStudents = 500,
+        priceInrMonthly = 399,
+        allowsReportExports = true,
+        allowsCloudSync = true,
+        allowsMultiDevice = true,
+        displaysAds = false,
+        hasWebDashboard = false
+    ),
+    INSTITUTION(
+        title = "Institution",
+        maxStudents = Int.MAX_VALUE,
+        priceInrMonthly = 0,
         allowsReportExports = true,
         allowsCloudSync = true,
         allowsMultiDevice = true,
         displaysAds = false,
         hasWebDashboard = true
     ),
+    @Deprecated("Use PRO instead", ReplaceWith("PRO"))
+    PROFESSIONAL(
+        title = "Professional",
+        maxStudents = 500,
+        priceInrMonthly = 399,
+        allowsReportExports = true,
+        allowsCloudSync = true,
+        allowsMultiDevice = true,
+        displaysAds = false,
+        hasWebDashboard = false
+    ),
+    @Deprecated("Use INSTITUTION instead", ReplaceWith("INSTITUTION"))
     BUSINESS(
         title = "Enterprise Business",
         maxStudents = Int.MAX_VALUE,
-        priceInrMonthly = 999,
+        priceInrMonthly = 0,
         allowsReportExports = true,
         allowsCloudSync = true,
         allowsMultiDevice = true,
@@ -93,8 +115,8 @@ object SubscriptionTierManager {
     private const val KEY_LAST_ONLINE_VERIFY = "last_online_verification_ms"
     private const val KEY_PURCHASE_TOKEN = "google_play_purchase_token"
 
-    // 30 Days offline grace period for classroom/field kiosk operations
-    val OFFLINE_GRACE_PERIOD_MS = TimeUnit.DAYS.toMillis(30)
+    // 14 Days offline grace period for classroom/field kiosk operations before entering permanent Archive Read-Only Mode
+    val OFFLINE_GRACE_PERIOD_MS = TimeUnit.DAYS.toMillis(14)
 
     private val _currentTier = MutableStateFlow(SubscriptionTier.FREE)
     val currentTier: StateFlow<SubscriptionTier> = _currentTier.asStateFlow()
@@ -174,11 +196,44 @@ object SubscriptionTierManager {
         return _currentTier.value == SubscriptionTier.FREE
     }
 
+    fun isArchiveReadOnly(): Boolean {
+        val p = prefs ?: return false
+        val tierName = p.getString(KEY_TIER, SubscriptionTier.FREE.name) ?: SubscriptionTier.FREE.name
+        if (tierName == SubscriptionTier.FREE.name) return false
+        val expiryMs = p.getLong(KEY_EXPIRY_MS, 0L)
+        if (expiryMs <= 0L) return false
+        val now = System.currentTimeMillis()
+        return now > (expiryMs + OFFLINE_GRACE_PERIOD_MS)
+    }
+
+    fun getUpgradeFunnelWarning(studentCount: Int): String? {
+        val tier = _currentTier.value
+        return when (tier) {
+            SubscriptionTier.FREE -> {
+                if (studentCount >= 23) {
+                    "Approaching Free limit ($studentCount/25). Upgrade to Premium (250 people) for uninterrupted enrollment."
+                } else null
+            }
+            SubscriptionTier.PREMIUM -> {
+                if (studentCount >= 247) {
+                    "Approaching Premium limit ($studentCount/250). Upgrade to Pro (500 people) on Google Play."
+                } else null
+            }
+            SubscriptionTier.PRO, SubscriptionTier.PROFESSIONAL -> {
+                if (studentCount >= 495) {
+                    "Approaching Pro limit ($studentCount/500). Contact our team for an Institution plan (custom capacity, SLA, web dashboard)."
+                } else null
+            }
+            SubscriptionTier.INSTITUTION, SubscriptionTier.BUSINESS -> null
+        }
+    }
+
     fun getMaxStudentsDisplay(): String {
         return when (_currentTier.value) {
             SubscriptionTier.FREE -> "25"
             SubscriptionTier.PREMIUM -> "250"
-            SubscriptionTier.BUSINESS -> "Unlimited"
+            SubscriptionTier.PRO, SubscriptionTier.PROFESSIONAL -> "500"
+            SubscriptionTier.INSTITUTION, SubscriptionTier.BUSINESS -> "500+"
         }
     }
 

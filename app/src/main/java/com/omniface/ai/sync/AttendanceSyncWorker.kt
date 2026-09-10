@@ -65,8 +65,10 @@ class AttendanceSyncWorker(
         }
     }
 
-    private fun dispatchSyncPayload(endpoint: String, deviceId: String, records: List<AttendanceRecordEntity>): Boolean {
-        val payloadString = buildPayloadString(deviceId, records)
+        val deviceToken = prefs.getString("DEVICE_TOKEN", null)
+        val orgId = prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
+
+        val payloadString = buildPayloadString(deviceId, records, orgId)
         val requestTimestamp = System.currentTimeMillis()
         val hmacSecret = try {
             AndroidSecurityUtils.getOrCreateHmacSecret(applicationContext)
@@ -87,6 +89,10 @@ class AttendanceSyncWorker(
             setRequestProperty("Accept", "application/json")
             setRequestProperty("X-Device-Fingerprint", deviceFingerprint)
             setRequestProperty("X-Device-ID", deviceId)
+            if (!deviceToken.isNullOrBlank()) {
+                setRequestProperty("X-Device-Token", deviceToken)
+                setRequestProperty("Authorization", "Bearer $deviceToken")
+            }
             setRequestProperty("X-Timestamp", requestTimestamp.toString())
             setRequestProperty("X-Signature-Algorithm", "HMAC-SHA256")
             setRequestProperty("X-HMAC-Signature", hmacSignature)
@@ -98,6 +104,10 @@ class AttendanceSyncWorker(
                 writer.flush()
             }
             val responseCode = connection.responseCode
+            if (responseCode == 403) {
+                Log.w("AttendanceSync", "Kiosk sync paused: Organization is in permanent Read-Only Archive Mode (HTTP 403).")
+                return false
+            }
             if (responseCode !in 200..299) {
                 val errorBody = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
                 Log.w("AttendanceSync", "Sync HTTP error: $responseCode, response: $errorBody")
@@ -124,11 +134,12 @@ class AttendanceSyncWorker(
     }
 
     companion object {
-        fun buildPayloadString(deviceId: String, records: List<AttendanceRecordEntity>): String {
+        fun buildPayloadString(deviceId: String, records: List<AttendanceRecordEntity>, orgId: String? = null): String {
             val recordsJson = records.joinToString(separator = ",", prefix = "[", postfix = "]") { r ->
                 """{"record_id":"${escapeJson(r.recordId)}","student_roll":"${escapeJson(r.studentRoll)}","student_name":"${escapeJson(r.studentName)}","session_date":"${escapeJson(r.sessionDate)}","timestamp":${r.timestamp},"confidence_pct":${r.confidencePct},"security_tier":"${escapeJson(r.securityTier)}","sha256_hash":"${escapeJson(r.sha256Hash)}"}"""
             }
-            return """{"device_id":"${escapeJson(deviceId)}","records":$recordsJson}"""
+            val orgField = if (!orgId.isNullOrBlank()) ""","orgId":"${escapeJson(orgId)}"""" else ""
+            return """{"device_id":"${escapeJson(deviceId)}"$orgField,"records":$recordsJson}"""
         }
 
         private fun escapeJson(str: String): String {

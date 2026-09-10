@@ -157,7 +157,11 @@ object CloudFleetSyncEngine {
             return false
         }
 
-        val payloadString = AttendanceSyncWorker.buildPayloadString(deviceId, records)
+        val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+        val deviceToken = prefs.getString("DEVICE_TOKEN", null)
+        val orgId = prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
+
+        val payloadString = AttendanceSyncWorker.buildPayloadString(deviceId, records, orgId)
         val timestamp = System.currentTimeMillis()
         val hmacSecret = try {
             AndroidSecurityUtils.getOrCreateHmacSecret(context)
@@ -178,6 +182,10 @@ object CloudFleetSyncEngine {
             setRequestProperty("Accept", "application/json")
             setRequestProperty("X-Device-Fingerprint", deviceFingerprint)
             setRequestProperty("X-Device-ID", deviceId)
+            if (!deviceToken.isNullOrBlank()) {
+                setRequestProperty("X-Device-Token", deviceToken)
+                setRequestProperty("Authorization", "Bearer $deviceToken")
+            }
             setRequestProperty("X-Timestamp", timestamp.toString())
             setRequestProperty("X-Signature-Algorithm", "HMAC-SHA256")
             setRequestProperty("X-HMAC-Signature", hmacSignature)
@@ -189,6 +197,10 @@ object CloudFleetSyncEngine {
                 writer.flush()
             }
             val code = connection.responseCode
+            if (code == 403) {
+                Log.w(TAG, "Cloud fleet sync paused: Organization is in permanent Read-Only Archive Mode (HTTP 403).")
+                return false
+            }
             if (code in 200..299) {
                 val responseBody = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 AttendanceSyncWorker.validateSyncResponse(responseBody, records.size)

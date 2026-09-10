@@ -776,7 +776,8 @@ fun SettingsScreen(
                                                 text = when (activeTier) {
                                                     SubscriptionTier.FREE -> "Limit: 25 people • $playPrice"
                                                     SubscriptionTier.PREMIUM -> "Limit: 250 people • Active Subscription"
-                                                    SubscriptionTier.BUSINESS -> "Unlimited people • Fleet Active"
+                                                    SubscriptionTier.PRO, SubscriptionTier.PROFESSIONAL -> "Limit: 500 people • Pro Active"
+                                                    SubscriptionTier.INSTITUTION, SubscriptionTier.BUSINESS -> "500+ people • Institution Fleet"
                                                 },
                                                 color = omniTextMuted(isDark),
                                                 fontSize = 11.5.sp
@@ -789,7 +790,7 @@ fun SettingsScreen(
                                             if (activeTier == SubscriptionTier.FREE) {
                                                 paywallReason = PaywallTriggerReason.STUDENT_LIMIT_REACHED
                                                 showPaywall = true
-                                            } else if (activeTier == SubscriptionTier.PREMIUM) {
+                                            } else if (activeTier == SubscriptionTier.PREMIUM || activeTier == SubscriptionTier.PRO || activeTier == SubscriptionTier.PROFESSIONAL) {
                                                 PlayBillingManager.openSubscriptionManagement(context)
                                             } else {
                                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://omniface.vercel.app/subscription"))

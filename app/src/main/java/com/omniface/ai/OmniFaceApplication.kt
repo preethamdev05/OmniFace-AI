@@ -40,6 +40,9 @@ class OmniFaceApplication : Application() {
         com.omniface.ai.audio.BiometricSoundboard.initTts(this)
         com.omniface.ai.audio.BiometricSoundboard.setLanguage(com.omniface.ai.i18n.LocalizationManager.currentLanguage.value)
 
+        // 1c. Initialize Fleet Device Pairing Manager
+        com.omniface.ai.hardware.DevicePairingManager.initialize(this)
+
         // 2. Initialize Room SQLite Database with WAL Mode Concurrency
         val dbBuilder = Room.databaseBuilder(
             applicationContext,
