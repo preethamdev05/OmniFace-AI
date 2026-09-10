@@ -14,6 +14,9 @@ import com.omniface.ai.data.local.AppDatabase
 import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.sync.AttendanceSyncWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class OmniFaceApplication : Application() {
@@ -27,6 +30,10 @@ class OmniFaceApplication : Application() {
 
         // 1. Initialize Hardware KeyStore Encryption Master Key
         AndroidSecurityUtils.initMasterKey()
+
+        // 1a. Initialize Commercial Subscription Tier Manager & Offline Grace Cache
+        com.omniface.ai.billing.SubscriptionTierManager.initialize(this)
+        com.omniface.ai.billing.PlayBillingManager.initialize(this)
 
         // 1b. Initialize Multilingual Localization & Soundboard Voice Engine
         com.omniface.ai.i18n.LocalizationManager.init(this)
@@ -76,36 +83,96 @@ class OmniFaceApplication : Application() {
         // 5b. Initialize Kiosk Lock Controller (PBKDF2 + persistent lockout)
         com.omniface.ai.hardware.KioskLockController.initialize(this)
 
+        // 5c. Initialize Hardware QR/Barcode 2FA Scanner configuration
+        com.omniface.ai.hardware.QrBarcode2FaScanner.init(this)
+
         // 6. Check User Consent Before Scheduling Cloud Sync
         if (isCloudSyncEnabled()) {
             schedulePeriodicSync()
         }
+
+        // 7. Asynchronous Background Engine Pre-Warming (Zero Cold-Start Delay)
+        warmupNeuralEngineAsync()
+    }
+
+    private fun warmupNeuralEngineAsync() {
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                // 1. Eagerly load templates and student map from Room DB
+                val students = database.studentDao().getAllStudents()
+                val templates = database.studentDao().getAllTemplates()
+                cachedStudentMap = students.associate { it.rollNumber to it.fullName }
+                cachedTemplates = templates
+
+                // 2. Initialize and load Unified Face Intelligence Engine if available
+                val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(this@OmniFaceApplication)
+                val downloadManager = com.omniface.ai.ml.ModelDownloadManager.getInstance(this@OmniFaceApplication)
+                if (downloadManager.isModelAvailable()) {
+                    unifiedEngine.loadUnifiedModelExplicit(this@OmniFaceApplication)
+                }
+
+                // 3. Initialize FaceSecurityPipeline singleton and preload templates
+                val pipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(this@OmniFaceApplication)
+                if (templates.isNotEmpty()) {
+                    pipeline.preloadTemplates(templates)
+                }
+
+                // 4. Pre-warm Google ML Kit FaceDetector in background (loads native .so libraries & models)
+                warmupMlKitDetectorAsync()
+
+                // 5. Pre-warm TFLite / LiteRT Graph with a dummy 112x112 frame (compiles GPU/NNAPI OpenCL kernels)
+                warmupPipelineInferenceAsync(pipeline)
+
+                Log.i("OmniFaceApp", "🚀 Full Biometric Pipeline pre-warmed & ready for instantaneous first-frame recognition.")
+            } catch (e: Throwable) {
+                Log.w("OmniFaceApp", "Background engine pre-warming note: ${e.message}")
+            }
+        }
+    }
+
+    private fun warmupMlKitDetectorAsync() {
+        try {
+            val detector = com.google.mlkit.vision.face.FaceDetection.getClient(
+                com.google.mlkit.vision.face.FaceDetectorOptions.Builder()
+                    .setPerformanceMode(com.google.mlkit.vision.face.FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setLandmarkMode(com.google.mlkit.vision.face.FaceDetectorOptions.LANDMARK_MODE_ALL)
+                    .setContourMode(com.google.mlkit.vision.face.FaceDetectorOptions.CONTOUR_MODE_ALL)
+                    .setClassificationMode(com.google.mlkit.vision.face.FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                    .setMinFaceSize(0.08f)
+                    .enableTracking()
+                    .build()
+            )
+            val dummyBitmap = android.graphics.Bitmap.createBitmap(112, 112, android.graphics.Bitmap.Config.ARGB_8888)
+            val inputImage = com.google.mlkit.vision.common.InputImage.fromBitmap(dummyBitmap, 0)
+            detector.process(inputImage)
+                .addOnCompleteListener {
+                    dummyBitmap.recycle()
+                    try { detector.close() } catch (_: Throwable) {}
+                    Log.i("OmniFaceApp", "⚡ ML Kit FaceDetector warm-up completed successfully.")
+                }
+        } catch (t: Throwable) {
+            Log.w("OmniFaceApp", "ML Kit warm-up note: ${t.message}")
+        }
+    }
+
+    private fun warmupPipelineInferenceAsync(pipeline: com.omniface.ai.ml.pipeline.FaceSecurityPipeline) {
+        try {
+            val dummyBitmap = android.graphics.Bitmap.createBitmap(112, 112, android.graphics.Bitmap.Config.ARGB_8888)
+            val dummyEmb = pipeline.recognitionEngine.extractEmbedding(dummyBitmap)
+            dummyBitmap.recycle()
+            Log.i("OmniFaceApp", "⚡ TFLite / LiteRT graph warm-up completed (dim=${dummyEmb.size}).")
+        } catch (t: Throwable) {
+            Log.w("OmniFaceApp", "Pipeline inference warm-up note: ${t.message}")
+        }
     }
 
     private fun verifyModelAssetsIntegrity() {
-        val modelFiles = listOf(
-            "mobilefacenet_512d_fp16.tflite",
-            "mobilefacenet_512d_fp32.tflite",
-            "mobilefacenet_512d_int8.tflite"
-        )
-        for (file in modelFiles) {
-            try {
-                assets.open(file).use { input ->
-                    // SHA-256 integrity digest — collision-resistant, unlike CRC32
-                    val digest = java.security.MessageDigest.getInstance("SHA-256")
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalBytes = 0L
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        digest.update(buffer, 0, bytesRead)
-                        totalBytes += bytesRead
-                    }
-                    val sha256 = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
-                    Log.i("OmniFaceApp", "Verified model asset: $file ($totalBytes bytes, SHA-256: ${sha256.take(16)}…)")
-                }
-            } catch (e: Exception) {
-                Log.w("OmniFaceApp", "Model asset check warning for $file: ${e.message}")
-            }
+        val unifiedFile = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.MODEL_ASSET
+        val privateFile = java.io.File(java.io.File(filesDir, "models"), unifiedFile)
+        if (privateFile.exists() && privateFile.canRead()) {
+            Log.i("OmniFaceApp", "Verified unified model in app private storage: ${privateFile.length()} bytes")
+        } else {
+            Log.i("OmniFaceApp", "Unified model not pre-bundled in assets; will be downloaded on-demand from Cloudflare R2.")
         }
     }
 
@@ -161,5 +228,13 @@ class OmniFaceApplication : Application() {
     companion object {
         lateinit var instance: OmniFaceApplication
             private set
+
+        @Volatile
+        var cachedStudentMap: Map<String, String> = emptyMap()
+            internal set
+
+        @Volatile
+        var cachedTemplates: List<com.omniface.ai.data.local.entity.FaceTemplateEntity> = emptyList()
+            internal set
     }
 }

@@ -91,7 +91,7 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
     private val padMutex = Any()
     @Volatile private var isInitialized = false
 
-    override val isReady: Boolean get() = interpreter != null
+    override val isReady: Boolean get() = interpreter != null || com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context).isModelLoaded
 
     init {
         initializeAsync()
@@ -117,6 +117,12 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
     }
 
     private fun initializeEngine() {
+        val unified = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            Log.i(TAG, "⚡ [UNIFIED SOVEREIGN ENGINE] PassivePadEngine delegating to UnifiedFaceIntelligenceEngine (${unified.activeBackend}). Standalone silentface.tflite bypassed.")
+            return
+        }
+
         val modelBuffer = loadModelBuffer()
         if (modelBuffer == null) {
             Log.w(TAG, "⚠️ $MODEL_FILENAME not found — passive RGB PAD running in fallback mode")
@@ -240,6 +246,8 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
             latencyMs = elapsedMs.coerceAtLeast(1L)
         )
     }
+
+    suspend fun detectLiveness(input: Bitmap): PassivePadResult = run(input)
 
     override fun benchmarkLatency(): Long {
         val interp = interpreter ?: return 0L

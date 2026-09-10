@@ -12,7 +12,7 @@ echo "🤗 OMNIFACE AI — HUGGING FACE PRIVATE HUB UPLOADER"
 echo "=================================================================="
 
 if [ ! -f "$MODEL_FILE" ]; then
-    echo "❌ Error: AntelopeV2 FP16 model not found at $MODEL_FILE"
+    echo "❌ Error: Neural Engine FP16 model not found at $MODEL_FILE"
     exit 1
 fi
 
@@ -42,7 +42,7 @@ fi
 CURRENT_USER=$(hf auth whoami 2>/dev/null | head -n 1 | tr -d '[:space:]')
 echo "👤 Authenticated as: ${CURRENT_USER}"
 
-DEFAULT_REPO="${CURRENT_USER}/omniface-antelopev2"
+DEFAULT_REPO="${CURRENT_USER}/omniface-neural-engine"
 echo ""
 read -rp "Enter Target Private Repo ID [Default: ${DEFAULT_REPO}]: " REPO_INPUT
 TARGET_REPO="${REPO_INPUT:-$DEFAULT_REPO}"
@@ -53,7 +53,7 @@ hf repos create "$TARGET_REPO" --private 2>/dev/null || echo "ℹ️ Repository 
 
 echo ""
 echo "[+] Uploading ${MODEL_FILE} to https://huggingface.co/${TARGET_REPO}..."
-hf upload "$TARGET_REPO" "$MODEL_FILE" "mobilefacenet_512d_fp16.tflite" --commit-message="Deploy AntelopeV2 Glint360K 512-D FP16 TFLite"
+hf upload "$TARGET_REPO" "$MODEL_FILE" "mobilefacenet_512d_fp16.tflite" --commit-message="Deploy OmniFace Neural Engine 512-D FP16 TFLite"
 
 echo ""
 echo "=================================================================="

@@ -56,3 +56,9 @@
 # ── Compose runtime (prevent stripping of internal lambdas) ──────────────────
 -keep class androidx.compose.** { *; }
 -dontwarn androidx.compose.**
+
+# ── Google Play Billing Library 7.x ──────────────────────────────────────────
+-keep class com.android.billingclient.api.** { *; }
+-keep class com.google.android.gms.internal.play_billing.** { *; }
+-dontwarn com.android.billingclient.**
+-dontwarn com.google.android.gms.internal.play_billing.**

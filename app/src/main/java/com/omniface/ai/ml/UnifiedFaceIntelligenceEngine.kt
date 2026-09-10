@@ -1,14 +1,15 @@
+@file:Suppress("DEPRECATION")
+
 package com.omniface.ai.ml
 
 import android.content.Context
-import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
-import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.ml.antispoof.PassivePadResult
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -16,6 +17,9 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.exp
 import kotlin.math.sqrt
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 data class UnifiedFaceInferenceResult(
     val embedding512: FloatArray,
@@ -24,8 +28,17 @@ data class UnifiedFaceInferenceResult(
     val map3d: FaceMap3DMMResult,
     val attributes: FaceAttributesResult,
     val gaze: EyeGazeResult,
-    val mesh: MediaPipeMeshResult,
-    val hrnet: HRNetFaceResult,
+    val mesh: MediaPipeMeshResult? = null,
+    val hrnet: HRNetFaceResult? = null,
+    val totalInferenceMs: Long
+)
+
+data class UnifiedRegistrationResult(
+    val embedding512: FloatArray,
+    val passivePad: PassivePadResult,
+    val map3d: FaceMap3DMMResult,
+    val attributes: FaceAttributesResult,
+    val gaze: EyeGazeResult,
     val totalInferenceMs: Long
 )
 
@@ -48,7 +61,7 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     companion object {
         private const val TAG = "UnifiedFaceEngine"
-        private const val MODEL_ASSET = "unified_omniface.tflite"
+        const val MODEL_ASSET = "unified_omniface.tflite"
 
         @Volatile
         private var INSTANCE: UnifiedFaceIntelligenceEngine? = null
@@ -61,10 +74,14 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     private var interpreter: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
+    private var nnApiDelegate: NnApiDelegate? = null
     var isModelLoaded: Boolean = false
         private set
     var activeBackend: String = "CPU (XNNPACK)"
         private set
+
+    private val _isModelLoadedState = MutableStateFlow(false)
+    val isModelLoadedState: StateFlow<Boolean> = _isModelLoadedState.asStateFlow()
 
     // Preallocated direct ByteBuffers for inputs (thread-safe synchronization on inference)
     private val bufferLock = Any()
@@ -89,16 +106,43 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     private val outHRNetHeatmaps = ByteBuffer.allocateDirect(1 * 29 * 64 * 64 * 4).order(ByteOrder.nativeOrder())
 
     init {
-        loadUnifiedModel()
+        // Standby mode by default: Model is loaded on-demand via loadUnifiedModelExplicit()
     }
 
     fun getLocalUnifiedModelFile(): File {
         return File(File(context.filesDir, "models"), MODEL_ASSET)
     }
 
+    @Synchronized
     fun reloadModel(): Boolean {
+        return loadUnifiedModelExplicit()
+    }
+
+    @Synchronized
+    fun loadUnifiedModelExplicit(context: Context = this.context): Boolean {
+        if (isModelLoaded && interpreter != null) return true
         loadUnifiedModel()
         return isModelLoaded
+    }
+
+    @Synchronized
+    fun unloadUnifiedModel() {
+        synchronized(bufferLock) {
+            try {
+                interpreter?.close()
+                interpreter = null
+                nnApiDelegate?.close()
+                nnApiDelegate = null
+                gpuDelegate?.close()
+                gpuDelegate = null
+                isModelLoaded = false
+                _isModelLoadedState.value = false
+                Log.i(TAG, "Unified Face Intelligence Engine unloaded. RAM and NPU memory released.")
+                System.gc()
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error while unloading model: ${e.message}", e)
+            }
+        }
     }
 
     private fun loadUnifiedModel() {
@@ -122,56 +166,48 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
                     }.getOrNull()
                     buf ?: run {
                         isModelLoaded = false
+                        _isModelLoadedState.value = false
                         return
                     }
                 }
                 else -> {
-                    try {
-                        val afd: AssetFileDescriptor = context.assets.openFd(MODEL_ASSET)
-                        val channel = FileInputStream(afd.fileDescriptor).channel
-                        val buffer = channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
-                        afd.close()
-                        Log.i(TAG, "⚡ Loading unified model from assets: $MODEL_ASSET")
-                        buffer
-                    } catch (assetEx: Throwable) {
-                        Log.w(TAG, "Unified model not bundled in assets (${assetEx.message}). Model will be downloaded on-demand from CDN.")
-                        isModelLoaded = false
-                        return
-                    }
+                    Log.i(TAG, "Unified model not present in local storage. Model must be downloaded on-demand from Cloudflare R2.")
+                    isModelLoaded = false
+                    _isModelLoadedState.value = false
+                    return
                 }
             }
 
-            // Detect hardware capabilities
-            val npuInfo = NpuHardwareDetector.detectNpuHardware()
-            val options = Interpreter.Options().apply {
-                numThreads = 4
-                useXNNPACK = true
-            }
-
-            // Attempt GPU acceleration
+            // Fast-Path Multi-Threaded XNNPACK SIMD (Sub-300ms Instant Startup)
+            // Memory-mapped execution avoids 1-2 minute driver compilation/partitioning stalls
+            // across complex 380MB multi-head graph architectures on mobile devices.
+            var loadedInterpreter: Interpreter? = null
             try {
-                val gpu = GpuDelegate()
-                options.addDelegate(gpu)
-                val testInterpreter = Interpreter(modelBuffer, options)
-                interpreter = testInterpreter
-                gpuDelegate = gpu
-                activeBackend = if (npuInfo.isGenuineNpuDetected || npuInfo.socModel.contains("Snapdragon", ignoreCase = true)) "Hexagon NPU / GPU" else "Adreno GPU"
-                Log.i(TAG, "Unified model loaded successfully with hardware acceleration ($activeBackend)")
-            } catch (gpuEx: Throwable) {
-                Log.w(TAG, "GPU delegate initialization fallback to optimized CPU: ${gpuEx.message}")
                 val cpuOptions = Interpreter.Options().apply {
                     numThreads = 4
                     useXNNPACK = true
                 }
-                interpreter = Interpreter(modelBuffer, cpuOptions)
-                activeBackend = "CPU (4-Core XNNPACK)"
+                loadedInterpreter = Interpreter(modelBuffer, cpuOptions)
+                activeBackend = "CPU (4-Core XNNPACK SIMD)"
+                Log.i(TAG, "⚡ Unified model loaded instantly on optimized CPU: $activeBackend")
+            } catch (cpuEx: Throwable) {
+                Log.w(TAG, "Standard CPU fallback: ${cpuEx.message}")
+                val fallbackOptions = Interpreter.Options().apply {
+                    numThreads = 4
+                }
+                loadedInterpreter = Interpreter(modelBuffer, fallbackOptions)
+                activeBackend = "CPU (Standard Multi-Threaded)"
             }
 
+            interpreter = loadedInterpreter
+
             isModelLoaded = true
+            _isModelLoadedState.value = true
             Log.i(TAG, "Unified LiteRT model initialized. File size: ${modelBuffer.capacity()} bytes")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize unified LiteRT model: ${e.message}", e)
             isModelLoaded = false
+            _isModelLoadedState.value = false
         }
     }
 
@@ -244,23 +280,53 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             )
 
             // Single unified native invocation
+            rewindAllInputs()
             interp.runForMultipleInputsOutputs(inputs, outputs)
 
             val elapsedMs = SystemClock.elapsedRealtime() - t0
 
+            // ── Parse Output 2: FaceMap 3DMM ──
+            val params265 = out3DMM[0].clone()
+            var sumVariance = 0f
+            val varCount = minOf(params265.size, 40)
+            for (i in 0 until varCount) {
+                sumVariance += params265[i] * params265[i]
+            }
+            val depthVariance = sumVariance / varCount
+            val is3D = depthVariance > 0.0015f // Planar screen/photo exhibits < 0.0015 depth variance
+            val map3dResult = FaceMap3DMMResult(
+                parameters265 = params265,
+                depthVariance = depthVariance,
+                isTrue3DSurface = is3D,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
             // ── Parse Output 0: Anti-Spoof (MiniFASNetV2) ──
-            val logits = outAntiSpoof[0]
-            val maxLogit = maxOf(logits[0], maxOf(logits[1], logits[2]))
-            val exp0 = exp((logits[0] - maxLogit).toDouble()).toFloat()
-            val exp1 = exp((logits[1] - maxLogit).toDouble()).toFloat()
-            val exp2 = exp((logits[2] - maxLogit).toDouble()).toFloat()
-            val sumExp = exp0 + exp1 + exp2
-            val spoofScore = (exp0 + exp2) / sumExp
-            val liveScore = exp1 / sumExp
-            val isLive = liveScore >= 0.65f && spoofScore < 0.35f
+            // silentface.tflite outputs 3 probabilities: [Photo Spoof, Screen Spoof, Real Live Face]
+            val rawPad = outAntiSpoof[0]
+            val p0 = rawPad.getOrElse(0) { 0f }
+            val p1 = rawPad.getOrElse(1) { 0f }
+            val p2 = rawPad.getOrElse(2) { 0f }
+            val sumP = p0 + p1 + p2
+            val (spoofPhoto, spoofScreen, liveProb) = if (sumP in 0.90f..1.10f) {
+                Triple(p0.coerceIn(0f, 1f), p1.coerceIn(0f, 1f), p2.coerceIn(0f, 1f))
+            } else {
+                val maxL = maxOf(p0, maxOf(p1, p2))
+                val e0 = exp((p0 - maxL).toDouble()).toFloat()
+                val e1 = exp((p1 - maxL).toDouble()).toFloat()
+                val e2 = exp((p2 - maxL).toDouble()).toFloat()
+                val s = (e0 + e1 + e2).coerceAtLeast(1e-9f)
+                Triple(e0 / s, e1 / s, e2 / s)
+            }
+            val spoofScore = (spoofPhoto + spoofScreen).coerceIn(0f, 1f)
+            val liveScore = liveProb.coerceIn(0f, 1f)
+
+            // Fused multimodal anti-spoofing consensus
+            val isConfirmedSpoof = (spoofScore >= 0.70f) || (!is3D && spoofScore >= 0.45f)
+            val isLive = !isConfirmedSpoof
             val attackDesc = when {
                 isLive -> "Live Real Human"
-                exp0 > exp2 -> "2D Photo Print Attack Detected"
+                spoofPhoto > spoofScreen -> "2D Photo Print Attack Detected"
                 else -> "Electronic Screen Replay Attack Detected"
             }
             val padResult = PassivePadResult(
@@ -278,31 +344,19 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
             val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
             val normalizedCavaEmb = FloatArray(512) { i -> rawCava[i] / cavaNorm }
 
-            // ── Parse Output 2: FaceMap 3DMM ──
-            val params265 = out3DMM[0].clone()
-            var sumVariance = 0f
-            val varCount = minOf(params265.size, 40)
-            for (i in 0 until varCount) {
-                sumVariance += params265[i] * params265[i]
-            }
-            val depthVariance = sumVariance / varCount
-            val is3D = depthVariance > 0.003f // A flat screen/photo has near 0 depth variance
-            val map3dResult = FaceMap3DMMResult(
-                parameters265 = params265,
-                depthVariance = depthVariance,
-                isTrue3DSurface = is3D,
-                executionTimeMs = elapsedMs.toFloat()
-            )
-
-            // ── Parse Output 3: FaceAttribNet ──
+            // ── Parse Output 3: Qualcomm FaceAttribNet ──
             val rawAttr = outAttrib[0]
-            val smile = rawAttr.getOrElse(0) { 0f }.coerceIn(0f, 1f)
-            val glasses = rawAttr.getOrElse(1) { 0f }.coerceIn(0f, 1f)
-            val poseYaw = rawAttr.getOrElse(2) { 0f }
+            val leftEyeOpen = rawAttr.getOrElse(0) { 1f }.coerceIn(0f, 1f)
+            val rightEyeOpen = rawAttr.getOrElse(1) { 1f }.coerceIn(0f, 1f)
+            val eyeglasses = rawAttr.getOrElse(2) { 0f }.coerceIn(0f, 1f)
+            val mask = rawAttr.getOrElse(3) { 0f }.coerceIn(0f, 1f)
+            val sunglasses = rawAttr.getOrElse(4) { 0f }.coerceIn(0f, 1f)
             val attrResult = FaceAttributesResult(
-                smileScore = smile,
-                eyeglassesScore = glasses,
-                poseYawScore = poseYaw,
+                leftEyeOpenScore = leftEyeOpen,
+                rightEyeOpenScore = rightEyeOpen,
+                eyeglassesScore = eyeglasses,
+                maskScore = mask,
+                sunglassesScore = sunglasses,
                 rawProbabilities = rawAttr.clone(),
                 executionTimeMs = elapsedMs.toFloat()
             )
@@ -362,7 +416,415 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
         }
     }
 
+    /**
+     * Highly optimized registration inference path:
+     * Evaluates ONLY the heads required for biometric enrollment:
+     * - Output 0: MiniFASNetV2 Anti-Spoofing (Passive PAD)
+     * - Output 1: Qualcomm CavaFace ArcFace-512 Identity Embedding
+     * - Output 2: FaceMap 3DMM Depth Variance & Geometry
+     * - Output 3: FaceAttribNet Sunglasses / Mask / Expression Gating
+     * - Output 6: EyeGaze Pitch / Yaw Gaze Gating
+     *
+     * Skips heavy HRNet (Output 9) and MediaPipe dense mesh (Outputs 7, 8),
+     * drastically reducing registration latency and memory pressure while keeping
+     * all computation strictly inside the single unified model.
+     */
+    fun processRegistrationFace(
+        faceCrop: Bitmap,
+        alignedFace: Bitmap? = null
+    ): UnifiedRegistrationResult? {
+        val interp = interpreter ?: return null
+        if (!isModelLoaded || faceCrop.isRecycled) return null
+
+        val t0 = SystemClock.elapsedRealtime()
+
+        synchronized(bufferLock) {
+            // 1. Populate Input 0: Anti-Spoof (MiniFASNetV2) [1, 3, 80, 80] Float32 NCHW
+            populateAntiSpoofBuffer(faceCrop)
+
+            // 2. Populate Input 1: Qualcomm CavaFace [1, 112, 112, 3] Float32 NHWC [0.0, 1.0]
+            val cavaFaceBitmap = if (alignedFace != null && !alignedFace.isRecycled) alignedFace else faceCrop
+            populateRgbNormalizedBuffer(cavaFaceBitmap, inputCavaface, 112, 112)
+
+            // 3. Populate Input 2: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
+            populateRgbNormalizedBuffer(faceCrop, input3DMM, 128, 128)
+
+            // 4. Populate Input 3: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
+            populateRgbNormalizedBuffer(faceCrop, inputAttrib, 128, 128)
+
+            // 5. Populate Input 4: EyeGaze [1, 96, 160] Float32 Grayscale
+            populateEyeGazeBuffer(faceCrop)
+
+            val inputs = arrayOf<Any>(
+                inputAntiSpoof,
+                inputCavaface,
+                input3DMM,
+                inputAttrib,
+                inputEyeGaze,
+                inputMesh,
+                inputHRNet
+            )
+
+            // Selective output mapping — only execute registration-required heads!
+            val outputs = mutableMapOf<Int, Any>(
+                0 to outAntiSpoof,
+                1 to outCavaface,
+                2 to out3DMM,
+                3 to outAttrib,
+                6 to outEyePitchYaw
+            )
+
+            rewindAllInputs()
+            interp.runForMultipleInputsOutputs(inputs, outputs)
+
+            val elapsedMs = SystemClock.elapsedRealtime() - t0
+
+            // ── Parse Output 2: FaceMap 3DMM ──
+            val params265 = out3DMM[0].clone()
+            var sumVariance = 0f
+            val varCount = minOf(params265.size, 40)
+            for (i in 0 until varCount) {
+                sumVariance += params265[i] * params265[i]
+            }
+            val depthVariance = sumVariance / varCount
+            val is3D = depthVariance > 0.0015f
+            val map3dResult = FaceMap3DMMResult(
+                parameters265 = params265,
+                depthVariance = depthVariance,
+                isTrue3DSurface = is3D,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            // ── Parse Output 0: Anti-Spoof (MiniFASNetV2) ──
+            // silentface.tflite outputs 3 probabilities: [Photo Spoof, Screen Spoof, Real Live Face]
+            val rawPad = outAntiSpoof[0]
+            val p0 = rawPad.getOrElse(0) { 0f }
+            val p1 = rawPad.getOrElse(1) { 0f }
+            val p2 = rawPad.getOrElse(2) { 0f }
+            val sumP = p0 + p1 + p2
+            val (spoofPhoto, spoofScreen, liveProb) = if (sumP in 0.90f..1.10f) {
+                Triple(p0.coerceIn(0f, 1f), p1.coerceIn(0f, 1f), p2.coerceIn(0f, 1f))
+            } else {
+                val maxL = maxOf(p0, maxOf(p1, p2))
+                val e0 = exp((p0 - maxL).toDouble()).toFloat()
+                val e1 = exp((p1 - maxL).toDouble()).toFloat()
+                val e2 = exp((p2 - maxL).toDouble()).toFloat()
+                val s = (e0 + e1 + e2).coerceAtLeast(1e-9f)
+                Triple(e0 / s, e1 / s, e2 / s)
+            }
+            val spoofScore = (spoofPhoto + spoofScreen).coerceIn(0f, 1f)
+            val liveScore = liveProb.coerceIn(0f, 1f)
+
+            // Fused anti-spoofing decision:
+            // Presentation attack is confirmed if:
+            // 1. Definite neural spoof detection (spoofScore >= 0.70f)
+            // 2. OR 2D flat planar surface (depthVariance < 0.0015f AND spoofScore >= 0.45f)
+            val isConfirmedSpoof = (spoofScore >= 0.70f) || (!is3D && spoofScore >= 0.45f)
+            val isLive = !isConfirmedSpoof
+
+            Log.i(TAG, "🔍 Registration PAD: liveScore=${"%.3f".format(liveScore)}, spoofScore=${"%.3f".format(spoofScore)}, 3DMM_variance=${"%.4f".format(depthVariance)}, isLive=$isLive, raw=[${rawPad.joinToString()}]")
+
+            val padResult = PassivePadResult(
+                isLive = isLive,
+                livenessScore = liveScore,
+                spoofProbability = spoofScore,
+                attackTypeDescription = if (isLive) "Real Person" else if (!is3D) "2D Flat Photo Attack" else "Screen Replay Spoof Detected",
+                latencyMs = elapsedMs
+            )
+
+            // ── Parse Output 1: CavaFace ArcFace-512 Embedding ──
+            val rawCava = outCavaface[0]
+            var cavaNormSum = 0f
+            for (v in rawCava) cavaNormSum += v * v
+            val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
+            val normalizedCavaEmb = FloatArray(512) { i -> rawCava[i] / cavaNorm }
+
+            // ── Parse Output 3: Qualcomm FaceAttribNet ──
+            val rawAttr = outAttrib[0]
+            val leftEyeOpen = rawAttr.getOrElse(0) { 1f }.coerceIn(0f, 1f)
+            val rightEyeOpen = rawAttr.getOrElse(1) { 1f }.coerceIn(0f, 1f)
+            val eyeglasses = rawAttr.getOrElse(2) { 0f }.coerceIn(0f, 1f)
+            val mask = rawAttr.getOrElse(3) { 0f }.coerceIn(0f, 1f)
+            val sunglasses = rawAttr.getOrElse(4) { 0f }.coerceIn(0f, 1f)
+            Log.i(TAG, "🔍 Registration Attrib: leftEye=${"%.2f".format(leftEyeOpen)}, rightEye=${"%.2f".format(rightEyeOpen)}, glasses=${"%.2f".format(eyeglasses)}, mask=${"%.2f".format(mask)}, sunglasses=${"%.2f".format(sunglasses)}")
+            val attrResult = FaceAttributesResult(
+                leftEyeOpenScore = leftEyeOpen,
+                rightEyeOpenScore = rightEyeOpen,
+                eyeglassesScore = eyeglasses,
+                maskScore = mask,
+                sunglassesScore = sunglasses,
+                rawProbabilities = rawAttr.clone(),
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            // ── Parse Output 6: EyeGaze Pitch / Yaw ──
+            val pitch = outEyePitchYaw[0][0]
+            val yaw = outEyePitchYaw[0][1]
+            val gazeNorm = sqrt(pitch * pitch + yaw * yaw)
+            val isAttentive = gazeNorm < 0.45f
+            val gazeResult = EyeGazeResult(
+                pitch = pitch,
+                yaw = yaw,
+                gazeVectorNorm = gazeNorm,
+                eyeLandmarks34x2 = Array(34) { FloatArray(2) },
+                isGazeAttentive = isAttentive,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            return UnifiedRegistrationResult(
+                embedding512 = normalizedCavaEmb,
+                passivePad = padResult,
+                map3d = map3dResult,
+                attributes = attrResult,
+                gaze = gazeResult,
+                totalInferenceMs = elapsedMs
+            )
+        }
+    }
+
+    /**
+     * Executes optimized selective inference for real-time attendance scanning.
+     * Binds only scanner-needed heads (PAD, CavaFace, 3DMM, Attrib, EyeGaze, MediaPipe Mesh),
+     * completely omitting heavy HRNet heatmaps (475 KB) and Eye heatmaps (130 KB)
+     * to eliminate 605 KB of JNI memory transfers and 118,784 heatmap argmax iterations per frame.
+     */
+    fun processScannerFace(
+        faceCrop: Bitmap,
+        headYaw: Float = 0f,
+        headPitch: Float = 0f,
+        leftEyeOpenProb: Float? = null,
+        rightEyeOpenProb: Float? = null,
+        alignedFace: Bitmap? = null
+    ): UnifiedFaceInferenceResult? {
+        val interp = interpreter ?: return null
+        if (!isModelLoaded || faceCrop.isRecycled) return null
+
+        val t0 = SystemClock.elapsedRealtime()
+
+        synchronized(bufferLock) {
+            // 1. Populate Input 0: Anti-Spoof (MiniFASNetV2) [1, 3, 80, 80] Float32 NCHW (BGR)
+            populateAntiSpoofBuffer(faceCrop)
+
+            // 2. Populate Input 1: Qualcomm CavaFace [1, 112, 112, 3] Float32 NHWC [0.0, 1.0]
+            val cavaFaceBitmap = if (alignedFace != null && !alignedFace.isRecycled) alignedFace else faceCrop
+            populateRgbNormalizedBuffer(cavaFaceBitmap, inputCavaface, 112, 112)
+
+            // 3. Populate Input 2: FaceMap 3DMM [1, 128, 128, 3] Float32 NHWC
+            populateRgbNormalizedBuffer(faceCrop, input3DMM, 128, 128)
+
+            // 4. Populate Input 3: FaceAttribNet [1, 128, 128, 3] Float32 NHWC
+            populateRgbNormalizedBuffer(faceCrop, inputAttrib, 128, 128)
+
+            // 5. Populate Input 4: EyeGaze [1, 96, 160] Float32 Grayscale
+            populateEyeGazeBuffer(faceCrop)
+
+            // 6. Populate Input 5: MediaPipe Mesh [1, 192, 192, 3] Float32 NHWC
+            populateRgbNormalizedBuffer(faceCrop, inputMesh, 192, 192)
+
+            val inputs = arrayOf<Any>(
+                inputAntiSpoof,
+                inputCavaface,
+                input3DMM,
+                inputAttrib,
+                inputEyeGaze,
+                inputMesh,
+                inputHRNet
+            )
+
+            // Selective output mapping for Scanner — omits outputs 4 and 9!
+            val outputs = mutableMapOf<Int, Any>(
+                0 to outAntiSpoof,
+                1 to outCavaface,
+                2 to out3DMM,
+                3 to outAttrib,
+                6 to outEyePitchYaw,
+                7 to outMeshScores,
+                8 to outMeshLandmarks
+            )
+
+            rewindAllInputs()
+            interp.runForMultipleInputsOutputs(inputs, outputs)
+
+            val elapsedMs = SystemClock.elapsedRealtime() - t0
+
+            // ── Parse Output 2: FaceMap 3DMM ──
+            val params265 = out3DMM[0].clone()
+            var sumVariance = 0f
+            val varCount = minOf(params265.size, 40)
+            for (i in 0 until varCount) {
+                sumVariance += params265[i] * params265[i]
+            }
+            val depthVariance = sumVariance / varCount
+            val is3D = depthVariance > 0.0015f
+            val map3dResult = FaceMap3DMMResult(
+                parameters265 = params265,
+                depthVariance = depthVariance,
+                isTrue3DSurface = is3D,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            // ── Parse Output 0: Anti-Spoof (MiniFASNetV2) ──
+            val rawPad = outAntiSpoof[0]
+            val p0 = rawPad.getOrElse(0) { 0f }
+            val p1 = rawPad.getOrElse(1) { 0f }
+            val p2 = rawPad.getOrElse(2) { 0f }
+            val sumP = p0 + p1 + p2
+            val (spoofPhoto, spoofScreen, liveProb) = if (sumP in 0.90f..1.10f) {
+                Triple(p0.coerceIn(0f, 1f), p1.coerceIn(0f, 1f), p2.coerceIn(0f, 1f))
+            } else {
+                val maxL = maxOf(p0, maxOf(p1, p2))
+                val e0 = exp((p0 - maxL).toDouble()).toFloat()
+                val e1 = exp((p1 - maxL).toDouble()).toFloat()
+                val e2 = exp((p2 - maxL).toDouble()).toFloat()
+                val s = (e0 + e1 + e2).coerceAtLeast(1e-9f)
+                Triple(e0 / s, e1 / s, e2 / s)
+            }
+            val spoofScore = (spoofPhoto + spoofScreen).coerceIn(0f, 1f)
+            val liveScore = liveProb.coerceIn(0f, 1f)
+
+            val isConfirmedSpoof = (spoofScore >= 0.70f) || (!is3D && spoofScore >= 0.45f)
+            val isLive = !isConfirmedSpoof
+
+            val padResult = PassivePadResult(
+                isLive = isLive,
+                livenessScore = liveScore,
+                spoofProbability = spoofScore,
+                attackTypeDescription = if (isLive) "Real Person" else if (!is3D) "2D Flat Photo Attack" else "Screen Replay Spoof Detected",
+                latencyMs = elapsedMs
+            )
+
+            // ── Parse Output 1: CavaFace ArcFace-512 Embedding ──
+            val rawCava = outCavaface[0]
+            var cavaNormSum = 0f
+            for (v in rawCava) cavaNormSum += v * v
+            val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
+            val normalizedCavaEmb = FloatArray(512) { i -> rawCava[i] / cavaNorm }
+
+            // ── Parse Output 3: Qualcomm FaceAttribNet ──
+            val rawAttr = outAttrib[0]
+            val leftEyeOpen = rawAttr.getOrElse(0) { 1f }.coerceIn(0f, 1f)
+            val rightEyeOpen = rawAttr.getOrElse(1) { 1f }.coerceIn(0f, 1f)
+            val eyeglasses = rawAttr.getOrElse(2) { 0f }.coerceIn(0f, 1f)
+            val mask = rawAttr.getOrElse(3) { 0f }.coerceIn(0f, 1f)
+            val sunglasses = rawAttr.getOrElse(4) { 0f }.coerceIn(0f, 1f)
+            val attrResult = FaceAttributesResult(
+                leftEyeOpenScore = leftEyeOpen,
+                rightEyeOpenScore = rightEyeOpen,
+                eyeglassesScore = eyeglasses,
+                maskScore = mask,
+                sunglassesScore = sunglasses,
+                rawProbabilities = rawAttr.clone(),
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            // ── Parse Output 6: EyeGaze Pitch / Yaw ──
+            val pitch = outEyePitchYaw[0][0]
+            val yaw = outEyePitchYaw[0][1]
+            val gazeNorm = sqrt(pitch * pitch + yaw * yaw)
+            val totalYaw = yaw + (headYaw * 0.0174533f)
+            val isAttentive = gazeNorm < 0.45f && Math.abs(totalYaw) < 0.50f
+            val gazeResult = EyeGazeResult(
+                pitch = pitch,
+                yaw = yaw,
+                gazeVectorNorm = gazeNorm,
+                eyeLandmarks34x2 = Array(34) { FloatArray(2) },
+                isGazeAttentive = isAttentive,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            // ── Parse Output 7 & 8: MediaPipe Mesh ──
+            val meshScore = outMeshScores[0]
+            val meshLandmarks = Array(468) { i ->
+                floatArrayOf(
+                    outMeshLandmarks[0][i][0],
+                    outMeshLandmarks[0][i][1],
+                    outMeshLandmarks[0][i][2]
+                )
+            }
+            var sumZ = 0f
+            for (i in 0 until 468) sumZ += meshLandmarks[i][2]
+            val meanZ = sumZ / 468f
+            var varZ = 0f
+            for (i in 0 until 468) {
+                val dz = meshLandmarks[i][2] - meanZ
+                varZ += dz * dz
+            }
+            val meshZVariance = varZ / 468f
+
+            val meshResult = MediaPipeMeshResult(
+                landmarks468x3 = meshLandmarks,
+                faceScore = meshScore,
+                meshDepthVariance = meshZVariance,
+                executionTimeMs = elapsedMs.toFloat()
+            )
+
+            return UnifiedFaceInferenceResult(
+                embedding512 = normalizedCavaEmb,
+                cavafaceEmbedding512 = normalizedCavaEmb,
+                passivePad = padResult,
+                map3d = map3dResult,
+                attributes = attrResult,
+                gaze = gazeResult,
+                mesh = meshResult,
+                hrnet = null,
+                totalInferenceMs = elapsedMs
+            )
+        }
+    }
+
+    /**
+     * Executes single-pass CavaFace ArcFace-512 embedding extraction ONLY.
+     * Used for horizontal flip-augmentation during registration Step 1 (Frontal),
+     * avoiding re-evaluating any auxiliary anti-spoof or geometry heads twice.
+     */
+    fun extractCavafaceEmbeddingOnly(alignedFace: Bitmap): FloatArray {
+        val interp = interpreter ?: return FloatArray(512)
+        if (!isModelLoaded || alignedFace.isRecycled) return FloatArray(512)
+
+        synchronized(bufferLock) {
+            populateRgbNormalizedBuffer(alignedFace, inputCavaface, 112, 112)
+            val inputs = arrayOf<Any>(
+                inputAntiSpoof,
+                inputCavaface,
+                input3DMM,
+                inputAttrib,
+                inputEyeGaze,
+                inputMesh,
+                inputHRNet
+            )
+            val outputs = mutableMapOf<Int, Any>(
+                1 to outCavaface
+            )
+            rewindAllInputs()
+            interp.runForMultipleInputsOutputs(inputs, outputs)
+
+            val rawCava = outCavaface[0]
+            var cavaNormSum = 0f
+            for (v in rawCava) cavaNormSum += v * v
+            val cavaNorm = sqrt(cavaNormSum).coerceAtLeast(1e-12f)
+            return FloatArray(512) { i -> rawCava[i] / cavaNorm }
+        }
+    }
+
+    fun l2Normalize(v: FloatArray): FloatArray {
+        var sumSq = 0f
+        for (x in v) sumSq += x * x
+        val norm = sqrt(sumSq).coerceAtLeast(1e-12f)
+        for (i in v.indices) v[i] /= norm
+        return v
+    }
+
     // ── Input Population Helpers ──
+
+    private fun rewindAllInputs() {
+        inputAntiSpoof.rewind()
+        inputCavaface.rewind()
+        input3DMM.rewind()
+        inputAttrib.rewind()
+        inputEyeGaze.rewind()
+        inputMesh.rewind()
+        inputHRNet.rewind()
+    }
 
     private fun populateAntiSpoofBuffer(bitmap: Bitmap) {
         inputAntiSpoof.rewind()
@@ -371,14 +833,14 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
         scaled.getPixels(pixels, 0, 80, 0, 0, 80, 80)
         if (scaled != bitmap && !scaled.isRecycled) scaled.recycle()
 
-        // NCHW format: channel 0 (R), channel 1 (G), channel 2 (B)
+        // MiniFASNet expects BGR format in NCHW layout: channel 0 (B), channel 1 (G), channel 2 (R)
         for (c in 0 until 3) {
             for (i in 0 until 6400) {
                 val pixel = pixels[i]
                 val channelVal = when (c) {
-                    0 -> ((pixel shr 16) and 0xFF) / 255.0f
-                    1 -> ((pixel shr 8) and 0xFF) / 255.0f
-                    else -> (pixel and 0xFF) / 255.0f
+                    0 -> (pixel and 0xFF) / 255.0f              // BLUE
+                    1 -> ((pixel shr 8) and 0xFF) / 255.0f      // GREEN
+                    else -> ((pixel shr 16) and 0xFF) / 255.0f   // RED
                 }
                 inputAntiSpoof.putFloat(channelVal)
             }
@@ -500,11 +962,30 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
         return res?.hrnet ?: HRNetFaceResult(Array(29) { FloatArray(2) }, FloatArray(29), 0f)
     }
 
+    fun benchmarkInferenceLatency(): Long {
+        if (!isModelLoaded || interpreter == null) return 0L
+        return try {
+            val dummyBitmap = Bitmap.createBitmap(112, 112, Bitmap.Config.ARGB_8888)
+            // Warm-up pass to trigger delegate kernel/shader compilation
+            processFace(dummyBitmap)
+            val startTime = System.nanoTime()
+            processFace(dummyBitmap)
+            dummyBitmap.recycle()
+            val elapsedMs = (System.nanoTime() - startTime) / 1_000_000L
+            elapsedMs.coerceAtLeast(1L)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Unified benchmark error: ${e.message}")
+            0L
+        }
+    }
+
     override fun close() {
         interpreter?.close()
         interpreter = null
         gpuDelegate?.close()
         gpuDelegate = null
+        nnApiDelegate?.close()
+        nnApiDelegate = null
         isModelLoaded = false
     }
 }

@@ -1,4 +1,4 @@
-﻿package com.omniface.ai.ml
+package com.omniface.ai.ml
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -21,11 +21,15 @@ data class FaceMap3DMMResult(
 )
 
 data class FaceAttributesResult(
-    val smileScore: Float,
-    val eyeglassesScore: Float,
-    val poseYawScore: Float,
-    val rawProbabilities: FloatArray,
-    val executionTimeMs: Float
+    val smileScore: Float = 0.0f,
+    val eyeglassesScore: Float = 0.0f,
+    val poseYawScore: Float = 0.0f,
+    val rawProbabilities: FloatArray = FloatArray(5),
+    val executionTimeMs: Float = 0.0f,
+    val leftEyeOpenScore: Float = 1.0f,
+    val rightEyeOpenScore: Float = 1.0f,
+    val maskScore: Float = 0.0f,
+    val sunglassesScore: Float = 0.0f
 )
 
 data class EyeGazeResult(

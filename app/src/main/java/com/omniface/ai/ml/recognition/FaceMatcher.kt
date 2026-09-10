@@ -38,7 +38,7 @@ class FaceMatcher {
 
     val enrolledTemplateCount: Int get() = biometricCache.size
 
-    fun preloadTemplates(templates: List<FaceTemplateEntity>) {
+    fun preloadTemplates(templates: List<FaceTemplateEntity>) = lock.write {
         biometricCache.clear()
         hnswIndex.clear()
         faissIndex.reset()
@@ -92,6 +92,34 @@ class FaceMatcher {
         android.util.Log.i("FaceMatcher", "Preloaded ${biometricCache.size} templates into biometricCache (input=${templates.size}, skippedCorrupt=$skippedCorrupt)")
     }
 
+    fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) = lock.write {
+        biometricCache.clear()
+        hnswIndex.clear()
+        faissIndex.reset()
+        val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
+        for (cached in cachedList) {
+            biometricCache.add(cached)
+            hnswIndex.insert(
+                id = cached.templateId,
+                studentRoll = cached.studentRoll,
+                angleType = cached.angleType,
+                embedding = cached.embedding
+            )
+            faissBatch.add(
+                FaissVectorIndex.FaissIndexItem(
+                    id = cached.templateId,
+                    studentRoll = cached.studentRoll,
+                    angleType = cached.angleType,
+                    vector = cached.embedding
+                )
+            )
+        }
+        if (faissBatch.isNotEmpty()) {
+            faissIndex.addBatch(faissBatch)
+        }
+        android.util.Log.i("FaceMatcher", "Preloaded ${biometricCache.size} templates from cached biometrics directly.")
+    }
+
     /**
      * Performs Dynamic Centroid Adaptation (Continuous Template Learning) using Exponential Moving Average.
      * When a verified subject matches with high confidence (sim >= 0.72), shifts the stored centroid vector:
@@ -103,7 +131,7 @@ class FaceMatcher {
         liveEmbedding: FloatArray,
         similarityScore: Float
     ): Pair<String, String>? {
-        if (similarityScore < 0.72f || liveEmbedding.isEmpty()) return null
+        if (similarityScore < 0.72f || liveEmbedding.isEmpty() || studentRoll.isBlank() || studentRoll.equals("GUEST", ignoreCase = true)) return null
 
         return lock.write {
             val centroidTemplate = biometricCache.firstOrNull {
@@ -186,6 +214,20 @@ class FaceMatcher {
                 confidenceZone = ConfidenceZone.REJECT,
                 decisionMargin = 0.0f,
                 explanation = "Database is empty — no enrolled face templates"
+            )
+        }
+
+        if (queryEmbedding.isEmpty()) {
+            return@read MatchResult(
+                studentRoll = "GUEST",
+                studentName = "Unknown Visitor",
+                confidence = 0.0f,
+                similarity = 0.0f,
+                isMatch = false,
+                hardwareTier = activeTier,
+                confidenceZone = ConfidenceZone.REJECT,
+                decisionMargin = 0.0f,
+                explanation = "Query embedding is empty"
             )
         }
 
@@ -371,7 +413,7 @@ class FaceMatcher {
         }
     }
 
-    fun clear() {
+    fun clear() = lock.write {
         for (cached in biometricCache) {
             Arrays.fill(cached.embedding, 0.0f)
         }

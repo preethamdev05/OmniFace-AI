@@ -147,7 +147,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         private const val TAG = "OmniFaceNeuralEngine"
-        private const val CAVAFACE_LOCAL_PATH = "/storage/emulated/0/AI-HUB/FR/models/qualcomm_cavaface/cavaface-tflite-float/cavaface.tflite"
 
         @Volatile private var INSTANCE: FaceRecognitionEngine? = null
 
@@ -178,17 +177,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             (npuHardwareInfo.socModel.contains("8", ignoreCase = true) || npuHardwareInfo.socModel.contains("SM8", ignoreCase = true)))
 
     private fun findCavaFaceFile(): File? {
-        val path1 = File(CAVAFACE_LOCAL_PATH)
-        if (path1.exists() && path1.canRead()) return path1
-        val suiteModel = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
-        if (suiteModel != null) {
-            val resolved = QualcommSuiteDownloadManager.resolveModelFile(context, suiteModel)
-            if (resolved != null && resolved.exists() && resolved.canRead()) return resolved
-        }
-        val path2 = File("/storage/emulated/0/AI-HUB/FR/models/qualcomm_suite/cavaface/cavaface-tflite-float/cavaface.tflite")
-        if (path2.exists() && path2.canRead()) return path2
-        val path3 = File(context.getExternalFilesDir(null), "models/qualcomm_suite/cavaface/cavaface.tflite")
-        if (path3.exists() && path3.canRead()) return path3
+        val modelFile = ModelDownloadManager.getInstance(context).getLocalModelFile()
+        if (modelFile.exists() && modelFile.canRead()) return modelFile
         return null
     }
 
@@ -384,14 +374,23 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
     @Suppress("DEPRECATION")
     private fun initializeHardwareEngine() {
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            activeBackbone = NeuralBackbone.QUALCOMM_CAVAFACE
+            activeHardwareTier = HardwareTier.NPU_NNAPI
+            isModelQuantizedInt8 = false
+            Log.i(TAG, "⚡ [UNIFIED SOVEREIGN ENGINE] FaceRecognitionEngine delegating to UnifiedFaceIntelligenceEngine (${unified.activeBackend}). Standalone legacy models bypassed.")
+            return
+        }
+
         if (tryInitTier(HardwareTier.NPU_NNAPI, candidateModelsFor(HardwareTier.NPU_NNAPI))) return
         if (tryInitTier(HardwareTier.GPU_DELEGATE, candidateModelsFor(HardwareTier.GPU_DELEGATE))) return
         if (tryInitTier(HardwareTier.CPU_XNNPACK, candidateModelsFor(HardwareTier.CPU_XNNPACK))) return
 
-        // No neural accelerator could be compiled — deterministic gradient extraction remains.
-        activeHardwareTier = HardwareTier.NPU_NNAPI
+        // No neural model available yet — running in camera/detection test mode.
+        activeHardwareTier = HardwareTier.CPU_XNNPACK
         isModelQuantizedInt8 = false
-        Log.i(TAG, "⚡ [GRADIENT FALLBACK] No TFLite model available — algorithmic gradient extraction active (${npuHardwareInfo.npuName}).")
+        Log.i(TAG, "⚡ [MODEL STANDBY] No neural model active. Operating in Camera & Face Detection mode until model is downloaded.")
     }
 
     private fun warmupFloat(interpreter: Interpreter) {
@@ -457,7 +456,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         // Priority 1: Check for verified downloaded model in private app storage
         val downloadManager = ModelDownloadManager.getInstance(context)
         val localFile = downloadManager.getLocalModelFile()
-        if (localFile.exists() && (localFile.name == modelName || modelName.contains("antelope", ignoreCase = true) || modelName.contains("mobilefacenet", ignoreCase = true)) && downloadManager.verifyModelIntegrity(localFile)) {
+        if (localFile.exists() && (localFile.name == modelName || modelName.contains("omniface", ignoreCase = true) || modelName.contains("neural", ignoreCase = true) || modelName.contains("cavaface", ignoreCase = true) || modelName.contains("mobilefacenet", ignoreCase = true)) && downloadManager.verifyModelIntegrity(localFile)) {
             Log.i(TAG, "📂 Loading verified private Hugging Face model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
             activeBackbone = NeuralBackbone.MOBILEFACENET
             return mapFileChannel(localFile)
@@ -536,6 +535,29 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         }
     }
 
+    fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) {
+        synchronized(engineMutex) {
+            biometricCache.clear()
+            faissIndex.reset()
+            val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
+            for (cached in cachedList) {
+                biometricCache.add(cached)
+                faissBatch.add(
+                    FaissVectorIndex.FaissIndexItem(
+                        id = cached.templateId,
+                        studentRoll = cached.studentRoll,
+                        angleType = cached.angleType,
+                        vector = cached.embedding
+                    )
+                )
+            }
+            if (faissBatch.isNotEmpty()) {
+                faissIndex.addBatch(faissBatch)
+            }
+            Log.i(TAG, "📦 Biometric cache & FAISS index loaded directly: ${cachedList.size} templates.")
+        }
+    }
+
     // Canonical ArcFace 112x112 4-Point Target Coordinates (Left Eye, Right Eye, Left Mouth, Right Mouth)
     private val DST_CANONICAL_POINTS = floatArrayOf(
         38.2946f, 51.6963f,
@@ -600,69 +622,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return embedding
     }
 
-    /**
-     * Algorithmic 512-D spatial gradient descriptor fallback.
-     * Computes multi-cell 8-bin directional gradient histograms across an 8x8 spatial grid (64 cells * 8 orientations = 512 dimensions),
-     * followed by L2 normalization.
-     * Guarantees deterministic, discriminative embeddings in any environment.
-     */
-    private fun generateRobustGradientEmbedding(faceBitmap: Bitmap): FloatArray {
-        val resized = if (faceBitmap.width == 112 && faceBitmap.height == 112) {
-            faceBitmap
-        } else {
-            try {
-                Bitmap.createScaledBitmap(faceBitmap, 112, 112, true)
-            } catch (_: Exception) {
-                faceBitmap
-            }
-        }
-        val pixels = IntArray(112 * 112)
-        try {
-            resized.getPixels(pixels, 0, 112, 0, 0, 112, 112)
-        } catch (_: Exception) {
-            return FloatArray(512) { (it % 10).toFloat() / 10f }.also { l2Normalize(it) }
-        }
-        if (resized != faceBitmap && !resized.isRecycled) {
-            try { resized.recycle() } catch (_: Exception) {}
-        }
-
-        val luma = FloatArray(112 * 112)
-        for (i in pixels.indices) {
-            val p = pixels[i]
-            val r = (p shr 16) and 0xFF
-            val g = (p shr 8) and 0xFF
-            val b = p and 0xFF
-            luma[i] = 0.299f * r + 0.587f * g + 0.114f * b
-        }
-
-        val embedding = FloatArray(512)
-        val cellW = 112 / 8 // 14 pixels
-        val cellH = 112 / 8 // 14 pixels
-
-        for (cy in 0 until 8) {
-            for (cx in 0 until 8) {
-                val cellIndex = (cy * 8 + cx) * 8
-                val startX = cx * cellW
-                val startY = cy * cellH
-
-                for (y in (startY + 1) until (startY + cellH - 1)) {
-                    for (x in (startX + 1) until (startX + cellW - 1)) {
-                        val idx = y * 112 + x
-                        val dx = luma[idx + 1] - luma[idx - 1]
-                        val dy = luma[idx + 112] - luma[idx - 112]
-                        val mag = sqrt(dx * dx + dy * dy)
-                        var angle = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
-                        if (angle < 0f) angle += 360f
-                        val bin = ((angle / 45.0f).toInt() % 8)
-                        embedding[cellIndex + bin] += mag
-                    }
-                }
-            }
-        }
-
-        return l2Normalize(embedding)
-    }
-
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
         if (unified.isModelLoaded && !faceBitmap.isRecycled) {
@@ -673,7 +632,9 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         synchronized(engineMutex) {
             val interpreter = tfliteInterpreter
             if (interpreter == null || faceBitmap.isRecycled) {
-                return generateRobustGradientEmbedding(faceBitmap)
+                // If model is not loaded, do NOT generate fake gradient vectors.
+                // Return empty embedding indicating model is not available.
+                return FloatArray(0)
             }
 
             return try {
@@ -746,33 +707,29 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                 embedding
             } catch (e: Exception) {
                 Log.w(TAG, "TFLite inference fallback: ${e.message}")
-                generateRobustGradientEmbedding(faceBitmap)
+                FloatArray(0)
             }
         }
     }
 
     /**
      * Measures REAL end-to-end inference latency on the active backend.
-     * When no neural interpreter is available, the algorithmic gradient fallback is
-     * timed instead — fabricated constants are never returned. Returns -1 only if
-     * every measurement path fails.
+     * Returns 0 if model is not loaded.
      */
     fun benchmarkInferenceLatency(): Long {
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            return unified.benchmarkInferenceLatency()
+        }
+        if (!engineReady) {
+            return 0L
+        }
         ensureInitialized()
         synchronized(engineMutex) {
-            val interpreter = tfliteInterpreter
+            val interpreter = tfliteInterpreter ?: return 0L
             val startTime = System.nanoTime()
             return try {
-                if (interpreter == null) {
-                    // Honest fallback: measure the real gradient extraction path
-                    val dummy = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
-                    try {
-                        dummy.eraseColor(0xFF808080.toInt())
-                        generateRobustGradientEmbedding(dummy)
-                    } finally {
-                        dummy.recycle()
-                    }
-                } else if (isModelQuantizedInt8) {
+                if (isModelQuantizedInt8) {
                     try {
                         inputBufferInt8.rewind()
                         interpreter.run(inputBufferInt8, outputBufferInt8)
@@ -787,11 +744,12 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                 val elapsedNanos = System.nanoTime() - startTime
                 (elapsedNanos / 1_000_000L).coerceAtLeast(1L)
             } catch (e: Exception) {
-                Log.w(TAG, "Benchmark measurement failed: ${e.message}")
-                -1L
+                Log.w(TAG, "Latency benchmark failed: ${e.message}")
+                0L
             }
         }
     }
+
 
     private fun l2Normalize(vec: FloatArray): FloatArray {
         var sumSquares = 0.0f

@@ -34,6 +34,7 @@ class GoogleDriveBackupWorker(
             val token = GoogleAuthUtil.getToken(applicationContext, account, scope)
 
             val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
+            UserDriveBackupManager.saveLocalSnapshot(applicationContext, encryptedBytes, meta)
             val uploadResult = GoogleDriveAppDataService.uploadBackup(token, encryptedBytes)
 
             if (uploadResult.isSuccess) {
@@ -41,6 +42,7 @@ class GoogleDriveBackupWorker(
                 prefs.edit()
                     .putLong("LAST_BACKUP_TIME", now)
                     .putLong("LAST_BACKUP_SIZE", encryptedBytes.size.toLong())
+                    .putString("LAST_BACKUP_LOCATION", "Google Drive (Cloud)")
                     .putInt("LAST_BACKUP_STUDENTS", meta.studentCount)
                     .putInt("LAST_BACKUP_RECORDS", meta.attendanceRecordCount)
                     .apply()

@@ -217,8 +217,11 @@ fun FaceDiagnosticsOverlay(
             // 8. Real-Time Floating Identity / Status Capsule on Canvas
             drawFaceIdentityPill(rect, face, faceHaloColor, overlayAlpha)
 
-            // 9. Real-Time Floating Confidence & Scan Quality Score Glass Badge
-            drawFaceConfidenceOverlay(rect, face, faceHaloColor, overlayAlpha, animatedConfidenceScore)
+            // 9. Real-Time Floating Confidence & Scan Quality Score Glass Badge (Shown during alignment/search; suppressed on verified match to eliminate duplicate badges)
+            val isVerifiedMatch = face.studentName.isNotBlank() || face.confidenceZone == ConfidenceZone.ACCEPT
+            if (!isVerifiedMatch) {
+                drawFaceConfidenceOverlay(rect, face, faceHaloColor, overlayAlpha, animatedConfidenceScore)
+            }
         }
     }
 }

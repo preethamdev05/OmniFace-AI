@@ -35,13 +35,14 @@ class AttendanceSyncWorker(
         }
 
         val prefs = applicationContext.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
-        val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://127.0.0.1:8080/api/v1/attendance/sync")
-            ?: "https://127.0.0.1:8080/api/v1/attendance/sync"
+        val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/attendance/sync")
+            ?: "https://omniface.vercel.app/api/v1/attendance/sync"
         val deviceId = prefs.getString("DEVICE_ID", "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
 
-        // Enforce HTTPS in production — refuse cleartext
-        if (!syncEndpoint.startsWith("https://") && !syncEndpoint.contains("127.0.0.1") && !syncEndpoint.contains("localhost")) {
-            Log.w("AttendanceSync", "Refusing cleartext sync endpoint: $syncEndpoint")
+        // Enforce HTTPS in production — allow local loopback and LAN development
+        val isLocalDev = syncEndpoint.contains("127.0.0.1") || syncEndpoint.contains("localhost") || syncEndpoint.contains("10.0.2.2") || syncEndpoint.contains("192.168.")
+        if (!syncEndpoint.startsWith("https://") && !isLocalDev) {
+            Log.w("AttendanceSync", "Refusing cleartext sync endpoint for remote hosts: $syncEndpoint")
             return@withContext Result.failure()
         }
 

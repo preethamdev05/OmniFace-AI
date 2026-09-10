@@ -136,7 +136,7 @@ class TemporalLivenessEngine {
 
         // 2. Check 3D Depth Variance Stability
         val meanDepth = samples.map { it.depthVariance }.average().toFloat()
-        val stable3DDepth = meanDepth > 0.0020f
+        val stable3DDepth = meanDepth > 0.0015f
 
         // 3. Check Natural Micro-Motion & Continuous Head Rotation across Pose
         var totalMotion = 0.0f

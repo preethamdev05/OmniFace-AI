@@ -3,6 +3,8 @@
     <cache-path name="compliance_reports" path="compliance_reports/" />
     <cache-path name="shared_qr" path="qr_badges/" />
     <cache-path name="shared_images" path="." />
+    <cache-path name="backups_cache" path="backups/" />
     <files-path name="compliance_reports_files" path="compliance_reports/" />
+    <files-path name="backups_files" path="backups/" />
     <external-files-path name="external_compliance" path="compliance_reports/" />
 </paths>

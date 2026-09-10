@@ -20,6 +20,7 @@ import com.omniface.ai.ml.quality.FaceQualityEngine
 import com.omniface.ai.ml.quality.QualityGateResult
 import com.omniface.ai.ml.recognition.FaceMatcher
 import com.omniface.ai.ml.tracking.FaceTracker
+import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.ui.components.FaceGeometryVisualData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,6 +76,23 @@ class FaceSecurityPipeline(
     companion object {
         private const val TAG = "FaceSecurityPipeline"
         private const val REQUIRED_CONSECUTIVE_FRAMES = 2
+
+        @Volatile
+        private var INSTANCE: FaceSecurityPipeline? = null
+
+        fun getInstance(context: Context): FaceSecurityPipeline =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: run {
+                    val appContext = context.applicationContext
+                    val recEngine = FaceRecognitionEngine.getInstance(appContext)
+                    val qcEngine = try {
+                        QualcommFaceIntelligenceEngine.getInstance(appContext)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    FaceSecurityPipeline(appContext, recEngine, qcEngine).also { INSTANCE = it }
+                }
+            }
     }
     val passivePadEngine = PassivePadEngine(context)
     val multiStageLivenessEngine = MultiStageLivenessEngine(context, passivePadEngine)
@@ -87,8 +105,62 @@ class FaceSecurityPipeline(
     private var lastAuthorizedTimestampMs = 0L
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
-        matcher.preloadTemplates(templates)
-        recognitionEngine.preloadTemplates(templates)
+        if (templates.isEmpty()) {
+            matcher.preloadTemplates(emptyList())
+            recognitionEngine.preloadTemplates(emptyList())
+            return
+        }
+        val cachedList = mutableListOf<CachedBiometric>()
+        for (entity in templates) {
+            val decryptedCsv = try {
+                if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
+                else entity.embeddingEncryptedCsv
+            } catch (t: Throwable) {
+                Log.e(TAG, "Skipping corrupt template ${entity.id}: ${t.message}")
+                continue
+            }
+            if (decryptedCsv.isBlank()) continue
+            val emb = parseEmbeddingCsv(decryptedCsv)
+            if (emb.isNotEmpty()) {
+                l2Normalize(emb)
+                cachedList.add(
+                    CachedBiometric(
+                        templateId = entity.id,
+                        studentRoll = entity.studentRoll,
+                        angleType = entity.angleType,
+                        embedding = emb
+                    )
+                )
+            }
+        }
+        matcher.preloadCachedBiometrics(cachedList)
+        recognitionEngine.preloadCachedBiometrics(cachedList)
+    }
+
+    fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) {
+        matcher.preloadCachedBiometrics(cachedList)
+        recognitionEngine.preloadCachedBiometrics(cachedList)
+    }
+
+    private fun parseEmbeddingCsv(csv: String): FloatArray {
+        return try {
+            csv.split(",").map { it.trim().toFloat() }.toFloatArray()
+        } catch (_: Exception) {
+            FloatArray(0)
+        }
+    }
+
+    private fun l2Normalize(vec: FloatArray): FloatArray {
+        var sumSquares = 0.0f
+        for (v in vec) sumSquares += v * v
+        val norm = kotlin.math.sqrt(sumSquares)
+        if (norm > 1e-6f) {
+            val invNorm = 1.0f / norm
+            for (i in vec.indices) vec[i] *= invNorm
+        } else {
+            java.util.Arrays.fill(vec, 0.0f)
+        }
+        return vec
     }
 
     suspend fun processFrame(
@@ -134,6 +206,8 @@ class FaceSecurityPipeline(
         val intermediateFaces = mutableListOf<ProcessedFaceData>()
         val config = NeuralModelConfigManager.configState.value
 
+        val claimedTrackIds = mutableSetOf<Int>()
+
         for (face in faces.take(12)) {
             val rawBox = face.boundingBox
             val box = if (downscaleFactor < 0.99f) {
@@ -165,10 +239,11 @@ class FaceSecurityPipeline(
                 )
             }
 
-            val trackState = tracker.getOrCreateTrackState(trackId, rawRect)
+            val trackState = tracker.getOrCreateTrackState(trackId, rawRect, claimedTrackIds)
             val smoothedRect = trackState.smoothedRect
             val persistentTrackId = trackState.trackId
-            val faceCrop = BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
+            val faceCrop = BiometricCropUtils.extractDirectFaceCrop(fullBitmap, box, targetSize = 192, marginMultiplier = 1.25f)
+                ?: BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
 
             // Extract ML Kit canonical 5 landmarks from frame (adapted to scaled frame if downscale active)
             val leftEyeRaw = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
@@ -210,7 +285,7 @@ class FaceSecurityPipeline(
 
             val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
             val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
-                unifiedEngine.processFace(
+                unifiedEngine.processScannerFace(
                     faceCrop = faceCrop,
                     headYaw = face.headEulerAngleY,
                     headPitch = face.headEulerAngleX,
@@ -256,46 +331,33 @@ class FaceSecurityPipeline(
                     }
                 }
             } else {
-                // Fallback Path
-                if ((qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) && faceCrop != null && !faceCrop.isRecycled) {
-                    try {
-                        val embedding = recognitionEngine.extractEmbedding(faceCrop)
-                        lastExtractedEmbedding = embedding
-                        matchResult = matcher.match(
-                            queryEmbedding = embedding,
-                            studentMap = studentMap,
-                            securityTier = securityTier,
-                            activeTier = recognitionEngine.activeHardwareTier
-                        )
-                    } catch (t: Throwable) {
-                        Log.e("OmniFacePipeline", "Gate 3 Fallback Extraction/Match Exception", t)
-                    }
-                }
+                // Unified model is not yet loaded / missing — fallback to recognitionEngine & passivePadEngine
                 if (faceCrop != null && !faceCrop.isRecycled) {
-                    if (config.isPassivePadEnabled || config.isMultiStageLivenessEnabled) {
-                        try {
-                            passivePadResult = passivePadEngine.run(faceCrop)
-                        } catch (_: Throwable) {}
+                    val fallbackEmbedding = try {
+                        val alignedOrCrop = alignedFaceBitmap ?: faceCrop
+                        recognitionEngine.extractEmbedding(alignedOrCrop)
+                    } catch (t: Throwable) {
+                        Log.w("OmniFacePipeline", "Fallback embedding error: ${t.message}")
+                        FloatArray(0)
                     }
-                    if (qualcommEngine != null && qualcommEngine.isSuiteLoaded) {
-                        try {
-                            if (config.isFaceMap3DMMEnabled) {
-                                map3dResult = qualcommEngine.estimate3dFaceMap(faceCrop)
-                            }
-                            if (config.isEyeGazeEnabled) {
-                                gazeResult = qualcommEngine.estimateEyeGaze(
-                                    eyeCropBitmap = faceCrop,
-                                    headYaw = face.headEulerAngleY,
-                                    headPitch = face.headEulerAngleX,
-                                    leftEyeOpenProb = face.leftEyeOpenProbability,
-                                    rightEyeOpenProb = face.rightEyeOpenProbability
+                    if (fallbackEmbedding.isNotEmpty()) {
+                        lastExtractedEmbedding = fallbackEmbedding
+                        if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                            try {
+                                matchResult = matcher.match(
+                                    queryEmbedding = fallbackEmbedding,
+                                    studentMap = studentMap,
+                                    securityTier = securityTier,
+                                    activeTier = recognitionEngine.activeHardwareTier
                                 )
+                            } catch (t: Throwable) {
+                                Log.e("OmniFacePipeline", "Gate 3 Match Exception (fallback)", t)
                             }
-                            if (config.isMediaPipeMeshEnabled) {
-                                meshResult = qualcommEngine.estimateMediaPipeFaceMesh(faceCrop)
-                            }
-                        } catch (_: Throwable) {}
+                        }
                     }
+                    try {
+                        passivePadResult = passivePadEngine.run(faceCrop)
+                    } catch (_: Throwable) {}
                 }
             }
 
@@ -452,6 +514,7 @@ class FaceSecurityPipeline(
             )
 
             // ── Multi-Frame Temporal Consensus Voting ──
+            var thisFaceAttendanceTriggered = false
             val trackState = tracker.getTrackState(trackId)
             if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank()) {
                 val roll = decision.matchedStudentRoll
@@ -463,8 +526,9 @@ class FaceSecurityPipeline(
                 val isTimeCooldownElapsed = (now - lastAuthorizedTimestampMs > 45000L) // 45s cooldown for same student
                 val isNewRoll = (roll != lastAuthorizedRoll)
 
-                val requiredFrames = if (decision.matchSimilarity >= 0.75f) 1 else REQUIRED_CONSECUTIVE_FRAMES
+                val requiredFrames = if (decision.matchSimilarity >= 0.72f) 1 else REQUIRED_CONSECUTIVE_FRAMES
                 if (count >= requiredFrames && !isTrackAlreadyLogged && (isNewRoll || isTimeCooldownElapsed)) {
+                    thisFaceAttendanceTriggered = true
                     attendanceTriggered = true
                     lastAuthorizedRoll = roll
                     lastAuthorizedTimestampMs = now
@@ -473,8 +537,8 @@ class FaceSecurityPipeline(
                 }
             }
 
-            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher ONLY when attendance is verified
-            if (config.isDynamicCentroidAdaptationEnabled && attendanceTriggered && decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
+            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher ONLY when THIS face's attendance is verified
+            if (config.isDynamicCentroidAdaptationEnabled && thisFaceAttendanceTriggered && decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
                 val adaptedPair = matcher.adaptCentroidIfHighConfidence(
                     studentRoll = decision.matchedStudentRoll,
                     liveEmbedding = lastExtractedEmbedding,
@@ -530,9 +594,7 @@ class FaceSecurityPipeline(
             visualItems.add(visualItem)
         }
 
-        if (primaryDecision?.isAttendanceAuthorized != true) {
-            consecutiveMatchCounts.clear()
-        }
+
 
         val elapsedMs = ((SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000L).coerceAtLeast(1L)
 
@@ -563,5 +625,10 @@ class FaceSecurityPipeline(
         matcher.clear()
         temporalLivenessEngine.clearAll()
         tracker.clear()
+        synchronized(FaceSecurityPipeline::class.java) {
+            if (INSTANCE === this) {
+                INSTANCE = null
+            }
+        }
     }
 }

@@ -1,8 +1,13 @@
 package com.omniface.ai.ui.settings
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.omniface.ai.sync.CloudFleetSyncEngine
+import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -127,6 +132,137 @@ fun DataGovernanceSettingsSubScreen(
                                 icon = Icons.Default.ChevronRight,
                                 onClick = { showDriveBackup = true }
                             )
+                        }
+                    )
+                }
+            }
+
+            // 2.5 Web Dashboard & Cloud Fleet Sync
+            item {
+                val syncState by CloudFleetSyncEngine.syncState.collectAsStateWithLifecycle()
+                val unsyncedCount by CloudFleetSyncEngine.unsyncedCount.collectAsStateWithLifecycle()
+                var showSyncEndpointDialog by remember { mutableStateOf(false) }
+                val prefs = remember { context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE) }
+                var currentEndpoint by remember {
+                    mutableStateOf(
+                        prefs.getString("SYNC_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/attendance/sync")
+                            ?: "https://omniface.vercel.app/api/v1/attendance/sync"
+                    )
+                }
+                var isSyncingNow by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+
+                IOSCard(cornerRadius = 20.dp) {
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        SettingRow(
+                            title = "Web Dashboard & Fleet Sync",
+                            subtitle = if (unsyncedCount > 0) "$unsyncedCount unsynced records pending" else "Connected to Next.js fleet backend",
+                            icon = Icons.Default.Sync,
+                            trailing = {
+                                CupertinoActionPill(
+                                    text = if (isSyncingNow) "Syncing..." else "Sync Now",
+                                    icon = Icons.Default.CloudSync,
+                                    onClick = {
+                                        scope.launch {
+                                            isSyncingNow = true
+                                            val ok = CloudFleetSyncEngine.syncNow(context)
+                                            isSyncingNow = false
+                                            Toast.makeText(
+                                                context,
+                                                if (ok) "✅ Attendance batch synced with Web Dashboard" else "⚠️ Sync queued for background delivery",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                )
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable { showSyncEndpointDialog = true }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "SYNC REST ENDPOINT",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 0.5.sp
+                                )
+                                Text(
+                                    text = currentEndpoint,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit endpoint",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (showSyncEndpointDialog) {
+                    var inputEndpoint by remember { mutableStateOf(currentEndpoint) }
+                    AlertDialog(
+                        onDismissRequest = { showSyncEndpointDialog = false },
+                        title = { Text("Configure Sync Endpoint", fontWeight = FontWeight.Bold) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "Enter your deployed Vercel domain or local LAN IP address:",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedTextField(
+                                    value = inputEndpoint,
+                                    onValueChange = { inputEndpoint = it },
+                                    label = { Text("Endpoint URL") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = {
+                                        inputEndpoint = "http://192.168.29.159:3000/api/v1/attendance/sync"
+                                    }) {
+                                        Text("Set Local LAN", fontSize = 11.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        inputEndpoint = "https://omniface.vercel.app/api/v1/attendance/sync"
+                                    }) {
+                                        Text("Set Vercel", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                val clean = inputEndpoint.trim()
+                                prefs.edit().putString("SYNC_REST_ENDPOINT", clean).apply()
+                                currentEndpoint = clean
+                                showSyncEndpointDialog = false
+                                Toast.makeText(context, "Endpoint updated: $clean", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Text("Save")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showSyncEndpointDialog = false }) {
+                                Text("Cancel")
+                            }
                         }
                     )
                 }
@@ -336,7 +472,7 @@ fun DataGovernanceSettingsSubScreen(
             dismissButton = {
                 TextButton(onClick = {
                     try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://preethamdev05.github.io/OmniFace-AI/privacy.html"))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://omniface.vercel.app/privacy"))
                         context.startActivity(intent)
                     } catch (_: Exception) {}
                 }) {

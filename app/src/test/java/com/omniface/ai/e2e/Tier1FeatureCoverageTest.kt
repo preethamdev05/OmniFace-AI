@@ -40,22 +40,9 @@ import kotlin.math.sqrt
  */
 class Tier1FeatureCoverageTest {
 
-    private fun l2Normalize(v: FloatArray): FloatArray {
-        var sum = 0f
-        for (x in v) sum += x * x
-        val norm = sqrt(sum)
-        if (norm > 1e-7f) {
-            for (i in v.indices) v[i] /= norm
-        }
-        return v
-    }
-
-    private fun makeEmbedding(seed: Float, dim: Int = 512): FloatArray {
-        return l2Normalize(FloatArray(dim) { i -> seed + i * 0.001f })
-    }
-
-    private fun toCsv(v: FloatArray): String =
-        v.joinToString(",") { "%.6f".format(java.util.Locale.US, it) }
+    private fun l2Normalize(v: FloatArray) = com.omniface.ai.testutil.BiometricTestFixtures.l2Normalize(v)
+    private fun makeEmbedding(seed: Float, dim: Int = 512) = com.omniface.ai.testutil.BiometricTestFixtures.makeLinearEmbedding(seed, dim)
+    private fun toCsv(v: FloatArray) = com.omniface.ai.testutil.BiometricTestFixtures.toCsv(v)
 
     @Before
     fun setUp() {

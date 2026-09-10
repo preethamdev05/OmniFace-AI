@@ -24,7 +24,7 @@ object HfSecureGateway {
 
     // Default Sovereign Cloudflare R2 Edge CDN
     const val DEFAULT_R2_CDN_URL = "https://omniface-model-cdn.preetham-dev.workers.dev"
-    const val DEFAULT_REPO_ID = "preetham-dev/omniface-antelopev2"
+    const val DEFAULT_REPO_ID = "preetham-dev/omniface-neural-engine"
     const val MODEL_FILENAME = "mobilefacenet_512d_fp16.tflite"
 
     // Obfuscated compile-time fallback token placeholder using bitwise XOR keys

@@ -309,4 +309,20 @@ The workspace is equipped with the complete Google Labs Stitch AI UI/UX Toolchai
 - `stitch-react-vite-dashboard`: Scaffold full-stack Vite dashboards from Stitch designs.
 - `stitch-shadcn-ui`: Generate Shadcn/UI component trees from Stitch screens.
 
+---
+
+## 🧠 Memory & Context Optimization Policy (Graphify & Fallbacks)
+
+1. **Graphify-First Context Reduction**:
+   - For all architecture questions, data flows, and symbol lookups, consult `graphify-out/wiki/index.md` or query `graphify query "<question>"` (BFS) / `graphify explain "<concept>"` / `graphify path "<A>" "<B>"`.
+   - Verified 23.8x token reduction over raw file ingestion.
+   - Run `graphify update .` after modifying code files to keep AST topologies in sync.
+
+2. **Autonomous Fallback Strategy (When Graphify Does Not Apply)**:
+   - **Log & Output Paging**: Never dump full stdout/stderr from Gradle, tests, or compilers. Pipe with `Select-String`, `-Tail N`, or grep.
+   - **Surgical Inspection**: Slice `view_file` to under 80 lines per view with explicit `StartLine` and `EndLine`.
+   - **Subagent Context Sandboxing**: Spawn isolated subagents for heavy test runs, long builds, or complex debugging to preserve parent conversation context.
+   - **Context-Mode Tools**: Use `context-mode` for BM25 search over external non-code artifacts.
+
+
 

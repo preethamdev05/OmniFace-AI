@@ -50,7 +50,7 @@ sealed class ModelDownloadState {
  * 📦 ModelDownloadManager: Autonomous On-Demand Private Hugging Face Downloader & Integrity Gate.
  *
  * Responsibilities:
- * 1. Safely streams the 124MB AntelopeV2 FP16 ResNet100 model from private Hugging Face CDN.
+ * 1. Safely streams the sovereign OmniFace Neural Engine model package from private CDN.
  * 2. Provides continuous download telemetry (progress %, speed in KB/s, downloaded/total MB).
  * 3. Enforces TFL3 Magic Header validation & atomic file moves to prevent corrupted model states.
  * 4. Enables zero-downtime hot-swapping inside FaceRecognitionEngine.
@@ -62,7 +62,7 @@ class ModelDownloadManager(private val context: Context) {
         private const val MODELS_DIR = "models"
         const val TARGET_MODEL_FILENAME = "unified_omniface.tflite"
         private const val TMP_EXTENSION = ".download.tmp"
-        private val TFLITE_MAGIC = byteArrayOf(0x1c.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 'T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte())
+        private val TFLITE_IDENTIFIER = byteArrayOf('T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte())
 
         @Volatile
         private var INSTANCE: ModelDownloadManager? = null
@@ -104,67 +104,37 @@ class ModelDownloadManager(private val context: Context) {
         return File(getModelsDirectory(), TARGET_MODEL_FILENAME)
     }
 
-    fun isAntelopeV2Installed(): Boolean {
+    fun isModelAvailable(): Boolean {
         val file = getLocalModelFile()
         return verifyModelIntegrity(file)
     }
 
+    fun isNeuralModelInstalled(): Boolean {
+        return isModelAvailable()
+    }
+
     fun getActiveModelDisplayName(): String {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded) {
-            return "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)"
+        if (unified.isModelLoaded || isModelAvailable()) {
+            return "OmniFace Deep AI Engine"
         }
-        val cavafaceEntry = QualcommSuiteDownloadManager.SUITE_MODELS.find { it.id == "cavaface" }
-        if (cavafaceEntry != null) {
-            val cavaFile = QualcommSuiteDownloadManager.resolveModelFile(context, cavafaceEntry)
-            if (cavaFile != null && cavaFile.exists() && cavaFile.canRead()) {
-                return "Qualcomm CavaFace NPU (512-D Ultra HD)"
-            }
-        }
-        if (isAntelopeV2Installed()) {
-            return "AntelopeV2 Glint360K (512-D Ultra HD)"
-        }
-        val local = getLocalModelFile()
-        if (local.exists()) {
-            return "MobileFaceNet NPU (512-D INT8/FP16)"
-        }
-        val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
-        if (alt.exists() && alt.canRead()) {
-            return "MobileFaceNet NPU (512-D FP16)"
-        }
-        return "Unified OmniFace AI (Single-Model Edge)"
+        return "AI Recognition Pack (Not Installed)"
     }
 
     private fun getInitialState(): ModelDownloadState {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded) {
-            return ModelDownloadState.Ready(
-                activeModelName = "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)",
-                modelSizeBytes = 380182456L
-            )
-        }
         val file = getLocalModelFile()
-        val exists = verifyModelIntegrity(file)
-        return if (exists) {
-            ModelDownloadState.Ready(
-                activeModelName = "AntelopeV2 Glint360K (512-D Ultra HD)",
-                modelSizeBytes = file.length()
+        if (unified.isModelLoaded || verifyModelIntegrity(file)) {
+            return ModelDownloadState.Ready(
+                activeModelName = "OmniFace Deep AI Engine",
+                modelSizeBytes = if (file.exists()) file.length() else 380182456L
             )
-        } else {
-            // Check fallback storage location
-            val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
-            if (alt.exists() && verifyModelIntegrity(alt)) {
-                ModelDownloadState.Ready(
-                    activeModelName = "MobileFaceNet NPU (512-D FP16)",
-                    modelSizeBytes = alt.length()
-                )
-            } else {
-                ModelDownloadState.Ready(
-                    activeModelName = "Qualcomm Hexagon NPU (512-D Active)",
-                    modelSizeBytes = 0L
-                )
-            }
         }
+        return ModelDownloadState.Idle(
+            modelExistsLocally = false,
+            activeModelName = "AI Recognition Pack (Not Installed)",
+            modelSizeBytes = 0L
+        )
     }
 
     /**
@@ -181,35 +151,17 @@ class ModelDownloadManager(private val context: Context) {
 
         downloadJob = scope.launch {
             try {
-                // Step 0: Fast Local On-Device Discovery
-                val localDiskCandidates = listOf(
-                    File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME"),
-                    File("/storage/emulated/0/AI-HUB/FR/models/mobilefacenet_512d_int8.tflite"),
-                    File("/storage/emulated/0/AI-HUB/FR/models/glint360k_r100.tflite")
-                )
-                for (cand in localDiskCandidates) {
-                    if (cand.exists() && cand.canRead() && verifyModelIntegrity(cand)) {
-                        Log.i(TAG, "⚡ Discovered local on-device model at ${cand.absolutePath}, installing instantly...")
-                        _downloadState.value = ModelDownloadState.Downloading(0.5f, 50000L, cand.length() / (1024f * 1024f), cand.length() / (1024f * 1024f))
-                        cand.copyTo(targetFile, overwrite = true)
-                        _downloadState.value = ModelDownloadState.Ready(
-                            activeModelName = "AntelopeV2 Glint360K (512-D Ultra HD)",
-                            modelSizeBytes = targetFile.length()
-                        )
-                        withContext(Dispatchers.Main) { onCompleted?.invoke() }
-                        return@launch
-                    }
-                }
-
                 val token = HfSecureGateway.getAuthToken(context)
                 val targetUrl = HfSecureGateway.buildResolveUrl(context, TARGET_MODEL_FILENAME)
                 val repoId = HfSecureGateway.getRepoId(context)
 
-                Log.i(TAG, "🚀 Initiating Hugging Face download from repo: $repoId (URL: $targetUrl)")
+                Log.i(TAG, "🚀 Initiating Unified Model download from CDN: (URL: $targetUrl)")
 
                 val requestBuilder = Request.Builder()
                     .url(targetUrl)
                     .header("User-Agent", "OmniFace-AI-Android/1.0")
+                    .header("X-OmniFace-Secret", "omniface-secure-2025")
+                    .header("X-App-Version", "1")
 
                 if (!token.isNullOrBlank()) {
                     requestBuilder.header("Authorization", "Bearer $token")
@@ -221,7 +173,7 @@ class ModelDownloadManager(private val context: Context) {
                     progress = 0.0f,
                     speedKbps = 0L,
                     downloadedMb = 0.0f,
-                    totalMb = 124.3f // Approximate expected size
+                    totalMb = 362.6f // 380MB unified model
                 )
 
                 val call = okHttpClient.newCall(request)
@@ -230,8 +182,8 @@ class ModelDownloadManager(private val context: Context) {
                 if (!response.isSuccessful) {
                     val code = response.code
                     val errorMsg = when (code) {
-                        401, 403 -> "🔒 Hugging Face Access Denied ($code). Please configure your private token in Settings."
-                        404 -> "❌ Model not found ($code) in repository '$repoId'. Check repository ID in Settings."
+                        401, 403 -> "🔒 CDN Access Denied ($code). Verify authorization secret."
+                        404 -> "❌ Unified model not found ($code) on CDN. Please upload model to R2."
                         else -> "⚠️ Download failed with HTTP status code $code: ${response.message}"
                     }
                     _downloadState.value = ModelDownloadState.Error(errorMsg, canRetry = true)
@@ -241,12 +193,12 @@ class ModelDownloadManager(private val context: Context) {
 
                 val body = response.body
                 if (body == null) {
-                    _downloadState.value = ModelDownloadState.Error("Empty response body from Hugging Face.", canRetry = true)
+                    _downloadState.value = ModelDownloadState.Error("Empty response body from Model CDN.", canRetry = true)
                     return@launch
                 }
 
                 val contentLength = body.contentLength()
-                val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 124.3f
+                val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 362.6f
 
                 if (tmpFile.exists()) {
                     tmpFile.delete()
@@ -371,9 +323,17 @@ class ModelDownloadManager(private val context: Context) {
         cancelDownload()
         val file = getLocalModelFile()
         val deleted = if (file.exists()) file.delete() else true
+        val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
+        if (alt.exists()) {
+            runCatching { alt.delete() }
+        }
+        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
+        if (unified.isModelLoaded) {
+            unified.unloadUnifiedModel()
+        }
         _downloadState.value = ModelDownloadState.Idle(
             modelExistsLocally = false,
-            activeModelName = "MobileFaceNet NPU (Bundled Fallback)",
+            activeModelName = "AI Recognition Pack (Not Installed)",
             modelSizeBytes = 0L
         )
         return deleted
@@ -392,7 +352,11 @@ class ModelDownloadManager(private val context: Context) {
                 val header = ByteArray(8)
                 val read = input.read(header)
                 if (read < 8) return false
-                header.contentEquals(TFLITE_MAGIC)
+                // In FlatBuffers, offset 0..3 is root table offset, and offset 4..7 is the 4-char file identifier
+                header[4] == TFLITE_IDENTIFIER[0] &&
+                header[5] == TFLITE_IDENTIFIER[1] &&
+                header[6] == TFLITE_IDENTIFIER[2] &&
+                (header[7] == TFLITE_IDENTIFIER[3] || header[7] == '2'.code.toByte() || header[7] == '1'.code.toByte())
             }
         } catch (e: Exception) {
             false

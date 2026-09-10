@@ -54,3 +54,14 @@ val LightTextPrimary = Color(0xFF0F172A) // Deep Slate Black
 val LightTextSecondary = Color(0xCC334155) // 80% Deep Slate
 val LightTextMuted = Color(0x8064748B)     // 50% Deep Slate
 
+// Mockup Design System Tokens
+val OmniViolet = Color(0xFF6366F1)
+val OmniPurple = Color(0xFF8B5CF6)
+val OmniDeepPurple = Color(0xFF7C3AED)
+val OmniCyan = Color(0xFF06B6D4)
+val OmniSky = Color(0xFF38BDF8)
+val OmniEmerald = Color(0xFF10B981)
+val OmniAmber = Color(0xFFF59E0B)
+val OmniRose = Color(0xFFF43F5E)
+
+

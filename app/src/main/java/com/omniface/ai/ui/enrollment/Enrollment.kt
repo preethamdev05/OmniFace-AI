@@ -12,6 +12,7 @@ import com.google.mlkit.vision.face.FaceLandmark
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.QrBadgeGenerator
 import com.omniface.ai.hardware.QrCodeExporter
+import com.omniface.ai.ml.BiometricCropUtils
 import android.hardware.camera2.CaptureRequest
 import android.media.Image
 import android.util.Range
@@ -59,7 +60,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,6 +98,9 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.omniface.ai.billing.SubscriptionTierManager
+import com.omniface.ai.billing.PaywallTriggerReason
+import com.omniface.ai.ui.billing.PaywallBottomSheet
 
 enum class EnrollmentStage {
     REGISTRATION_FORM,
@@ -131,27 +135,61 @@ data class EnrollmentUiState(
     val editSemester: String = "",
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
-    val engineLoadingProgress: com.omniface.ai.ml.EngineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(isReady = true, stage = "Ready", progress = 1.0f)
+    val isModelAvailable: Boolean = false,
+    val isEngineLoaded: Boolean = false,
+    val isEngineLoading: Boolean = false,
+    val engineLoadingProgress: com.omniface.ai.ml.EngineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(isReady = true, stage = "Ready", progress = 1.0f),
+    val showPaywall: Boolean = false,
+    val paywallReason: PaywallTriggerReason = PaywallTriggerReason.STUDENT_LIMIT_REACHED
 )
 
 class EnrollmentViewModel : ViewModel() {
     private val db = OmniFaceApplication.instance.database
-    private val _uiState = MutableStateFlow(EnrollmentUiState())
+    private val downloadManager = com.omniface.ai.ml.ModelDownloadManager.getInstance(OmniFaceApplication.instance)
+    private val unifiedEngine: UnifiedFaceIntelligenceEngine = UnifiedFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
+    private val _uiState = MutableStateFlow(
+        EnrollmentUiState(
+            isModelAvailable = downloadManager.isModelAvailable(),
+            isEngineLoaded = unifiedEngine.isModelLoaded,
+            engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
+                isReady = unifiedEngine.isModelLoaded || !downloadManager.isModelAvailable(),
+                stage = if (unifiedEngine.isModelLoaded) "Ready" else "Standby",
+                progress = if (unifiedEngine.isModelLoaded) 1.0f else 0.0f
+            )
+        )
+    )
     val uiState: StateFlow<EnrollmentUiState> = _uiState.asStateFlow()
 
-    private var recognitionEngine: FaceRecognitionEngine = FaceRecognitionEngine.getInstance(OmniFaceApplication.instance)
-    private val qualcommIntelligenceEngine: QualcommFaceIntelligenceEngine? = try {
-        QualcommFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
-    } catch (_: Throwable) {
-        null
-    }
     private val qualityChecker = QualityChecker()
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
     init {
+        if (!unifiedEngine.isModelLoaded && downloadManager.isModelAvailable()) {
+            _uiState.update { it.copy(isEngineLoading = true) }
+            viewModelScope.launch(Dispatchers.Default) {
+                val loaded = unifiedEngine.loadUnifiedModelExplicit(OmniFaceApplication.instance)
+                _uiState.update { it.copy(isEngineLoading = false, isEngineLoaded = loaded) }
+            }
+        }
         viewModelScope.launch {
-            recognitionEngine.loadingProgress.collect { progress ->
-                _uiState.update { it.copy(engineLoadingProgress = progress) }
+            unifiedEngine.isModelLoadedState.collect { isLoaded ->
+                _uiState.update {
+                    it.copy(
+                        isEngineLoaded = isLoaded,
+                        engineLoadingProgress = EngineLoadingProgress(
+                            isReady = isLoaded,
+                            stage = if (isLoaded) "Unified AI Engine Ready (${unifiedEngine.activeBackend})" else "Engine Standby",
+                            progress = if (isLoaded) 1.0f else 0.0f
+                        )
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            downloadManager.downloadState.collect {
+                _uiState.update { current ->
+                    current.copy(isModelAvailable = downloadManager.isModelAvailable())
+                }
             }
         }
     }
@@ -353,12 +391,31 @@ class EnrollmentViewModel : ViewModel() {
         _uiState.update { it.copy(lensFacing = newFacing) }
     }
 
+    fun dismissPaywall() {
+        _uiState.update { it.copy(showPaywall = false) }
+    }
+
+    fun triggerPaywall(reason: PaywallTriggerReason = PaywallTriggerReason.STUDENT_LIMIT_REACHED) {
+        _uiState.update { it.copy(showPaywall = true, paywallReason = reason) }
+    }
+
     fun startBiometricStudio(context: Context) {
         val roll = _uiState.value.rollNumber.trim()
         val name = _uiState.value.fullName.trim()
 
+        if (!downloadManager.isModelAvailable()) {
+            Toast.makeText(context, "AI Face Pack required to enroll students. Please download the model in Settings.", Toast.LENGTH_LONG).show()
+            return
+        }
+
         if (roll.isBlank() || name.isBlank()) {
             Toast.makeText(context, "Please enter Student Full Name and Roll Number", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val currentCount = _uiState.value.enrolledStudentsList.size
+        if (!SubscriptionTierManager.canEnrollMore(currentCount)) {
+            triggerPaywall(PaywallTriggerReason.STUDENT_LIMIT_REACHED)
             return
         }
 
@@ -369,6 +426,19 @@ class EnrollmentViewModel : ViewModel() {
                     Toast.makeText(context, "Student with Roll Number '$roll' already exists", Toast.LENGTH_LONG).show()
                 }
                 return@launch
+            }
+
+            if (!unifiedEngine.isModelLoaded) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Initializing AI Engine...", Toast.LENGTH_SHORT).show()
+                }
+                val loaded = unifiedEngine.loadUnifiedModelExplicit(context)
+                if (!loaded) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "AI engine not ready. Please verify the AI model in Settings.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
             }
 
             withContext(Dispatchers.Main) {
@@ -547,20 +617,6 @@ class EnrollmentViewModel : ViewModel() {
                 }
             }
 
-            var meshResult: MediaPipeMeshResult? = null
-            var map3dResult: FaceMap3DMMResult? = null
-            var gazeResult: EyeGazeResult? = null
-            var attrResult: FaceAttributesResult? = null
-
-            if (newCrop != null && qualcommIntelligenceEngine != null && qualcommIntelligenceEngine.isSuiteReady) {
-                try {
-                    meshResult = qualcommIntelligenceEngine.estimateMediaPipeFaceMesh(newCrop)
-                    map3dResult = qualcommIntelligenceEngine.estimate3dFaceMap(newCrop)
-                    gazeResult = qualcommIntelligenceEngine.estimateEyeGaze(newCrop)
-                    attrResult = qualcommIntelligenceEngine.detectFaceAttributes(newCrop)
-                } catch (_: Throwable) {}
-            }
-
             val mappedBounds = if (isFrontCamera) {
                 androidx.compose.ui.geometry.Rect(
                     left = (fullBitmap.width - box.right) * scale + dx,
@@ -595,10 +651,10 @@ class EnrollmentViewModel : ViewModel() {
                 roll = face.headEulerAngleZ,
                 landmarks5Pts = if (pts5List.isNotEmpty()) pts5List.toTypedArray() else null,
                 contours = contoursMap,
-                meshResult = meshResult,
-                faceMap3DMM = map3dResult,
-                gazeResult = gazeResult,
-                attributes = attrResult,
+                meshResult = null,
+                faceMap3DMM = null,
+                gazeResult = null,
+                attributes = null,
                 studentName = _uiState.value.fullName.ifBlank { "ENROLLING" },
                 studentRoll = _uiState.value.rollNumber,
                 isLive = true,
@@ -693,33 +749,109 @@ class EnrollmentViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val engine = recognitionEngine
-                // Standard ArcFace Canonical Landmark Alignment with square crop fallback
+                // 1. Umeyama 5-point alignment on full camera frame
                 var embeddingInputBitmap: Bitmap = cropSnapshot
                 var isTemporaryAligned = false
+                var alignmentResidual = 0f
 
                 if (fullSnap != null && lmkSnap != null) {
                     val alignmentResult = com.omniface.ai.ml.UmeyamaSimilarityTransform.alignFace5Points(fullSnap, lmkSnap, 112, 112)
-                    if (alignmentResult != null && alignmentResult.alignmentError < 18.0f) {
-                        embeddingInputBitmap = alignmentResult.alignedBitmap
-                        isTemporaryAligned = true
+                    if (alignmentResult != null) {
+                        alignmentResidual = alignmentResult.alignmentError
+                        if (alignmentResult.alignmentError < 18.0f) {
+                            embeddingInputBitmap = alignmentResult.alignedBitmap
+                            isTemporaryAligned = true
+                        }
                     }
                 }
 
-                // Use flip-augmented embedding on frontal shot (step 1) for richer symmetry template.
-                // For angled profile shots (2..5), extract true profile angle vector directly.
-                val embedding = if (step == 1) {
-                    engine.extractEmbeddingWithFlipAugmentation(embeddingInputBitmap)
-                } else {
-                    engine.extractEmbedding(embeddingInputBitmap)
-                }
-                val csv = embedding.joinToString(",")
-                val encryptedCsv = AndroidSecurityUtils.encrypt(csv)
+                // 2. Execute Unified Registration ML Model (Anti-Spoof + CavaFace + 3DMM + Attrib + Gaze)
+                val regResult = unifiedEngine.processRegistrationFace(
+                    faceCrop = cropSnapshot,
+                    alignedFace = embeddingInputBitmap
+                )
 
+                if (regResult == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "AI Engine initialization error. Please retry.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // 3. Security Gate 1: MiniFASNetV2 Anti-Spoofing (Passive PAD)
+                if (!regResult.passivePad.isLive) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Enrollment Rejected: ${regResult.passivePad.attackTypeDescription} (Spoof: ${(regResult.passivePad.spoofProbability * 100).toInt()}%)", Toast.LENGTH_LONG).show()
+                        BiometricSoundboard.playSpoofAlert()
+                    }
+                    return@launch
+                }
+
+                // 4. Security Gate 2: FaceMap 3DMM Depth Variance
+                if (!regResult.map3d.isTrue3DSurface) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Enrollment Rejected: 2D flat presentation attack detected. Real face required.", Toast.LENGTH_LONG).show()
+                        BiometricSoundboard.playSpoofAlert()
+                    }
+                    return@launch
+                }
+
+                // 5. Security Gate 3: FaceAttribNet Sunglasses / Mask Occlusion
+                val sunglasses = regResult.attributes.sunglassesScore
+                val mask = regResult.attributes.maskScore
+                if (sunglasses > 0.75f) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Dark Sunglasses detected: Please remove sunglasses for enrollment.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                if (mask > 0.75f) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Face mask detected: Please remove face covering for enrollment.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // 6. Security Gate 4: Photometric & Signal Quality Assessment
                 val qualityReport = qualityChecker.checkFaceQuality(embeddingInputBitmap)
+                if (!qualityReport.isGoodQuality) {
+                    val msg = when {
+                        qualityReport.blurScore < 1.5f -> "Image is blurry — hold still"
+                        qualityReport.brightnessScore < 15f -> "Lighting too dark"
+                        qualityReport.brightnessScore > 245f -> "Lighting too bright"
+                        else -> "Insufficient image quality"
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Quality Gate Failed: $msg", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                // 7. Extract High-Precision CavaFace 512-D Embedding (with flip-augmentation on Step 1)
+                val embedding = if (step == 1) {
+                    val flipMatrix = Matrix().apply { preScale(-1.0f, 1.0f) }
+                    val flipped = try {
+                        Bitmap.createBitmap(embeddingInputBitmap, 0, 0, embeddingInputBitmap.width, embeddingInputBitmap.height, flipMatrix, true)
+                    } catch (_: Throwable) { null }
+
+                    if (flipped != null) {
+                        val embFlipped = unifiedEngine.extractCavafaceEmbeddingOnly(flipped)
+                        if (flipped != embeddingInputBitmap && !flipped.isRecycled) flipped.recycle()
+                        val fused = FloatArray(512) { i -> (regResult.embedding512[i] + embFlipped[i]) * 0.5f }
+                        unifiedEngine.l2Normalize(fused)
+                    } else {
+                        regResult.embedding512
+                    }
+                } else {
+                    regResult.embedding512
+                }
+
                 val sharpness = (qualityReport.blurScore * 10f).coerceIn(0f, 100f)
                 val lighting = (100f - kotlin.math.abs(qualityReport.brightnessScore - 128f) * 0.78f).coerceIn(0f, 100f)
                 val angleQuality = if (qualityReport.isGoodQuality) 96.0f else 80.0f
+
+                val csv = embedding.joinToString(",")
+                val encryptedCsv = AndroidSecurityUtils.encrypt(csv)
 
                 if (isTemporaryAligned && embeddingInputBitmap != cropSnapshot && !embeddingInputBitmap.isRecycled) {
                     embeddingInputBitmap.recycle()
@@ -746,12 +878,11 @@ class EnrollmentViewModel : ViewModel() {
                     consistencyScore = 100.0f
                 )
                 capturedTemplates.add(template)
+                capturedEmbeddings.add(embedding)
+                capturedQualityScores.add(angleQuality)
 
                 val thumb = Bitmap.createScaledBitmap(cropSnapshot, 120, 120, true)
                 val updatedThumbnails = _uiState.value.capturedThumbnails + (angleLabel to thumb)
-
-                capturedEmbeddings.add(embedding)
-                capturedQualityScores.add(angleQuality)
 
                 _uiState.update {
                     when (step) {
@@ -911,6 +1042,14 @@ fun EnrollmentScreen(
             )
         }
     }
+
+    if (state.showPaywall) {
+        PaywallBottomSheet(
+            triggerReason = state.paywallReason,
+            onDismiss = { viewModel.dismissPaywall() },
+            onUpgradeSuccess = { viewModel.dismissPaywall() }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -940,27 +1079,33 @@ private fun RegistrationFormView(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = LocalizationManager.get(StringKey.TAB_STUDENTS).uppercase(),
-                        color = omniTextMuted(isDark),
-                        fontSize = 9.5.sp,
+                        text = "STUDENTS",
+                        color = OmniViolet,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp
+                        letterSpacing = 1.sp
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = LocalizationManager.get(StringKey.ENROLLMENT_TITLE),
+                        text = LocalizationManager.get(StringKey.TAB_STUDENTS),
                         color = omniTextPrimary(isDark),
-                        fontSize = 21.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
+                    )
+                    Text(
+                        text = "Biometric Vault & Directory",
+                        color = omniTextMuted(isDark),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
                 IOSGlassPill(
                     text = "5-Angle 3D Vault",
                     icon = Icons.Default.Shield,
-                    accentColor = omniCyan(isDark)
+                    accentColor = OmniViolet
                 )
             }
         }
@@ -974,7 +1119,7 @@ private fun RegistrationFormView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = LocalizationManager.get(StringKey.STUDENT_IDENTITY_DETAILS).uppercase(),
+                        text = "ENROLL NEW STUDENT",
                         color = omniTextMuted(isDark),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
@@ -982,9 +1127,9 @@ private fun RegistrationFormView(
                     )
 
                     IOSGlassPill(
-                        text = LocalizationManager.get(StringKey.BURST_STUDIO_BADGE),
+                        text = "✦ Enterprise 3D",
                         icon = Icons.Default.Bolt,
-                        accentColor = if (isDark) AmberCore else LightAmberCore
+                        accentColor = OmniViolet
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
@@ -999,7 +1144,7 @@ private fun RegistrationFormView(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = omniCyan(isDark),
+                        focusedBorderColor = OmniViolet,
                         unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
                         focusedTextColor = omniTextPrimary(isDark),
                         unfocusedTextColor = omniTextPrimary(isDark)
@@ -1018,7 +1163,7 @@ private fun RegistrationFormView(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = omniCyan(isDark),
+                        focusedBorderColor = OmniViolet,
                         unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
                         focusedTextColor = omniTextPrimary(isDark),
                         unfocusedTextColor = omniTextPrimary(isDark)
@@ -1039,7 +1184,7 @@ private fun RegistrationFormView(
                         modifier = Modifier.weight(1.5f),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = omniCyan(isDark),
+                            focusedBorderColor = OmniViolet,
                             unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
                             focusedTextColor = omniTextPrimary(isDark),
                             unfocusedTextColor = omniTextPrimary(isDark)
@@ -1054,7 +1199,7 @@ private fun RegistrationFormView(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = omniCyan(isDark),
+                            focusedBorderColor = OmniViolet,
                             unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
                             focusedTextColor = omniTextPrimary(isDark),
                             unfocusedTextColor = omniTextPrimary(isDark)
@@ -1075,24 +1220,91 @@ private fun RegistrationFormView(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
-                                .background(if (isSelected) omniCyan(isDark).copy(alpha = 0.20f) else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                .border(0.75.dp, if (isSelected) omniCyan(isDark) else Color.Transparent, RoundedCornerShape(999.dp))
+                                .background(if (isSelected) OmniViolet.copy(alpha = 0.20f) else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(999.dp))
                                 .clickable { viewModel.updateForm(dept = dept) }
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
-                            Text(dept, color = if (isSelected) omniCyan(isDark) else omniTextMuted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(dept, color = if (isSelected) (if (isDark) OmniSky else OmniDeepPurple) else omniTextMuted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
+                if (!state.isModelAvailable) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0x26F59E0B) else Color(0x1AF59E0B))
+                            .border(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "AI Recognition Pack Required",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = omniTextPrimary(isDark)
+                                )
+                                Text(
+                                    text = "Download the 380 MB AI Face Pack in Settings to extract facial templates and enroll students.",
+                                    fontSize = 11.sp,
+                                    color = omniTextSecondary(isDark),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
                 // Action Button: Continue to Face Enrollment
-                CupertinoButton(
-                    text = LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT),
-                    icon = Icons.Default.Face,
-                    onClick = { viewModel.startBiometricStudio(context) }
-                )
+                Button(
+                    onClick = { viewModel.startBiometricStudio(context) },
+                    enabled = state.isModelAvailable,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = Color.White,
+                        disabledContainerColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
+                        disabledContentColor = omniTextMuted(isDark)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .shadow(
+                            elevation = if (state.isModelAvailable) 10.dp else 0.dp,
+                            shape = RoundedCornerShape(16.dp),
+                            spotColor = Color(0x996366F1),
+                            ambientColor = Color(0x666366F1)
+                        )
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (state.isModelAvailable) OmniButtonBrush else Brush.linearGradient(listOf(Color(0xFF6B7280), Color(0xFF4B5563)))),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = if (state.isModelAvailable) Icons.Default.Face else Icons.Default.CloudDownload,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (state.isModelAvailable) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else "AI Pack Required to Enroll",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.3.sp
+                    )
+                }
             }
         }
 
@@ -1100,7 +1312,7 @@ private fun RegistrationFormView(
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeader(
-                    text = "${LocalizationManager.get(StringKey.REGISTERED_IDENTITIES).uppercase()} (${state.enrolledStudentsList.size})"
+                    text = "ENROLLED STUDENTS (${state.enrolledStudentsList.size} / ${SubscriptionTierManager.getMaxStudentsDisplay()})"
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1127,8 +1339,8 @@ private fun RegistrationFormView(
                 if (state.enrolledStudentsList.isEmpty()) {
                     EmptyState(
                         icon = Icons.Default.PersonAdd,
-                        title = LocalizationManager.get(StringKey.REGISTERED_IDENTITIES),
-                        subtitle = LocalizationManager.get(StringKey.STUDENTS_ENROLLED)
+                        title = "No students enrolled yet",
+                        subtitle = "Register your first student above to enable face identification"
                     )
                 } else if (state.filteredEnrolledStudents.isEmpty()) {
                     EmptyState(
@@ -1155,13 +1367,13 @@ private fun RegistrationFormView(
                                     modifier = Modifier
                                         .size(38.dp)
                                         .clip(CircleShape)
-                                        .background(omniCyan(isDark).copy(alpha = 0.18f))
-                                        .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), CircleShape),
+                                        .background(OmniViolet.copy(alpha = 0.18f))
+                                        .border(1.dp, OmniViolet.copy(alpha = 0.35f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         text = student.fullName.take(1).uppercase(),
-                                        color = omniCyan(isDark),
+                                        color = OmniViolet,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1706,7 +1918,7 @@ private fun BiometricStudioView(
                                     .addOnSuccessListener(viewModel.cameraExecutor) { faces ->
                                         val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                                         if (face != null) {
-                                            val fullBitmap = imageProxyToBitmap(imageProxy)
+                                            val fullBitmap = BiometricCropUtils.imageProxyToBitmap(imageProxy)
                                             if (fullBitmap != null) {
                                                 viewModel.processCameraFrame(
                                                     face = face,
@@ -1857,28 +2069,37 @@ private fun BiometricStudioView(
                     )
                 }
 
-                // Front / Back Dual-Camera Switcher
+                // Front / Back Dual-Camera Switcher (Self-Enrollment vs Attendant Mode)
+                val isFront = state.lensFacing == CameraSelector.LENS_FACING_FRONT
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
-                        .shadow(6.dp, CircleShape, ambientColor = Color(0x66000000))
-                        .clip(CircleShape)
+                        .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x66000000))
+                        .clip(RoundedCornerShape(999.dp))
                         .background(if (isDark) Color(0xD90F172A) else Color(0xE6FFFFFF))
-                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                        .clickable { viewModel.toggleLensFacing() },
+                        .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(999.dp))
+                        .clickable { viewModel.toggleLensFacing() }
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.FlipCameraAndroid,
-                        contentDescription = "Flip Camera Lens",
-                        tint = omniTextPrimary(isDark),
-                        modifier = Modifier.size(19.dp)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Icon(
+                            imageVector = if (isFront) Icons.Default.Person else Icons.Default.CameraAlt,
+                            contentDescription = if (isFront) "Switch to Attendant Mode (Rear Camera)" else "Switch to Self-Enrollment (Front Camera)",
+                            tint = omniCyan(isDark),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (isFront) "Self-Enroll" else "Attendant",
+                            color = omniTextPrimary(isDark),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
             // Neural Engine Loading / Model Warmup Progress Screen
-            if (!state.engineLoadingProgress.isReady) {
+            if (state.isEngineLoading && state.isModelAvailable && !state.isEngineLoaded) {
                 com.omniface.ai.ui.scanner.NeuralEngineLoadingOverlay(
                     loading = state.engineLoadingProgress,
                     isDark = isDark,
@@ -2053,24 +2274,5 @@ private fun EnrollmentSuccessView(
             isSecondary = true,
             onClick = { viewModel.resetForNextStudent() }
         )
-    }
-}
-
-private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
-    return try {
-        val bitmap = imageProxy.toBitmap()
-        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-        if (rotationDegrees != 0) {
-            val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            if (rotated != bitmap) {
-                bitmap.recycle()
-            }
-            rotated
-        } else {
-            bitmap
-        }
-    } catch (e: Exception) {
-        null
     }
 }

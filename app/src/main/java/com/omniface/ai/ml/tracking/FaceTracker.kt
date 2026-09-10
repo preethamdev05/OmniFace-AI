@@ -119,21 +119,52 @@ class FaceTracker {
     /**
      * Retrieves or instantiates the persistent TrackedFaceState with predictive spatial matching.
      */
-    fun getOrCreateTrackState(mlKitTrackId: Int, rawRect: Rect): TrackedFaceState {
+    fun getOrCreateTrackState(
+        mlKitTrackId: Int,
+        rawRect: Rect,
+        claimedTrackIds: MutableSet<Int>? = null
+    ): TrackedFaceState {
         val now = System.currentTimeMillis()
 
         // 1. Direct match by ML Kit tracking ID if valid (> 0)
         if (mlKitTrackId > 0 && activeTracks.containsKey(mlKitTrackId)) {
             val existing = activeTracks[mlKitTrackId]!!
+            claimedTrackIds?.add(mlKitTrackId)
             return updateExistingTrack(existing, rawRect, now)
         }
 
-        // 2. Spatial matching fallback (IoU + Centroid Distance + Velocity Prediction)
+        // 2. If mlKitTrackId > 0, it is an independent ML Kit track trajectory.
+        // It should NEVER hijack another active track. Create a distinct track for it!
+        if (mlKitTrackId > 0) {
+            val newState = TrackedFaceState(
+                trackId = mlKitTrackId,
+                persistentTrackId = nextPersistentId.getAndIncrement(),
+                smoothedRect = rawRect,
+                rawRect = rawRect,
+                velocityX = 0f,
+                velocityY = 0f,
+                lastSeenTimestampMs = now,
+                firstSeenTimestampMs = now,
+                frameCount = 1,
+                lostFrameCount = 0
+            )
+            activeTracks[mlKitTrackId] = newState
+            claimedTrackIds?.add(mlKitTrackId)
+            return newState
+        }
+
+        // 3. Spatial matching fallback (only for unassigned detections where mlKitTrackId <= 0)
+        // Requires high temporal continuity (seen within 250ms) and spatial proximity.
         var bestMatch: TrackedFaceState? = null
         var bestScore = 0f
 
         for (track in activeTracks.values) {
-            if ((now - track.lastSeenTimestampMs) > TRACK_TIMEOUT_MS) continue
+            if (claimedTrackIds != null && claimedTrackIds.contains(track.trackId)) continue
+            val timeSinceLastSeen = now - track.lastSeenTimestampMs
+            if (timeSinceLastSeen > 250L) continue // Require immediate sequential frame continuity
+
+            // Never associate with a track that has an explicit ML Kit track ID (< 1000)
+            if (track.trackId < 1000) continue
 
             val predictedRect = Rect(
                 left = track.smoothedRect.left + track.velocityX,
@@ -145,7 +176,7 @@ class FaceTracker {
             val iou = computeIoU(rawRect, predictedRect)
             val centroidDist = computeNormalizedCentroidDist(rawRect, predictedRect)
 
-            if (iou >= IOU_ASSOCIATION_THRESHOLD || centroidDist <= CENTROID_DIST_THRESHOLD) {
+            if (iou >= 0.40f || (centroidDist <= 0.25f && iou >= 0.20f)) {
                 val score = iou * 0.7f + (1f - centroidDist.coerceIn(0f, 1f)) * 0.3f
                 if (score > bestScore) {
                     bestScore = score
@@ -156,16 +187,12 @@ class FaceTracker {
 
         if (bestMatch != null) {
             val updated = updateExistingTrack(bestMatch, rawRect, now)
-            // Re-index by mlKitTrackId if it now has one
-            if (mlKitTrackId > 0 && mlKitTrackId != bestMatch.trackId) {
-                activeTracks.remove(bestMatch.trackId)
-                activeTracks[mlKitTrackId] = updated
-            }
+            claimedTrackIds?.add(updated.trackId)
             return updated
         }
 
-        // 3. Instantiate brand new persistent track
-        val assignedId = if (mlKitTrackId > 0) mlKitTrackId else nextPersistentId.getAndIncrement()
+        // 4. Instantiate brand new persistent track
+        val assignedId = nextPersistentId.getAndIncrement()
         val newState = TrackedFaceState(
             trackId = assignedId,
             persistentTrackId = nextPersistentId.getAndIncrement(),
@@ -179,6 +206,7 @@ class FaceTracker {
             lostFrameCount = 0
         )
         activeTracks[assignedId] = newState
+        claimedTrackIds?.add(assignedId)
         return newState
     }
 
@@ -231,96 +259,91 @@ class FaceTracker {
     ): BiometricSynthesisDecision {
         val state = activeTracks[trackId] ?: return rawDecision
 
-        // Update evidence accumulators
-        when {
-            rawDecision.isAttendanceAuthorized && rawDecision.matchedStudentRoll.isNotBlank() -> {
-                if (state.studentRoll.isEmpty() || state.studentRoll == rawDecision.matchedStudentRoll) {
-                    state.consecutiveKnownHits++
-                    state.consecutiveUnknownHits = 0
-                    state.consecutiveSpoofHits = 0
-                }
-            }
-            rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK -> {
-                state.consecutiveSpoofHits++
-                state.consecutiveKnownHits = 0
-            }
-            rawDecision.gateState == PipelineGateState.REJECT_UNKNOWN_IDENTITY || rawDecision.matchedStudentRoll == "GUEST" -> {
-                state.consecutiveUnknownHits++
-                if (state.consecutiveKnownHits > 0) {
-                    state.consecutiveKnownHits--
-                }
-            }
-        }
-
-        // Check if track should transition to known or spoof locked state
-        when {
-            rawDecision.isAttendanceAuthorized && rawDecision.matchedStudentRoll.isNotBlank() -> {
-                if (state.consecutiveKnownHits >= REQUIRED_CONFIRMATION_FRAMES || rawDecision.matchSimilarity >= 0.65f) {
-                    state.classification = IdentityClassification.KNOWN
-                    state.studentRoll = rawDecision.matchedStudentRoll
-                    state.studentName = rawDecision.matchedStudentName
-                    state.matchConfidence = rawDecision.matchConfidence
-                    state.matchSimilarity = rawDecision.matchSimilarity
-                    state.decisionMargin = rawDecision.decisionMargin
+        // 1. Identity Switch Detection: If raw decision authorizes a DIFFERENT enrolled student,
+        // immediately clear the old lock and switch to the new student.
+        if (rawDecision.isAttendanceAuthorized && rawDecision.matchedStudentRoll.isNotBlank()) {
+            if (state.studentRoll.isNotBlank() && state.studentRoll != rawDecision.matchedStudentRoll) {
+                state.isClassificationLocked = false
+                state.consecutiveKnownHits = 1
+                state.consecutiveUnknownHits = 0
+                state.consecutiveSpoofHits = 0
+                state.studentRoll = rawDecision.matchedStudentRoll
+                state.studentName = rawDecision.matchedStudentName
+                state.matchConfidence = rawDecision.matchConfidence
+                state.matchSimilarity = rawDecision.matchSimilarity
+                state.decisionMargin = rawDecision.decisionMargin
+                state.classification = IdentityClassification.KNOWN
+                if (rawDecision.matchSimilarity >= 0.72f) {
                     state.isClassificationLocked = true
                 }
+                state.lastDecision = rawDecision
+                return rawDecision
             }
-            state.consecutiveSpoofHits >= REQUIRED_CONFIRMATION_FRAMES -> {
-                state.classification = IdentityClassification.SPOOF_ATTACK
+
+            // Same student or unassigned track
+            state.consecutiveKnownHits++
+            state.consecutiveUnknownHits = 0
+            state.consecutiveSpoofHits = 0
+            if (state.consecutiveKnownHits >= REQUIRED_CONFIRMATION_FRAMES || rawDecision.matchSimilarity >= 0.72f) {
+                state.classification = IdentityClassification.KNOWN
+                state.studentRoll = rawDecision.matchedStudentRoll
+                state.studentName = rawDecision.matchedStudentName
+                state.matchConfidence = rawDecision.matchConfidence
+                state.matchSimilarity = rawDecision.matchSimilarity
+                state.decisionMargin = rawDecision.decisionMargin
                 state.isClassificationLocked = true
             }
+
+            val stabilized = rawDecision.copy(
+                gateState = PipelineGateState.PASS,
+                isAttendanceAuthorized = true,
+                matchedStudentRoll = state.studentRoll,
+                matchedStudentName = state.studentName,
+                matchSimilarity = maxOf(rawDecision.matchSimilarity, state.matchSimilarity),
+                matchConfidence = maxOf(rawDecision.matchConfidence, state.matchConfidence),
+                decisionMargin = maxOf(rawDecision.decisionMargin, state.decisionMargin),
+                title = "AUTHENTICATED: ${state.studentName.uppercase()}",
+                subtitle = "Roll: ${state.studentRoll} • Live 3D Verified"
+            )
+            state.lastDecision = stabilized
+            return stabilized
         }
 
-        // Apply persistent locked classification if currently verified as KNOWN
-        if (state.isClassificationLocked) {
-            when (state.classification) {
-                IdentityClassification.KNOWN -> {
-                    // Security guard: If the face changes to spoof attack or stranger actively replaces the subject
-                    val isStrangerDetected = rawDecision.matchSimilarity in 0.01f..0.35f
-                    val isSpoofDetected = rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK
-                    val isLostPersistence = state.consecutiveUnknownHits >= 12
+        // 2. Spoof Attack Handling: Instantly clear identity lock and mark spoof
+        if (rawDecision.gateState == PipelineGateState.REJECT_SPOOF_ATTACK) {
+            state.consecutiveSpoofHits++
+            state.consecutiveKnownHits = 0
+            state.isClassificationLocked = false
+            state.studentRoll = ""
+            state.studentName = ""
+            state.classification = IdentityClassification.SPOOF_ATTACK
+            state.lastDecision = rawDecision
+            return rawDecision
+        }
 
-                    if (isSpoofDetected || isStrangerDetected || isLostPersistence) {
-                        state.isClassificationLocked = false
-                        state.consecutiveKnownHits = 0
-                        state.studentRoll = ""
-                        state.studentName = ""
-                        state.classification = if (isSpoofDetected) {
-                            IdentityClassification.SPOOF_ATTACK
-                        } else {
-                            IdentityClassification.UNKNOWN
-                        }
-                        state.lastDecision = rawDecision
-                        return rawDecision
-                    }
+        // 3. Unknown Identity / Visitor Handling
+        if (rawDecision.gateState == PipelineGateState.REJECT_UNKNOWN_IDENTITY || rawDecision.matchedStudentRoll == "GUEST") {
+            state.consecutiveUnknownHits++
+            state.consecutiveKnownHits = 0
+            state.isClassificationLocked = false
+            state.studentRoll = ""
+            state.studentName = ""
+            state.classification = IdentityClassification.UNKNOWN
+            state.lastDecision = rawDecision
+            return rawDecision
+        }
 
-                    val stabilized = rawDecision.copy(
-                        gateState = PipelineGateState.PASS,
-                        isAttendanceAuthorized = true,
-                        matchedStudentRoll = state.studentRoll,
-                        matchedStudentName = state.studentName,
-                        matchSimilarity = maxOf(rawDecision.matchSimilarity, state.matchSimilarity),
-                        matchConfidence = maxOf(rawDecision.matchConfidence, state.matchConfidence),
-                        decisionMargin = maxOf(rawDecision.decisionMargin, state.decisionMargin),
-                        title = "AUTHENTICATED: ${state.studentName.uppercase()}",
-                        subtitle = "Roll: ${state.studentRoll} • Live 3D Verified"
-                    )
-                    state.lastDecision = stabilized
-                    return stabilized
+        // 4. Ambiguous Match Handling
+        if (rawDecision.gateState == PipelineGateState.REVIEW_AMBIGUOUS_MATCH) {
+            if (state.isClassificationLocked && state.classification == IdentityClassification.KNOWN) {
+                if (rawDecision.matchedStudentRoll.isNotBlank() && rawDecision.matchedStudentRoll != state.studentRoll) {
+                    state.isClassificationLocked = false
+                    state.studentRoll = ""
+                    state.studentName = ""
+                    state.classification = IdentityClassification.AMBIGUOUS_REVIEW
+                    state.lastDecision = rawDecision
+                    return rawDecision
                 }
-                IdentityClassification.SPOOF_ATTACK -> {
-                    val stabilized = rawDecision.copy(
-                        gateState = PipelineGateState.REJECT_SPOOF_ATTACK,
-                        isAttendanceAuthorized = false,
-                        matchedStudentRoll = "SPOOF",
-                        matchedStudentName = "Spoof Attack Detected",
-                        title = "ACCESS DENIED: SPOOF DETECTED",
-                        subtitle = "Presentation attack prevented"
-                    )
-                    state.lastDecision = stabilized
-                    return stabilized
-                }
-                else -> {}
             }
         }
 

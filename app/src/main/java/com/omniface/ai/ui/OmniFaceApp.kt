@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.rememberNavController
 import com.omniface.ai.ui.components.DynamicIslandCapsule
 import com.omniface.ai.ui.components.DynamicIslandController
@@ -40,6 +41,7 @@ import com.omniface.ai.ui.scanner.ScannerScreen
 import com.omniface.ai.ui.scanner.ScannerViewModel
 import com.omniface.ai.ui.settings.SettingsScreen
 import com.omniface.ai.ui.settings.SettingsViewModel
+import com.omniface.ai.ui.onboarding.OnboardingWizard
 import com.omniface.ai.ui.theme.CyanCore
 import com.omniface.ai.ui.theme.LocalThemeIsDark
 import com.omniface.ai.ui.theme.OmniFaceTheme
@@ -94,10 +96,22 @@ fun OmniFaceApp() {
                 .distinctUntilChanged()
         }.collectAsStateWithLifecycle(initialValue = 0)
 
+        val appPrefs = remember { context.getSharedPreferences("omniface_app_prefs", android.content.Context.MODE_PRIVATE) }
+        var isOnboardingCompleted by remember {
+            mutableStateOf(appPrefs.getBoolean("onboarding_completed", false))
+        }
+
         CompositionLocalProvider(
             LocalDynamicIslandController provides dynamicIslandController
         ) {
-            Scaffold(
+            if (!isOnboardingCompleted) {
+                OnboardingWizard(
+                    onComplete = {
+                        isOnboardingCompleted = true
+                    }
+                )
+            } else {
+                Scaffold(
                 modifier = Modifier
                     .fillMaxSize()
                     .imePadding(),
@@ -110,7 +124,7 @@ fun OmniFaceApp() {
                         onNavigate = { screen ->
                             if (currentRoute != screen.route) {
                                 navController.navigate(screen.route) {
-                                    popUpTo(Screen.Dashboard.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
                                     launchSingleTop = true
@@ -210,4 +224,5 @@ fun OmniFaceApp() {
             }
         }
     }
+}
 }

@@ -686,6 +686,7 @@ fun CupertinoSegmentedControl(
     modifier: Modifier = Modifier,
     items: List<String>,
     selectedIndex: Int,
+    activeBrush: Brush? = null,
     onItemSelected: (Int) -> Unit
 ) {
     val isDark = LocalThemeIsDark.current
@@ -694,20 +695,21 @@ fun CupertinoSegmentedControl(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA))
-            .border(0.75.dp, if (isDark) Color(0x1FFFFFFF) else Color(0x14000000), RoundedCornerShape(12.dp))
-            .padding(3.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isDark) Color(0xFF141926) else Color(0xFFE5E7EB))
+            .border(0.75.dp, if (isDark) Color(0x1FFFFFFF) else Color(0x14000000), RoundedCornerShape(14.dp))
+            .padding(4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items.forEachIndexed { index, title ->
                 val isSelected = index == selectedIndex
                 val animBgColor by animateColorAsState(
                     targetValue = if (isSelected) {
-                        if (isDark) Color(0xFF636366) else Color(0xFFFFFFFF)
+                        if (activeBrush != null) Color.Transparent
+                        else if (isDark) Color(0xFF636366) else Color(0xFFFFFFFF)
                     } else Color.Transparent,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -719,25 +721,31 @@ fun CupertinoSegmentedControl(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .shadow(if (isSelected && !isDark) 2.dp else 0.dp, RoundedCornerShape(9.dp))
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(animBgColor)
+                        .shadow(if (isSelected) 4.dp else 0.dp, RoundedCornerShape(10.dp), spotColor = if (isSelected && activeBrush != null) Color(0x666366F1) else Color.Transparent)
+                        .clip(RoundedCornerShape(10.dp))
+                        .then(
+                            if (isSelected && activeBrush != null) {
+                                Modifier.background(activeBrush)
+                            } else {
+                                Modifier.background(animBgColor)
+                            }
+                        )
                         .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onItemSelected(index)
                         }
-                        .padding(vertical = 7.dp),
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = title,
                         color = if (isSelected) {
-                            if (isDark) Color.White else Color.Black
+                            Color.White
                         } else {
                             if (isDark) Color(0x99EBEBF5) else Color(0x993C3C43)
                         },
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        fontSize = 12.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -942,7 +950,8 @@ fun CupertinoSwitch(
     checked: Boolean,
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    activeColor: Color = OmniViolet
 ) {
     val isDark = LocalThemeIsDark.current
     Switch(
@@ -952,7 +961,7 @@ fun CupertinoSwitch(
         enabled = enabled,
         colors = SwitchDefaults.colors(
             checkedThumbColor = Color.White,
-            checkedTrackColor = omniCyan(isDark),
+            checkedTrackColor = activeColor,
             uncheckedThumbColor = if (isDark) Color(0xFFCBD5E1) else Color.White,
             uncheckedTrackColor = if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)
         )

@@ -52,6 +52,10 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.omniface.ai.billing.SubscriptionTierManager
+import com.omniface.ai.billing.PaywallTriggerReason
+import com.omniface.ai.ui.billing.PaywallBottomSheet
+import com.omniface.ai.ui.components.InHousePromoBanner
 
 @Immutable
 data class LedgerUiState(
@@ -61,7 +65,9 @@ data class LedgerUiState(
     val activeFilter: String = "ALL", // ALL, TODAY, SYNCED, LOCAL
     val selectedRecordForProof: AttendanceRecordEntity? = null,
     val showIntegrityDialog: Boolean = false,
-    val integrityReport: Pair<Boolean, String>? = null
+    val integrityReport: Pair<Boolean, String>? = null,
+    val showPaywall: Boolean = false,
+    val paywallReason: PaywallTriggerReason = PaywallTriggerReason.EXCEL_PDF_EXPORT_LOCKED
 )
 
 class LedgerViewModel : ViewModel() {
@@ -200,7 +206,20 @@ class LedgerViewModel : ViewModel() {
         context.startActivity(shareIntent)
     }
 
+    fun dismissPaywall() {
+        _uiState.update { it.copy(showPaywall = false) }
+    }
+
+    fun triggerPaywall(reason: PaywallTriggerReason = PaywallTriggerReason.EXCEL_PDF_EXPORT_LOCKED) {
+        _uiState.update { it.copy(showPaywall = true, paywallReason = reason) }
+    }
+
     fun exportAuditCsv(context: Context, records: List<AttendanceRecordEntity>) {
+        if (!SubscriptionTierManager.canExportReports()) {
+            triggerPaywall(PaywallTriggerReason.EXCEL_PDF_EXPORT_LOCKED)
+            return
+        }
+
         if (records.isEmpty()) {
             Toast.makeText(context, "No attendance records to export", Toast.LENGTH_SHORT).show()
             return
@@ -282,39 +301,51 @@ fun LedgerScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = LocalizationManager.get(StringKey.TAB_LEDGER).uppercase(),
-                        color = omniTextMuted(isDark),
-                        fontSize = 9.5.sp,
+                        text = "ATTENDANCE",
+                        color = OmniViolet,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp
+                        letterSpacing = 1.sp
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = LocalizationManager.get(StringKey.LEDGER_TITLE),
+                        text = "Attendance",
                         color = omniTextPrimary(isDark),
-                        fontSize = 21.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
+                    )
+                    Text(
+                        text = "Cryptographic Audit Ledger",
+                        color = omniTextMuted(isDark),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal
                     )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IOSGlassPill(
-                        text = "Verify Aegis",
-                        icon = Icons.Default.Lock,
-                        accentColor = omniEmerald(isDark),
+                        text = "🛡 Aegis",
+                        accentColor = OmniViolet,
                         onClick = { viewModel.checkLedgerIntegrity() }
                     )
 
                     IOSGlassPill(
-                        text = LocalizationManager.get(StringKey.EXPORT_CSV),
-                        icon = Icons.Default.Share,
+                        text = "📥 Export",
                         accentColor = omniCyan(isDark),
                         onClick = { viewModel.exportAuditCsv(context, state.displayedRecords) }
                     )
                 }
             }
+        }
+
+        // In-House Promo Banner (Free tier only)
+        item {
+            InHousePromoBanner(
+                modifier = Modifier.fillMaxWidth(),
+                onUpgradeClick = { viewModel.triggerPaywall(PaywallTriggerReason.EXCEL_PDF_EXPORT_LOCKED) }
+            )
         }
 
         // iOS Inset Search Bar
@@ -344,12 +375,16 @@ fun LedgerScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .background(
-                                if (isSelected) omniCyan(isDark) else (if (isDark) Color(0x1F1E293B) else Color(0xFFE2E8F0))
+                            .then(
+                                if (isSelected) {
+                                    Modifier.background(OmniButtonBrush)
+                                } else {
+                                    Modifier.background(if (isDark) Color(0x1F1E293B) else Color(0xFFE2E8F0))
+                                }
                             )
                             .border(
                                 0.75.dp,
-                                if (isSelected) omniCyan(isDark) else Color.Transparent,
+                                if (isSelected) OmniViolet.copy(alpha = 0.5f) else Color.Transparent,
                                 RoundedCornerShape(999.dp)
                             )
                             .clickable { viewModel.onFilterSelected(key) }
@@ -370,11 +405,18 @@ fun LedgerScreen(
         if (state.displayedRecords.isEmpty()) {
             item {
                 IOSCard(modifier = Modifier.fillMaxWidth()) {
-                    EmptyState(
-                        icon = Icons.Default.ReceiptLong,
-                        title = LocalizationManager.get(StringKey.LEDGER_TITLE),
-                        subtitle = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF)
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        EmptyState(
+                            icon = Icons.Default.ReceiptLong,
+                            title = "No Verification Records Yet",
+                            subtitle = "Cryptographic attendance logs will appear here upon student detection"
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        NeonSparklineWave(height = 36.dp)
+                    }
                 }
             }
         } else {
@@ -399,15 +441,15 @@ fun LedgerScreen(
                             // Initial Avatar
                             Box(
                                 modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(omniCyan(isDark).copy(alpha = 0.15f))
-                                .border(1.dp, omniCyan(isDark).copy(alpha = 0.35f), CircleShape),
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(OmniViolet.copy(alpha = 0.18f))
+                                    .border(1.dp, OmniViolet.copy(alpha = 0.35f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = record.studentName.take(1).uppercase(),
-                                    color = omniCyan(isDark),
+                                    color = OmniViolet,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -590,6 +632,14 @@ fun LedgerScreen(
             },
             containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (state.showPaywall) {
+        PaywallBottomSheet(
+            triggerReason = state.paywallReason,
+            onDismiss = { viewModel.dismissPaywall() },
+            onUpgradeSuccess = { viewModel.dismissPaywall() }
         )
     }
 }

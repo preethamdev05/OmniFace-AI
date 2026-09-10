@@ -103,8 +103,8 @@ object CloudFleetSyncEngine {
         }
 
         val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
-        val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://127.0.0.1:8080/api/v1/attendance/sync")
-            ?: "https://127.0.0.1:8080/api/v1/attendance/sync"
+        val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/attendance/sync")
+            ?: "https://omniface.vercel.app/api/v1/attendance/sync"
         val deviceId = prefs.getString("DEVICE_ID", "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
 
         _syncState.value = FleetSyncState.Syncing("Dispatching ${unsynced.size} records to fleet...")
@@ -150,9 +150,10 @@ object CloudFleetSyncEngine {
         deviceId: String,
         records: List<AttendanceRecordEntity>
     ): Boolean {
-        // Enforce HTTPS unless local test loopback
-        if (!endpoint.startsWith("https://") && !endpoint.contains("127.0.0.1") && !endpoint.contains("localhost")) {
-            Log.w(TAG, "Cleartext sync disallowed: $endpoint")
+        // Enforce HTTPS unless local test loopback or LAN development
+        val isLocalDev = endpoint.contains("127.0.0.1") || endpoint.contains("localhost") || endpoint.contains("10.0.2.2") || endpoint.contains("192.168.")
+        if (!endpoint.startsWith("https://") && !isLocalDev) {
+            Log.w(TAG, "Cleartext sync disallowed for remote hosts: $endpoint")
             return false
         }
 

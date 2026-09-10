@@ -124,10 +124,12 @@ To request or execute biometric data deletion:
 ---
 
 ## 7. Contact & Data Protection Officer
-
-If you have questions, concerns, or requests regarding this Privacy Policy or biometric data handling:
-
-- **Entity**: OmniFace AI Engineering Team
-- **Data Protection Officer (DPO)**: `privacy@omniface.ai`
-- **Security Inquiries**: `security@omniface.ai`
-- **Response SLA**: All formal data subject inquiries are acknowledged within 48 hours and resolved within 30 days.
+ 
+ If you have questions, concerns, or requests regarding this Privacy Policy or biometric data handling:
+ 
+ - **Entity / Operator**: OmniFace Technologies (Operated by Preetham, Independent Developer)
+ - **Jurisdiction**: Karnataka, India
+ - **Contact & Grievance Officer**: `preethamdev05@gmail.com`
+ - **Official Web Portal**: https://omniface.vercel.app
+ - **Online Legal Policy**: https://omniface.vercel.app/privacy
+ - **Response SLA**: All formal data subject inquiries are acknowledged within 48 hours and resolved within 30 days.

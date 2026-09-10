@@ -12,6 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -28,6 +31,13 @@ data class BackupArchiveMetadata(
     val timestampMs: Long,
     val originalSizeBytes: Long,
     val encryptedSizeBytes: Long
+)
+
+data class LocalSnapshotInfo(
+    val file: File,
+    val name: String,
+    val timestampMs: Long,
+    val sizeBytes: Long
 )
 
 /**
@@ -206,7 +216,17 @@ object UserDriveBackupManager {
                 db.attendanceDao().insertRecords(restoredAttendance)
             }
 
-            // Preload restored biometric templates into the Qualcomm NPU recognition engine
+            // Immediately synchronize volatile in-memory caches across the application
+            OmniFaceApplication.cachedStudentMap = restoredStudents.associate { it.rollNumber to it.fullName }
+            OmniFaceApplication.cachedTemplates = restoredTemplates
+
+            // Preload restored biometric templates into FaceSecurityPipeline & FaceRecognitionEngine
+            try {
+                com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(context).preloadTemplates(restoredTemplates)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed updating FaceSecurityPipeline cache: ${t.message}")
+            }
+
             try {
                 val engine = FaceRecognitionEngine.getInstance(context)
                 engine.preloadTemplates(restoredTemplates)
@@ -293,5 +313,110 @@ object UserDriveBackupManager {
         cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec)
 
         return cipher.doFinal(cipherText)
+    }
+
+    /**
+     * Gets the on-device secure directory where encrypted backup snapshots are preserved.
+     */
+    fun getBackupsDirectory(context: Context): File {
+        val dir = File(context.filesDir, "backups")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /**
+     * Saves an encrypted backup snapshot locally in the app's secure sandbox.
+     * Retains the latest 5 snapshots and prunes older archives.
+     */
+    fun saveLocalSnapshot(
+        context: Context,
+        encryptedBytes: ByteArray,
+        metadata: BackupArchiveMetadata
+    ): File {
+        val dir = getBackupsDirectory(context)
+        val timestamp = metadata.timestampMs
+        val file = File(dir, "omniface_backup_${timestamp}.omni")
+        file.writeBytes(encryptedBytes)
+        Log.i(TAG, "💾 Saved local backup snapshot: ${file.absolutePath} (${encryptedBytes.size} bytes)")
+
+        pruneLocalSnapshots(context, keepCount = 5)
+        return file
+    }
+
+    /**
+     * Lists all encrypted backup snapshots available in local storage.
+     */
+    fun listLocalSnapshots(context: Context): List<LocalSnapshotInfo> {
+        val dir = getBackupsDirectory(context)
+        val files = dir.listFiles { f -> f.extension == "omni" || f.extension == "enc" } ?: emptyArray()
+        return files.map { f ->
+            val ts = f.name.removePrefix("omniface_backup_").removeSuffix(".omni").removeSuffix(".enc").toLongOrNull() ?: f.lastModified()
+            LocalSnapshotInfo(
+                file = f,
+                name = f.name,
+                timestampMs = ts,
+                sizeBytes = f.length()
+            )
+        }.sortedByDescending { it.timestampMs }
+    }
+
+    /**
+     * Returns the most recent local backup snapshot, if one exists.
+     */
+    fun getLatestLocalSnapshot(context: Context): LocalSnapshotInfo? {
+        return listLocalSnapshots(context).firstOrNull()
+    }
+
+    /**
+     * Deletes a local backup snapshot.
+     */
+    fun deleteLocalSnapshot(file: File): Boolean {
+        return try {
+            file.delete()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun pruneLocalSnapshots(context: Context, keepCount: Int = 5) {
+        val snapshots = listLocalSnapshots(context)
+        if (snapshots.size > keepCount) {
+            snapshots.drop(keepCount).forEach {
+                try {
+                    it.file.delete()
+                    Log.i(TAG, "Pruned older local backup snapshot: ${it.name}")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * Shares an encrypted backup file to Google Drive, Files, or other apps via the Android Sharesheet.
+     */
+    fun shareBackup(context: Context, encryptedBytes: ByteArray, fileName: String) {
+        try {
+            val cacheDir = File(context.cacheDir, "backups").apply { if (!exists()) mkdirs() }
+            val shareFile = File(cacheDir, fileName)
+            shareFile.writeBytes(encryptedBytes)
+
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                shareFile
+            )
+
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "OmniFace AI Biometric Backup Archive")
+                putExtra(Intent.EXTRA_TEXT, "Encrypted OmniFace AI Biometric & Attendance Backup.")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(sendIntent, "Save or Send Backup (Google Drive, Files, etc.)")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed sharing backup: ${e.message}", e)
+        }
     }
 }

@@ -136,6 +136,29 @@ val TitaniumGlassBrush = Brush.horizontalGradient(
     )
 )
 
+val OmniBrandGradient = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF6366F1),
+        Color(0xFF8B5CF6),
+        Color(0xFFA855F7)
+    )
+)
+
+val OmniButtonBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF6366F1),
+        Color(0xFF8B5CF6)
+    )
+)
+
+val OmniWaveBrush = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF6366F1),
+        Color(0xFF06B6D4),
+        Color(0xFFA855F7)
+    )
+)
+
 fun omniCardShadowElevation(isDark: Boolean): Dp = if (isDark) 4.dp else 6.dp
 fun omniTextPrimary(isDark: Boolean): Color = if (isDark) TextPrimary else LightTextPrimary
 fun omniTextSecondary(isDark: Boolean): Color = if (isDark) TextSecondary else LightTextSecondary
@@ -143,6 +166,8 @@ fun omniTextMuted(isDark: Boolean): Color = if (isDark) TextMuted else LightText
 fun omniCyan(isDark: Boolean): Color = if (isDark) CyanCore else LightCyanCore
 fun omniEmerald(isDark: Boolean): Color = if (isDark) EmeraldCore else LightEmeraldCore
 fun omniGold(isDark: Boolean): Color = if (isDark) GoldCore else LightGoldCore
+fun omniViolet(isDark: Boolean): Color = if (isDark) OmniViolet else LightIndigoCore
+
 
 @Composable
 fun OmniFaceTheme(

@@ -35,6 +35,10 @@ scratch/
 .cursor/
 .vscode/
 aapt2
+node_modules/
+backend/node_modules/
+.next/
+graphify-out/
 
 # Python ML & Training caches
 __pycache__/
@@ -48,6 +52,10 @@ models_cache/
 env/
 venv/
 .venv/
+.env
+.env.*
+*.env
+*.env.*
 *.egg-info/
 .pytest_cache/
 .coverage
@@ -67,7 +75,6 @@ models/*.keras
 models/*.zip
 models/qualcomm_suite/
 models/qualcomm_cavaface/
-models/antelopev2/
 models/buffalo_l/
 models/latest_pretrained/
 

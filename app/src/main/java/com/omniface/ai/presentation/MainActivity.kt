@@ -21,8 +21,11 @@ import com.omniface.ai.ui.components.CameraProminentDisclosureDialog
 
 class MainActivity : FragmentActivity() {
 
+    private var hasCameraPermission by mutableStateOf(false)
+
     private val requestCameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
+            hasCameraPermission = isGranted
             if (!isGranted) {
                 Toast.makeText(this, "Camera permission is required for live face recognition", Toast.LENGTH_SHORT).show()
             }
@@ -30,18 +33,11 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hasCameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         enableEdgeToEdge()
         configureAdaptiveHighRefreshRate()
 
         setContent {
-            var hasCameraPermission by remember {
-                mutableStateOf(
-                    ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        Manifest.permission.CAMERA
-                    ) == PackageManager.PERMISSION_GRANTED
-                )
-            }
             var showDisclosure by remember { mutableStateOf(!hasCameraPermission) }
 
             OmniFaceApp()
@@ -67,6 +63,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        hasCameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         configureAdaptiveHighRefreshRate()
     }
 

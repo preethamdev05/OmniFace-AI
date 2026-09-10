@@ -25,6 +25,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.omniface.ai.data.local.ScannerMode
+import com.omniface.ai.data.local.ScannerPreferences
 import com.omniface.ai.hardware.KioskLockController
 import com.omniface.ai.hardware.TurnstileRelayController
 import com.omniface.ai.i18n.LocalizationManager
@@ -42,6 +44,7 @@ fun KioskAccessSettingsSubScreen(
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
     val activity = context as? Activity
+    var currentMode by remember { mutableStateOf(ScannerPreferences.getScannerMode()) }
     var showPinDialog by remember { mutableStateOf(false) }
     var enteredPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
@@ -169,6 +172,91 @@ fun KioskAccessSettingsSubScreen(
             contentPadding = PaddingValues(top = 12.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // 0. Scanner Operational Profile
+            item {
+                IOSCard(cornerRadius = 20.dp) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (currentMode == ScannerMode.AUTO_KIOSK) Icons.Default.Sensors else Icons.Default.TouchApp,
+                                contentDescription = null,
+                                tint = omniCyan(isDark),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Scanner Operational Profile",
+                                    color = omniTextPrimary(isDark),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = currentMode.subtitle,
+                                    color = omniTextSecondary(isDark),
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ScannerMode.entries.forEach { mode ->
+                                val isSelected = currentMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isSelected) {
+                                                if (isDark) Color(0x336366F1) else Color(0x1F6366F1)
+                                            } else {
+                                                if (isDark) Color(0x12FFFFFF) else Color(0x08000000)
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 0.5.dp,
+                                            color = if (isSelected) OmniViolet else (if (isDark) Color(0x22FFFFFF) else Color(0x12000000)),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            currentMode = mode
+                                            ScannerPreferences.setScannerMode(mode)
+                                            viewModel.toggleAutoScanOnOpen(mode == ScannerMode.AUTO_KIOSK)
+                                            viewModel.toggleAutoPauseOnMatch(mode == ScannerMode.MANUAL_HANDHELD)
+                                        }
+                                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = if (mode == ScannerMode.AUTO_KIOSK) Icons.Default.Sensors else Icons.Default.TouchApp,
+                                            contentDescription = mode.title,
+                                            tint = if (isSelected) OmniViolet else omniTextMuted(isDark),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = if (mode == ScannerMode.AUTO_KIOSK) "Auto Kiosk" else "Handheld Staff",
+                                            color = if (isSelected) omniTextPrimary(isDark) else omniTextMuted(isDark),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1. Turnstile Relay Duration
             item {
                 IOSCard(cornerRadius = 20.dp) {

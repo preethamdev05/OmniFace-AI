@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.omniface.ai.ui.settings
 
 import android.accounts.Account
@@ -43,8 +45,10 @@ import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
+import com.omniface.ai.sync.BackupArchiveMetadata
 import com.omniface.ai.sync.GoogleDriveAppDataService
 import com.omniface.ai.sync.GoogleDriveBackupWorker
+import com.omniface.ai.sync.LocalSnapshotInfo
 import com.omniface.ai.sync.UserDriveBackupManager
 import com.omniface.ai.ui.components.IOSCard
 import com.omniface.ai.ui.theme.*
@@ -69,6 +73,7 @@ fun GoogleDriveBackupScreen(
     var connectedEmail by remember { mutableStateOf(prefs.getString("CONNECTED_GOOGLE_ACCOUNT", "") ?: "") }
     var lastBackupTime by remember { mutableStateOf(prefs.getLong("LAST_BACKUP_TIME", 0L)) }
     var lastBackupSize by remember { mutableStateOf(prefs.getLong("LAST_BACKUP_SIZE", 0L)) }
+    var lastBackupLocation by remember { mutableStateOf(prefs.getString("LAST_BACKUP_LOCATION", "On-Device Secure Vault") ?: "On-Device Secure Vault") }
     var backupPin by remember { mutableStateOf(prefs.getString("BACKUP_ENCRYPTION_PIN", "123456") ?: "123456") }
     var backupFrequency by remember { mutableStateOf(prefs.getString("BACKUP_FREQUENCY", "DAILY") ?: "DAILY") }
     var wifiOnly by remember { mutableStateOf(prefs.getBoolean("WIFI_ONLY", true)) }
@@ -79,6 +84,13 @@ fun GoogleDriveBackupScreen(
     var showPinDialog by remember { mutableStateOf(false) }
     var showRestorePinDialog by remember { mutableStateOf(false) }
     var tempPinInput by remember { mutableStateOf("") }
+
+    var localSnapshots by remember { mutableStateOf(UserDriveBackupManager.listLocalSnapshots(context)) }
+    var showRestoreSuccessDialog by remember { mutableStateOf(false) }
+    var restoredMeta by remember { mutableStateOf<BackupArchiveMetadata?>(null) }
+    var pendingImportBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var showPinPromptForImport by remember { mutableStateOf(false) }
+    var shouldTriggerBackupAfterPicker by remember { mutableStateOf(false) }
 
     // Google Sign-In Launcher configured for user's personal Google Drive appDataFolder
     val driveScope = Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -113,6 +125,7 @@ fun GoogleDriveBackupScreen(
                 connectedEmail = accountName
                 prefs.edit().putString("CONNECTED_GOOGLE_ACCOUNT", accountName).apply()
                 Toast.makeText(context, "Connected Google Account: $accountName", Toast.LENGTH_SHORT).show()
+                shouldTriggerBackupAfterPicker = true
             }
         }
     }
@@ -128,6 +141,7 @@ fun GoogleDriveBackupScreen(
                 connectedEmail = email
                 prefs.edit().putString("CONNECTED_GOOGLE_ACCOUNT", email).apply()
                 Toast.makeText(context, "Connected Google Account: $email", Toast.LENGTH_SHORT).show()
+                shouldTriggerBackupAfterPicker = true
             } catch (e: Exception) {
                 Toast.makeText(context, "Sign-in failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -145,8 +159,19 @@ fun GoogleDriveBackupScreen(
                         os.write(encryptedBytes)
                         os.flush()
                     }
+                    UserDriveBackupManager.saveLocalSnapshot(context, encryptedBytes, meta)
+                    val now = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "✅ Backup exported (${meta.studentCount} students, ${meta.attendanceRecordCount} records)!", Toast.LENGTH_LONG).show()
+                        lastBackupTime = now
+                        lastBackupSize = encryptedBytes.size.toLong()
+                        lastBackupLocation = "Google Drive / File Storage"
+                        localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                        prefs.edit()
+                            .putLong("LAST_BACKUP_TIME", now)
+                            .putLong("LAST_BACKUP_SIZE", lastBackupSize)
+                            .putString("LAST_BACKUP_LOCATION", "Google Drive / File Storage")
+                            .apply()
+                        Toast.makeText(context, "✅ Backup saved to Google Drive / Storage (${meta.studentCount} students, ${meta.attendanceRecordCount} records)!", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
@@ -174,9 +199,15 @@ fun GoogleDriveBackupScreen(
                     withContext(Dispatchers.Main) {
                         if (restoreResult.isSuccess) {
                             val meta = restoreResult.getOrThrow()
-                            Toast.makeText(context, "🎉 Restored ${meta.studentCount} students and ${meta.attendanceRecordCount} attendance records!", Toast.LENGTH_LONG).show()
+                            lastBackupTime = meta.timestampMs
+                            lastBackupSize = meta.encryptedSizeBytes
+                            localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                            restoredMeta = meta
+                            showRestoreSuccessDialog = true
                         } else {
-                            Toast.makeText(context, "❌ Decryption failed: Check your PIN.", Toast.LENGTH_LONG).show()
+                            pendingImportBytes = bytes
+                            tempPinInput = ""
+                            showPinPromptForImport = true
                         }
                     }
                 } catch (e: Exception) {
@@ -200,7 +231,7 @@ fun GoogleDriveBackupScreen(
                 null
             )
             accountPickerLauncher.launch(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             val client = GoogleSignIn.getClient(context, gso)
             signInLauncher.launch(client.signInIntent)
         }
@@ -217,8 +248,19 @@ fun GoogleDriveBackupScreen(
             backupProgressMessage = "Creating encrypted backup snapshot..."
             try {
                 val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
+                UserDriveBackupManager.saveLocalSnapshot(context, encryptedBytes, meta)
+                val now = System.currentTimeMillis()
+                lastBackupTime = now
+                lastBackupSize = encryptedBytes.size.toLong()
+                lastBackupLocation = "On-Device Secure Vault"
+                localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                prefs.edit()
+                    .putLong("LAST_BACKUP_TIME", now)
+                    .putLong("LAST_BACKUP_SIZE", lastBackupSize)
+                    .putString("LAST_BACKUP_LOCATION", "On-Device Secure Vault")
+                    .apply()
 
-                backupProgressMessage = "Acquiring Google Drive auth token..."
+                backupProgressMessage = "Connecting to Google Drive..."
                 var userRecoverableIntent: Intent? = null
                 var authErrorMsg: String? = null
                 val token = withContext(Dispatchers.IO) {
@@ -247,28 +289,24 @@ fun GoogleDriveBackupScreen(
                     return@launch
                 }
 
-                if (token == null) {
-                    isBackingUp = false
-                    Toast.makeText(context, "Auth failed: ${authErrorMsg ?: "Could not get token"}. Tap Google Account to select again.", Toast.LENGTH_LONG).show()
-                    return@launch
-                }
-
-                backupProgressMessage = "Uploading to your Google Drive..."
-                val result = GoogleDriveAppDataService.uploadBackup(token, encryptedBytes)
-
-                if (result.isSuccess) {
-                    val now = System.currentTimeMillis()
-                    lastBackupTime = now
-                    lastBackupSize = encryptedBytes.size.toLong()
-
-                    prefs.edit()
-                        .putLong("LAST_BACKUP_TIME", now)
-                        .putLong("LAST_BACKUP_SIZE", lastBackupSize)
-                        .apply()
-
-                    Toast.makeText(context, "✅ Backup completed (${meta.studentCount} students, ${meta.attendanceRecordCount} records)", Toast.LENGTH_LONG).show()
+                if (token != null) {
+                    backupProgressMessage = "Uploading to your Google Drive..."
+                    val result = GoogleDriveAppDataService.uploadBackup(token, encryptedBytes)
+                    if (result.isSuccess) {
+                        lastBackupLocation = "Google Drive (Cloud)"
+                        prefs.edit().putString("LAST_BACKUP_LOCATION", "Google Drive (Cloud)").apply()
+                        Toast.makeText(context, "✅ Google Drive Cloud Backup Successful! (${meta.studentCount} students, ${meta.attendanceRecordCount} records)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Log.w("GoogleDriveBackup", "Cloud sync note: ${result.exceptionOrNull()?.message}")
+                        Toast.makeText(context, "Cloud sync note: ${result.exceptionOrNull()?.message}. Backup secured locally! Save to Google Drive via File Picker.", Toast.LENGTH_LONG).show()
+                        val fileName = "omniface_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.omni"
+                        exportDocumentLauncher.launch(fileName)
+                    }
                 } else {
-                    Toast.makeText(context, "Backup failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    Log.i("GoogleDriveBackup", "OAuth token unavailable ($authErrorMsg). Launching Google Drive Storage Access Framework.")
+                    Toast.makeText(context, "Data secured in local vault! Select Google Drive in the file picker to complete cloud copy.", Toast.LENGTH_LONG).show()
+                    val fileName = "omniface_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.omni"
+                    exportDocumentLauncher.launch(fileName)
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Backup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -278,78 +316,110 @@ fun GoogleDriveBackupScreen(
         }
     }
 
-    fun startRestore(pin: String) {
-        if (connectedEmail.isBlank()) {
-            launchAccountPicker()
-            return
+    LaunchedEffect(shouldTriggerBackupAfterPicker) {
+        if (shouldTriggerBackupAfterPicker) {
+            shouldTriggerBackupAfterPicker = false
+            startBackup()
         }
+    }
 
+    fun shareCurrentBackup() {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val (encryptedBytes, meta) = UserDriveBackupManager.createEncryptedBackupStream(backupPin)
+                UserDriveBackupManager.saveLocalSnapshot(context, encryptedBytes, meta)
+                val fileName = "omniface_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.omni"
+                UserDriveBackupManager.shareBackup(context, encryptedBytes, fileName)
+                val now = System.currentTimeMillis()
+                withContext(Dispatchers.Main) {
+                    lastBackupTime = now
+                    lastBackupSize = encryptedBytes.size.toLong()
+                    lastBackupLocation = "Shared to Cloud / Storage"
+                    localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                    prefs.edit()
+                        .putLong("LAST_BACKUP_TIME", now)
+                        .putLong("LAST_BACKUP_SIZE", lastBackupSize)
+                        .putString("LAST_BACKUP_LOCATION", "Shared to Cloud / Storage")
+                        .apply()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun startRestore(pin: String) {
         coroutineScope.launch {
             isRestoring = true
-            backupProgressMessage = "Connecting to Google Drive..."
+            backupProgressMessage = "Checking for backups..."
             try {
-                var userRecoverableIntent: Intent? = null
-                var authErrorMsg: String? = null
-                val token = withContext(Dispatchers.IO) {
+                var restored = false
+                if (connectedEmail.isNotBlank()) {
+                    var token: String? = null
                     try {
                         val account = Account(connectedEmail, "com.google")
-                        GoogleAuthUtil.getToken(
-                            context,
-                            account,
-                            "oauth2:https://www.googleapis.com/auth/drive.appdata"
-                        )
-                    } catch (e: UserRecoverableAuthException) {
-                        userRecoverableIntent = e.intent
-                        null
-                    } catch (e: Exception) {
-                        authErrorMsg = e.message
-                        null
+                        token = withContext(Dispatchers.IO) {
+                            GoogleAuthUtil.getToken(
+                                context,
+                                account,
+                                "oauth2:https://www.googleapis.com/auth/drive.appdata"
+                            )
+                        }
+                    } catch (_: Exception) {}
+
+                    if (token != null) {
+                        backupProgressMessage = "Searching Google Drive..."
+                        val files = GoogleDriveAppDataService.listBackups(token).getOrNull()
+                        if (!files.isNullOrEmpty()) {
+                            val latest = files.first()
+                            backupProgressMessage = "Downloading cloud backup (${latest.sizeBytes / 1024} KB)..."
+                            val downloadResult = GoogleDriveAppDataService.downloadBackup(token, latest.id)
+                            if (downloadResult.isSuccess) {
+                                val restoreResult = UserDriveBackupManager.restoreEncryptedBackup(
+                                    encryptedBytes = downloadResult.getOrThrow(),
+                                    pin = pin,
+                                    context = context
+                                )
+                                if (restoreResult.isSuccess) {
+                                    restored = true
+                                    val meta = restoreResult.getOrThrow()
+                                    lastBackupTime = meta.timestampMs
+                                    lastBackupSize = meta.encryptedSizeBytes
+                                    localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                                    restoredMeta = meta
+                                    showRestoreSuccessDialog = true
+                                }
+                            }
+                        }
                     }
                 }
 
-                if (userRecoverableIntent != null) {
-                    isRestoring = false
-                    pendingActionAfterAuth = { startRestore(pin) }
-                    authRecoveryLauncher.launch(userRecoverableIntent)
-                    return@launch
+                if (!restored) {
+                    val latestLocal = UserDriveBackupManager.getLatestLocalSnapshot(context)
+                    if (latestLocal != null) {
+                        backupProgressMessage = "Restoring from local snapshot vault..."
+                        val restoreResult = UserDriveBackupManager.restoreEncryptedBackup(
+                            encryptedBytes = latestLocal.file.readBytes(),
+                            pin = pin,
+                            context = context
+                        )
+                        if (restoreResult.isSuccess) {
+                            val meta = restoreResult.getOrThrow()
+                            lastBackupTime = meta.timestampMs
+                            lastBackupSize = meta.encryptedSizeBytes
+                            localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                            restoredMeta = meta
+                            showRestoreSuccessDialog = true
+                            restored = true
+                        }
+                    }
                 }
 
-                if (token == null) {
-                    isRestoring = false
-                    Toast.makeText(context, "Auth failed: ${authErrorMsg ?: "Could not get token"}", Toast.LENGTH_LONG).show()
-                    return@launch
-                }
-
-                backupProgressMessage = "Searching for latest backup archive..."
-                val files = GoogleDriveAppDataService.listBackups(token).getOrNull()
-                if (files.isNullOrEmpty()) {
-                    Toast.makeText(context, "No existing backups found in your Google Drive.", Toast.LENGTH_LONG).show()
-                    isRestoring = false
-                    return@launch
-                }
-
-                val latest = files.first()
-                backupProgressMessage = "Downloading backup (${latest.sizeBytes / 1024} KB)..."
-                val downloadResult = GoogleDriveAppDataService.downloadBackup(token, latest.id)
-
-                if (downloadResult.isFailure) {
-                    Toast.makeText(context, "Download failed: ${downloadResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
-                    isRestoring = false
-                    return@launch
-                }
-
-                backupProgressMessage = "Decrypting archive and restoring database..."
-                val restoreResult = UserDriveBackupManager.restoreEncryptedBackup(
-                    encryptedBytes = downloadResult.getOrThrow(),
-                    pin = pin,
-                    context = context
-                )
-
-                if (restoreResult.isSuccess) {
-                    val meta = restoreResult.getOrThrow()
-                    Toast.makeText(context, "🎉 Successfully restored ${meta.studentCount} students and ${meta.attendanceRecordCount} attendance records!", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(context, "❌ Decryption failed: Incorrect PIN or corrupt archive.", Toast.LENGTH_LONG).show()
+                if (!restored) {
+                    Toast.makeText(context, "Could not automatically restore. Please select your backup file.", Toast.LENGTH_LONG).show()
+                    importDocumentLauncher.launch(arrayOf("*/*", "application/octet-stream"))
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Restore error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -464,6 +534,14 @@ fun GoogleDriveBackupScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Text("Storage Location:", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                                Text(lastBackupLocation, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = omniEmerald(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text("Google Account:", fontSize = 12.sp, color = omniTextSecondary(isDark), modifier = Modifier.weight(1f, fill = false))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
@@ -497,7 +575,7 @@ fun GoogleDriveBackupScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Backup Action Button
+                        // Backup Action Button (Smart Sync)
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -515,8 +593,24 @@ fun GoogleDriveBackupScreen(
                             } else {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("BACK UP NOW (OAUTH SYNC)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("BACK UP NOW (SMART DRIVE SYNC)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Share to Google Drive App Button
+                        OutlinedButton(
+                            onClick = {
+                                shareCurrentBackup()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, omniEmerald(isDark).copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("SHARE TO GOOGLE DRIVE APP / CLOUD", color = omniEmerald(isDark), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -531,7 +625,7 @@ fun GoogleDriveBackupScreen(
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, omniCyan(isDark).copy(alpha = 0.6f))
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Save, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("SAVE TO GOOGLE DRIVE VIA FILE PICKER", color = omniCyan(isDark), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -753,6 +847,111 @@ fun GoogleDriveBackupScreen(
                 }
             }
 
+            // ── LOCAL SNAPSHOT VAULT CARD ──
+            item {
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 20.dp
+                ) {
+                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "On-Device Secure Snapshot Vault",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = omniTextPrimary(isDark),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = "Automatic hardware-encrypted AES-256-GCM snapshots stored locally in your app sandbox. Survives offline periods and cloud auth delays.",
+                            fontSize = 12.sp,
+                            color = omniTextSecondary(isDark)
+                        )
+
+                        if (localSnapshots.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isDark) Color(0x22FFFFFF) else Color(0x0A000000))
+                                    .padding(14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No local snapshots yet. Tap 'Back Up Now' to create one.", fontSize = 12.sp, color = omniTextSecondary(isDark))
+                            }
+                        } else {
+                            localSnapshots.forEach { snapshot ->
+                                val dateStr = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault()).format(Date(snapshot.timestampMs))
+                                val sizeStr = "${"%.1f".format(snapshot.sizeBytes / 1024.0)} KB"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isDark) Color(0x22FFFFFF) else Color(0x08000000))
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = dateStr,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = omniTextPrimary(isDark)
+                                        )
+                                        Text(
+                                            text = "${snapshot.name} • $sizeStr",
+                                            fontSize = 11.sp,
+                                            color = omniTextSecondary(isDark),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(
+                                            onClick = {
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    val bytes = snapshot.file.readBytes()
+                                                    val res = UserDriveBackupManager.restoreEncryptedBackup(bytes, backupPin, context)
+                                                    withContext(Dispatchers.Main) {
+                                                        if (res.isSuccess) {
+                                                            restoredMeta = res.getOrThrow()
+                                                            showRestoreSuccessDialog = true
+                                                        } else {
+                                                            pendingImportBytes = bytes
+                                                            tempPinInput = ""
+                                                            showPinPromptForImport = true
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Restore, contentDescription = "Restore", tint = omniCyan(isDark), modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    val bytes = snapshot.file.readBytes()
+                                                    UserDriveBackupManager.shareBackup(context, bytes, snapshot.name)
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = "Share", tint = omniEmerald(isDark), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── DIRECT STORAGE / SYSTEM FILE BACKUP & RESTORE (SAF) ──
             item {
                 IOSCard(
@@ -892,6 +1091,105 @@ fun GoogleDriveBackupScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRestorePinDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // ── RESTORE SUCCESS CELEBRATION MODAL ──
+    if (showRestoreSuccessDialog && restoredMeta != null) {
+        val meta = restoredMeta!!
+        AlertDialog(
+            onDismissRequest = { showRestoreSuccessDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Restore Complete!", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Biometric vault restored successfully. Recognition pipeline has been pre-warmed with new templates.", fontSize = 13.sp)
+                    HorizontalDivider()
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Registered Students:", color = omniTextSecondary(isDark), fontSize = 12.sp)
+                        Text("${meta.studentCount}", fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), fontSize = 12.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Face Templates (512-D):", color = omniTextSecondary(isDark), fontSize = 12.sp)
+                        Text("${meta.templateCount}", fontWeight = FontWeight.Bold, color = omniCyan(isDark), fontSize = 12.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Attendance Records:", color = omniTextSecondary(isDark), fontSize = 12.sp)
+                        Text("${meta.attendanceRecordCount}", fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark), fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showRestoreSuccessDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = omniEmerald(isDark))
+                ) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
+    // ── PIN PROMPT FOR IMPORTED FILE MODAL ──
+    if (showPinPromptForImport && pendingImportBytes != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showPinPromptForImport = false
+                pendingImportBytes = null
+            },
+            title = { Text("Enter File Encryption PIN") },
+            text = {
+                Column {
+                    Text("This backup file requires the PIN that was set when it was generated:")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = tempPinInput,
+                        onValueChange = { tempPinInput = it },
+                        label = { Text("PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val bytes = pendingImportBytes
+                        if (bytes != null && tempPinInput.isNotBlank()) {
+                            showPinPromptForImport = false
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val res = UserDriveBackupManager.restoreEncryptedBackup(bytes, tempPinInput, context)
+                                withContext(Dispatchers.Main) {
+                                    if (res.isSuccess) {
+                                        restoredMeta = res.getOrThrow()
+                                        showRestoreSuccessDialog = true
+                                        localSnapshots = UserDriveBackupManager.listLocalSnapshots(context)
+                                    } else {
+                                        Toast.makeText(context, "❌ Decryption failed: Incorrect PIN.", Toast.LENGTH_LONG).show()
+                                    }
+                                    pendingImportBytes = null
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("Decrypt & Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPinPromptForImport = false
+                    pendingImportBytes = null
+                }) {
                     Text("Cancel")
                 }
             }

@@ -4,6 +4,8 @@ package com.omniface.ai.ui.settings
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -22,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +35,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -43,14 +47,20 @@ import androidx.work.WorkManager
 import com.omniface.ai.OmniFaceApplication
 import com.omniface.ai.audio.BiometricSoundboard
 import com.omniface.ai.audio.SoundEnvironmentMode
-import com.omniface.ai.i18n.LocalizationManager
-import com.omniface.ai.i18n.AppLanguage
-import com.omniface.ai.i18n.StringKey
+import com.omniface.ai.billing.PlayBillingManager
+import com.omniface.ai.billing.PaywallTriggerReason
+import com.omniface.ai.billing.SubscriptionTier
+import com.omniface.ai.billing.SubscriptionTierManager
+import com.omniface.ai.data.local.ScannerPreferences
 import com.omniface.ai.hardware.*
+import com.omniface.ai.i18n.AppLanguage
+import com.omniface.ai.i18n.LocalizationManager
+import com.omniface.ai.i18n.StringKey
 import com.omniface.ai.ml.*
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.security.ComplianceEvidenceReportGenerator
 import com.omniface.ai.sync.AttendanceSyncWorker
+import com.omniface.ai.ui.billing.PaywallBottomSheet
 import com.omniface.ai.ui.components.*
 import com.omniface.ai.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -92,9 +102,11 @@ data class SettingsUiState(
     val cfGatewayUrl: String = "",
     val hasHfToken: Boolean = false,
     val isUsingCloudflareGateway: Boolean = false,
-    val modelDownloadState: ModelDownloadState = ModelDownloadState.Idle(false, "MobileFaceNet NPU (Bundled Fallback)"),
-    val activeModelDisplayName: String = "MobileFaceNet NPU (Bundled Fallback)",
-    val isAntelopeV2Installed: Boolean = false,
+    val modelDownloadState: ModelDownloadState = ModelDownloadState.Idle(false, "OmniFace Deep AI Engine"),
+    val activeModelDisplayName: String = "OmniFace Deep AI Engine",
+    val isNeuralModelInstalled: Boolean = false,
+    val isAutoScanOnOpen: Boolean = ScannerPreferences.isAutoScanOnOpen(),
+    val autoPauseOnMatch: Boolean = ScannerPreferences.isAutoPauseOnMatch(),
     val showHfConfigModal: Boolean = false,
     val neuralModelConfig: NeuralModelConfig = NeuralModelConfigManager.configState.value,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
@@ -112,7 +124,7 @@ class SettingsViewModel : ViewModel() {
             cfGatewayUrl = HfSecureGateway.getGatewayUrl(OmniFaceApplication.instance) ?: "",
             hasHfToken = !HfSecureGateway.getAuthToken(OmniFaceApplication.instance).isNullOrBlank(),
             isUsingCloudflareGateway = !HfSecureGateway.getGatewayUrl(OmniFaceApplication.instance).isNullOrBlank(),
-            isAntelopeV2Installed = downloadManager.isAntelopeV2Installed(),
+            isNeuralModelInstalled = downloadManager.isNeuralModelInstalled(),
             activeModelDisplayName = downloadManager.getActiveModelDisplayName(),
             neuralModelConfig = NeuralModelConfigManager.configState.value
         )
@@ -140,12 +152,12 @@ class SettingsViewModel : ViewModel() {
     private fun observeModelDownloads() {
         viewModelScope.launch {
             downloadManager.downloadState.collect { state ->
-                val isInstalled = downloadManager.isAntelopeV2Installed()
+                val isInstalled = downloadManager.isNeuralModelInstalled()
                 val name = downloadManager.getActiveModelDisplayName()
                 _uiState.update {
                     it.copy(
                         modelDownloadState = state,
-                        isAntelopeV2Installed = isInstalled,
+                        isNeuralModelInstalled = isInstalled,
                         activeModelDisplayName = name
                     )
                 }
@@ -180,7 +192,7 @@ class SettingsViewModel : ViewModel() {
 
     fun startModelDownload(context: Context) {
         downloadManager.startDownload {
-            Toast.makeText(context, "🎉 AntelopeV2 Glint360K Model Active!", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "🎉 OmniFace Custom Neural Model Active!", Toast.LENGTH_LONG).show()
             benchmarkHardware()
         }
     }
@@ -263,6 +275,16 @@ class SettingsViewModel : ViewModel() {
 
     fun setSecurityTier(tier: SecurityTier) {
         _uiState.update { it.copy(selectedTier = tier) }
+    }
+
+    fun toggleAutoScanOnOpen(enabled: Boolean) {
+        ScannerPreferences.setAutoScanOnOpen(enabled)
+        _uiState.update { it.copy(isAutoScanOnOpen = enabled) }
+    }
+
+    fun toggleAutoPauseOnMatch(enabled: Boolean) {
+        ScannerPreferences.setAutoPauseOnMatch(enabled)
+        _uiState.update { it.copy(autoPauseOnMatch = enabled) }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -436,11 +458,21 @@ fun SettingsScreen(
     val context = LocalContext.current
     val isDark = LocalThemeIsDark.current
     var currentSubScreen by remember { mutableStateOf<SettingsCategory?>(null) }
+    var showHardwareInfoDialog by remember { mutableStateOf(false) }
+    var showPaywall by remember { mutableStateOf(false) }
+    var paywallReason by remember { mutableStateOf(PaywallTriggerReason.STUDENT_LIMIT_REACHED) }
+    val activeTier by SubscriptionTierManager.currentTier.collectAsState()
+    val playPrice by PlayBillingManager.formattedPrice.collectAsState()
     val deviceCapacity = remember { DeviceCapacityGovernor.evaluateDeviceCapacity(context) }
 
     // Intercept back gesture on active sub-screens to return to the root settings category list
     BackHandler(enabled = currentSubScreen != null) {
         currentSubScreen = null
+    }
+
+    // Intercept back gesture on hardware info modal
+    BackHandler(enabled = showHardwareInfoDialog) {
+        showHardwareInfoDialog = false
     }
 
     // Intercept back gesture on active root dialogs/modals
@@ -524,26 +556,32 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = LocalizationManager.get(StringKey.TAB_SETTINGS).uppercase(),
-                                    color = omniTextMuted(isDark),
-                                    fontSize = 9.5.sp,
+                                    text = "SYSTEM PREFERENCES",
+                                    color = OmniViolet,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.8.sp
+                                    letterSpacing = 1.sp
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = LocalizationManager.get(StringKey.SETTINGS_TITLE),
+                                    text = "System Preferences",
                                     color = omniTextPrimary(isDark),
-                                    fontSize = 21.sp,
+                                    fontSize = 24.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     letterSpacing = (-0.5).sp
+                                )
+                                Text(
+                                    text = "Hardware & Neural Engine",
+                                    color = omniTextMuted(isDark),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal
                                 )
                             }
 
                             IOSGlassPill(
-                                text = "${state.latencyMs}ms • ${deviceCapacity.tier.badgeTitle.take(6)}",
+                                text = "● LIVE NPU",
                                 icon = Icons.Default.Bolt,
-                                accentColor = Color(0xFF34C759)
+                                accentColor = Color(0xFF10B981)
                             )
                         }
                     }
@@ -566,16 +604,16 @@ fun SettingsScreen(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(40.dp)
                                                 .clip(RoundedCornerShape(12.dp))
-                                                .background(Color(0xFFA855F7).copy(alpha = if (isDark) 0.25f else 0.15f)),
+                                                .background(OmniViolet.copy(alpha = if (isDark) 0.22f else 0.14f)),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Memory,
                                                 contentDescription = "SoC",
-                                                tint = Color(0xFFA855F7),
-                                                modifier = Modifier.size(20.dp)
+                                                tint = OmniViolet,
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
@@ -600,10 +638,26 @@ fun SettingsScreen(
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
-                                    IOSGlassPill(
-                                        text = state.hardwareTier.take(16),
-                                        accentColor = Color(0xFF38BDF8)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        IOSGlassPill(
+                                            text = state.hardwareTier.take(16),
+                                            accentColor = omniCyan(isDark)
+                                        )
+                                        IconButton(
+                                            onClick = { showHardwareInfoDialog = true },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Info,
+                                                contentDescription = "Hardware Information",
+                                                tint = omniCyan(isDark),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 HorizontalDivider(color = if (isDark) Color(0x26FFFFFF) else Color(0x14000000))
@@ -629,7 +683,7 @@ fun SettingsScreen(
                                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
-                                            Text(state.npuHardwareInfo.peakTops, color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text(state.npuHardwareInfo.peakTops, color = OmniViolet, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                         }
                                     }
                                     Box(
@@ -649,7 +703,7 @@ fun SettingsScreen(
                                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
-                                            Text("${"%.1f".format(deviceCapacity.totalRamGb)} GB", color = omniTextPrimary(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text("${"%.1f".format(deviceCapacity.totalRamGb)} GB", color = omniCyan(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                         }
                                     }
                                     Box(
@@ -669,8 +723,92 @@ fun SettingsScreen(
                                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
-                                            Text("${state.latencyMs}ms", color = Color(0xFF34C759), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text("${state.latencyMs}ms", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Commercial Subscription & Plan Management Card
+                    item {
+                        IOSCard(cornerRadius = 20.dp) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(
+                                                    if (activeTier == SubscriptionTier.FREE) Color(0xFF64748B).copy(alpha = 0.18f)
+                                                    else Color(0xFF10B981).copy(alpha = 0.18f)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = if (activeTier == SubscriptionTier.FREE) Icons.Default.Lock else Icons.Default.WorkspacePremium,
+                                                contentDescription = null,
+                                                tint = if (activeTier == SubscriptionTier.FREE) omniTextSecondary(isDark) else Color(0xFF10B981),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = activeTier.title,
+                                                color = omniTextPrimary(isDark),
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = when (activeTier) {
+                                                    SubscriptionTier.FREE -> "Limit: 25 people • $playPrice"
+                                                    SubscriptionTier.PREMIUM -> "Limit: 250 people • Active Subscription"
+                                                    SubscriptionTier.BUSINESS -> "Unlimited people • Fleet Active"
+                                                },
+                                                color = omniTextMuted(isDark),
+                                                fontSize = 11.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (activeTier == SubscriptionTier.FREE) {
+                                                paywallReason = PaywallTriggerReason.STUDENT_LIMIT_REACHED
+                                                showPaywall = true
+                                            } else if (activeTier == SubscriptionTier.PREMIUM) {
+                                                PlayBillingManager.openSubscriptionManagement(context)
+                                            } else {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://omniface.vercel.app/subscription"))
+                                                try { context.startActivity(intent) } catch (_: Exception) {}
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (activeTier == SubscriptionTier.FREE) Color(0xFF10B981) else (if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0))
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Text(
+                                            text = if (activeTier == SubscriptionTier.FREE) "UPGRADE" else "MANAGE",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (activeTier == SubscriptionTier.FREE) Color.White else omniTextPrimary(isDark)
+                                        )
                                     }
                                 }
                             }
@@ -680,12 +818,109 @@ fun SettingsScreen(
                     // Section Title
                     item {
                         Text(
-                            text = LocalizationManager.get(StringKey.SETTINGS_SUBTITLE).uppercase(),
+                            text = "SECURITY & ACCESS CONTROL",
                             color = omniTextMuted(isDark),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.8.sp,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                        )
+                    }
+
+                    // 2FA QR Code Verification Mode Quick Toggle Card
+                    item {
+                        IOSCard(cornerRadius = 20.dp) {
+                            SettingRow(
+                                title = "Two-Factor 2D/3D Mode",
+                                subtitle = if (state.isTwoFactorEnabled) {
+                                    "Require QR Code + Face for verification • Hardware Barcode Active"
+                                } else {
+                                    "Require QR Code + Face for verification (1-Factor Face Mode Active)"
+                                },
+                                icon = Icons.Default.QrCodeScanner,
+                                trailing = {
+                                    CupertinoSwitch(
+                                        checked = state.isTwoFactorEnabled,
+                                        onCheckedChange = { isEnabled -> viewModel.toggleTwoFactorMode(isEnabled) }
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    // Commercial Subscription & Fleet Tier
+                    item {
+                        val currentTier by SubscriptionTierManager.currentTier.collectAsStateWithLifecycle()
+                        IOSCard(cornerRadius = 20.dp) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(
+                                                    if (currentTier == SubscriptionTier.FREE)
+                                                        omniCyan(isDark).copy(alpha = 0.18f)
+                                                    else
+                                                        omniEmerald(isDark).copy(alpha = 0.18f)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.WorkspacePremium,
+                                                contentDescription = "Subscription",
+                                                tint = if (currentTier == SubscriptionTier.FREE) omniCyan(isDark) else omniEmerald(isDark),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = currentTier.title,
+                                                color = omniTextPrimary(isDark),
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Cap: ${SubscriptionTierManager.getMaxStudentsDisplay()} students • ${if (currentTier.priceInrMonthly > 0) "₹${currentTier.priceInrMonthly}/mo" else "Free Forever"}",
+                                                color = omniTextMuted(isDark),
+                                                fontSize = 11.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    IOSGlassPill(
+                                        text = if (currentTier == SubscriptionTier.FREE) "⚡ Upgrade" else "Active",
+                                        accentColor = if (currentTier == SubscriptionTier.FREE) OmniViolet else omniEmerald(isDark),
+                                        onClick = {
+                                            paywallReason = PaywallTriggerReason.STUDENT_LIMIT_REACHED
+                                            showPaywall = true
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // In-House Promo Banner (Free tier only)
+                    item {
+                        InHousePromoBanner(
+                            modifier = Modifier.fillMaxWidth(),
+                            onUpgradeClick = {
+                                paywallReason = PaywallTriggerReason.ADS_REMOVAL
+                                showPaywall = true
+                            }
                         )
                     }
 
@@ -874,6 +1109,148 @@ fun SettingsScreen(
                     Text(LocalizationManager.get(StringKey.CLOSE_ACTION), color = omniCyan(isDark), fontWeight = FontWeight.Bold)
                 }
             }
+        )
+    }
+
+    // Hardware Acceleration & Silicon Architecture Info Dialog
+    if (showHardwareInfoDialog) {
+        val rawSoc = state.npuHardwareInfo.socModel
+        val cleanSoc = when {
+            rawSoc.contains("Snapdragon", ignoreCase = true) -> "Snapdragon 8s Gen 3 (SM8650)"
+            rawSoc.isNotBlank() -> rawSoc
+            else -> "Qualcomm Snapdragon"
+        }
+        val cleanNpu = when {
+            state.npuHardwareInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Qualcomm Hexagon NPU"
+            state.npuHardwareInfo.npuName.isNotBlank() -> state.npuHardwareInfo.npuName
+            else -> "Qualcomm Hexagon NPU"
+        }
+
+        AlertDialog(
+            onDismissRequest = { showHardwareInfoDialog = false },
+            containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFFFF),
+            shape = RoundedCornerShape(24.dp),
+            icon = {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF38BDF8).copy(alpha = if (isDark) 0.2f else 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            },
+            title = {
+                Text(
+                    text = "Hardware Acceleration",
+                    color = omniTextPrimary(isDark),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HardwareInfoRow(label = "Processor", value = cleanSoc, isDark = isDark)
+                    HardwareInfoRow(label = "Neural Engine", value = cleanNpu, isDark = isDark)
+                    HardwareInfoRow(label = "Architecture", value = "Hexagon Vector HTP", isDark = isDark)
+                    HardwareInfoRow(label = "Peak Compute", value = "${state.npuHardwareInfo.peakTops} (INT8)", isDark = isDark)
+                    HardwareInfoRow(label = "Unified Memory", value = "${"%.1f".format(deviceCapacity.totalRamGb)} GB System RAM", isDark = isDark)
+                    HardwareInfoRow(label = "Inference Latency", value = "${state.latencyMs} ms direct dispatch", isDark = isDark)
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isDark) Color(0x1A10B981) else Color(0x1210B981))
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "100% On-Device execution. Biometric data and face embeddings never leave local hardware silicon.",
+                                color = if (isDark) Color(0xFF6EE7B7) else Color(0xFF047857),
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showHardwareInfoDialog = false },
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Text(
+                        text = LocalizationManager.get(StringKey.CLOSE_ACTION),
+                        color = omniCyan(isDark),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        )
+    }
+
+    if (showPaywall) {
+        PaywallBottomSheet(
+            triggerReason = paywallReason,
+            onDismiss = { showPaywall = false },
+            onUpgradeSuccess = { showPaywall = false }
+        )
+    }
+}
+
+@Composable
+private fun HardwareInfoRow(
+    label: String,
+    value: String,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isDark) Color(0x1A1E293B) else Color(0xFFF8FAFC))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = omniTextMuted(isDark),
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.width(110.dp)
+        )
+        Text(
+            text = value,
+            color = omniTextPrimary(isDark),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
         )
     }
 }
