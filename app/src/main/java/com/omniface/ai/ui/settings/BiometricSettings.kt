@@ -165,16 +165,20 @@ fun BiometricSettingsSubScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Downloading AI Face Pack: ${(dl.progress * 100).toInt()}% • %.1f/%.1f MB".format(dl.downloadedMb, dl.totalMb),
+                                            text = "Downloading AI Face Pack: ${(dl.progress * 100).toInt()}% • ${String.format(java.util.Locale.US, "%.1f", dl.downloadedMb)}/${String.format(java.util.Locale.US, "%.1f", dl.totalMb)} MB",
                                             color = omniTextPrimary(isDark),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1
                                         )
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "${dl.speedKbps} KB/s",
                                             color = Color(0xFF0A84FF),
                                             fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
                                         )
                                     }
                                     LinearProgressIndicator(

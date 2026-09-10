@@ -2215,7 +2215,7 @@ fun ScannerScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "${(download.progress * 100).toInt()}% • %.1f/%.1f MB • ${download.speedKbps} KB/s".format(download.downloadedMb, download.totalMb),
+                                    text = "${(download.progress * 100).toInt()}% • ${String.format(java.util.Locale.US, "%.1f", download.downloadedMb)}/${String.format(java.util.Locale.US, "%.1f", download.totalMb)} MB • ${download.speedKbps} KB/s",
                                     color = omniTextMuted(isDark),
                                     fontSize = 10.sp
                                 )
