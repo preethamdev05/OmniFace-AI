@@ -56,11 +56,12 @@ export function TopBarStatus() {
             fontSize: '11px',
             fontFamily: 'monospace',
             color: isPostgres ? 'var(--success)' : 'var(--warning)',
-            transition: 'all 0.15s ease',
+            transition: 'background-color 120ms var(--ease-out), border-color 120ms var(--ease-out), transform 120ms var(--ease-out)',
           }}
           title="Database Diagnostics"
         >
           <span
+            className="pulse-dot"
             style={{
               width: '7px',
               height: '7px',
@@ -75,6 +76,7 @@ export function TopBarStatus() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span
+            className="pulse-dot"
             style={{
               width: '8px',
               height: '8px',
@@ -90,26 +92,17 @@ export function TopBarStatus() {
 
       {showModal && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.85)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-            padding: '20px',
-          }}
+          className="modal-overlay"
+          style={{ zIndex: 10000 }}
           onClick={() => setShowModal(false)}
         >
           <div
+            className="modal-dialog"
             style={{
               background: 'var(--surface-raised)',
-              border: '1px solid var(--border-color)',
+              border: '1px solid var(--border)',
               borderRadius: '16px',
               maxWidth: '520px',
-              width: '100%',
               padding: '28px',
               boxShadow: '0 20px 50px rgba(0,0,0,0.7)',
             }}

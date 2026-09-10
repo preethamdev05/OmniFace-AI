@@ -19,6 +19,7 @@
 - **Multi-Tier Hardware Acceleration Hierarchy**: Automatic runtime fallback across **Hexagon NPU (INT8)** $\to$ **Adreno GPU (FP16)** $\to$ **ARM64 Multi-Core CPU (XNNPACK FP32)**.
 - **60 FPS Real-Time 3D Mesh & Gaze HUD**: Real-time Canvas overlay rendering dense 468-point 3D wireframe mesh, 3D head pose coordinate frame axes, eye gaze vectors, and 3DMM depth topography contours.
 - **Apple iOS Liquid Glassmorphism Design System**: Tactile iOS/macOS design tokens with AGSL chromatic dispersion, directional specular reflection borders, and spring-damped physics.
+- **Enterprise Web Fleet Console & GPU-Accelerated Motion System**: Next.js 15 App Router management console with 0 runtime JavaScript animation dependencies. Features hardware-composited cubic-bezier physics (`--ease-out: cubic-bezier(0.16, 1, 0.3, 1)`), tactile `:active` scale compression (`scale(0.98)`), spring-like modal scale-in dialogs, non-vestibular `prefers-reduced-motion` accessibility support, ambient telemetry heartbeat pulses, and live biometric attendance ledger monitoring.
 - **Multi-Signal Anti-Spoofing (PAD)**: Non-rigid landmark parallax, high-frequency spatial Moiré detection, specular glare clustering, physiological rPPG pulse variance, and micro-motion temporal buffer.
 - **Hardware Security Vault & Aegis Ledger**: AndroidKeyStore AES-256-GCM encryption with Room SQLite local template storage and Aegis SHA-256 Merkle chain tamper-evident verification.
 
@@ -87,7 +88,10 @@ graph TD
 │           ├── ledger/                  # Tamper-Evident Attendance Ledger
 │           ├── scanner/                 # 60 FPS Viewfinder & Hybrid Scanner Controls
 │           └── settings/                # Kiosk Access, Biometric & Governance Settings
-├── backend/                             # Enterprise Cloud Fleet Sync & Web Management API
+├── backend/                             # Enterprise Cloud Fleet Sync & Next.js 15 Web Console
+│   ├── src/app/                         # App Router, Layouts, CSS Design & Motion System
+│   ├── src/components/                  # TopBarStatus, SidebarNav, Toast & Reactive UI
+│   └── rustwright_motion_audit.py       # Skyvern Native Rustwright CDP Browser Motion Audit
 ├── cloudflare/                          # Cloudflare R2 Model CDN Edge Synchronizer
 ├── docs/                                # Architecture Blueprints, Specifications & Store Assets
 ├── training/                            # Python ML Synthesis, ArcFace & Model Training
@@ -116,6 +120,16 @@ bash build_apk.sh
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 .\gradlew.bat :app:test
+```
+
+### 4. Enterprise Web Console & Motion System Verification
+```powershell
+cd backend
+npm install
+npm run build
+
+# Run automated native CDP browser motion and accessibility audit via Rustwright
+python rustwright_motion_audit.py
 ```
 
 ---

@@ -59,6 +59,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           return (
             <div
               key={toast.id}
+              className="toast-item"
               style={{
                 pointerEvents: 'auto',
                 background: 'var(--surface-raised)',

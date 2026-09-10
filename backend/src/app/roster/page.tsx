@@ -284,9 +284,10 @@ export default function RosterManagementPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="enroll-modal-title"
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
+          className="modal-overlay"
+          onClick={() => setShowAddModal(false)}
         >
-          <div style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '12px', width: '100%', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal-dialog" style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '12px', maxWidth: '480px', padding: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
             <h2 id="enroll-modal-title" style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '16px' }}>Enroll New Member</h2>
             <form onSubmit={handleAddMember}>
               <div style={{ marginBottom: '14px' }}>
@@ -401,30 +402,18 @@ export default function RosterManagementPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="vector-profile-title"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '16px',
-          }}
+          className="modal-overlay"
           onClick={() => setInspectingMember(null)}
         >
           <div
+            className="modal-dialog"
             style={{
               background: 'var(--surface-raised)',
               border: '1px solid var(--border)',
               borderRadius: '12px',
-              width: '100%',
               maxWidth: '560px',
               padding: '24px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
           >

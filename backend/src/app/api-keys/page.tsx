@@ -251,30 +251,18 @@ export default function ApiKeysPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="provision-modal-title"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '16px',
-          }}
+          className="modal-overlay"
           onClick={() => setShowProvisionModal(false)}
         >
           <div
+            className="modal-dialog"
             style={{
               background: 'var(--surface-raised)',
               border: '1px solid var(--border)',
               borderRadius: '12px',
-              width: '100%',
               maxWidth: '460px',
               padding: '24px',
               boxShadow: '0 25px 50px rgba(0,0,0,0.7)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
           >

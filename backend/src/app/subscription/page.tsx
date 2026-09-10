@@ -259,9 +259,10 @@ export default function SubscriptionPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="checkout-modal-title"
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
+          className="modal-overlay"
+          onClick={() => setShowCheckoutModal(false)}
         >
-          <div style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '12px', width: '100%', maxWidth: '480px', padding: '28px', boxShadow: '0 25px 50px rgba(0,0,0,0.6)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal-dialog" style={{ maxWidth: '480px', padding: '28px', boxShadow: '0 25px 50px rgba(0,0,0,0.6)' }} onClick={(e) => e.stopPropagation()}>
             <h2 id="checkout-modal-title" style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
               Razorpay Secure Checkout
             </h2>
@@ -317,11 +318,12 @@ export default function SubscriptionPage() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="invoice-modal-title"
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
+          className="modal-overlay"
           onClick={() => setViewingInvoice(null)}
         >
           <div
-            style={{ background: '#ffffff', color: '#0f172a', borderRadius: '12px', width: '100%', maxWidth: '560px', padding: '32px', boxShadow: '0 25px 50px rgba(0,0,0,0.8)', maxHeight: '90vh', overflowY: 'auto' }}
+            className="modal-dialog"
+            style={{ background: '#ffffff', color: '#0f172a', maxWidth: '560px', padding: '32px', boxShadow: '0 25px 50px rgba(0,0,0,0.8)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px' }}>

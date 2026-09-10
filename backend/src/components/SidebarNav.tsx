@@ -90,7 +90,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void } = {}) {
               color: isActive ? 'var(--text-main)' : 'var(--text-muted)',
               background: isActive ? 'var(--surface-hover)' : 'transparent',
               borderLeft: isActive ? '3px solid var(--primary)' : '3px solid transparent',
-              transition: 'all 0.15s ease',
+              transition: 'background-color 120ms var(--ease-out), color 120ms var(--ease-out), border-color 120ms var(--ease-out)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

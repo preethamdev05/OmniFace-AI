@@ -160,7 +160,7 @@ export default function DashboardOverview() {
             className="btn btn-secondary"
             title="Refresh live metrics from edge fleet"
           >
-            <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(360deg)' : 'none', transition: 'transform 0.5s ease' }}>
+            <span className={isRefreshing ? 'spin-icon' : ''}>
               ↻
             </span>
             <span>{isRefreshing ? 'Syncing...' : 'Refresh Feed'}</span>
@@ -244,6 +244,7 @@ export default function DashboardOverview() {
                       height: '100%',
                       background: dept.rate > 90 ? 'var(--primary)' : 'var(--warning)',
                       borderRadius: '4px',
+                      transition: 'width 400ms var(--ease-out)',
                     }}
                   ></div>
                 </div>
