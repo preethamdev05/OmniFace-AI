@@ -107,3 +107,8 @@ test_faces/
 download_and_verify_faces.py
 run_end_to_end_real_face_test.py
 
+
+.vercel
+.env*
+*.tsbuildinfo
+supabase/.temp/

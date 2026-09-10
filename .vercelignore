@@ -1,0 +1,10 @@
+﻿app/
+training/
+models_cache/
+cloudflare/
+graphify-out/
+.gradle/
+*.apk
+*.aab
+*.tflite
+*.so
