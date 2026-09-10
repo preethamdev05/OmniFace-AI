@@ -8,6 +8,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.Timestamp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,15 +39,16 @@ data class AuthUiState(
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val prefs by lazy {
         application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     private val _uiState = MutableStateFlow(
         AuthUiState(
-            isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false),
-            userEmail = prefs.getString(KEY_USER_EMAIL, "") ?: "",
-            userName = prefs.getString(KEY_USER_NAME, "") ?: ""
+            isAuthenticated = false,
+            userEmail = "",
+            userName = ""
         )
     )
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -56,31 +60,55 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun checkCurrentAuthSession() {
         val currentUser = auth.currentUser
         if (currentUser != null) {
-            currentUser.reload().addOnCompleteListener { task ->
-                val isVerified = currentUser.isEmailVerified
-                if (isVerified) {
-                    persistUserSession(currentUser)
+            val isVerified = currentUser.isEmailVerified
+            if (isVerified) {
+                persistUserSession(currentUser)
+                _uiState.update {
+                    it.copy(
+                        isAuthenticated = true,
+                        verificationPending = false,
+                        userEmail = currentUser.email ?: "",
+                        userName = currentUser.displayName ?: currentUser.email?.substringBefore('@') ?: "Operator"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticated = false,
+                        verificationPending = true,
+                        unverifiedEmail = currentUser.email ?: ""
+                    )
+                }
+            }
+            currentUser.reload().addOnCompleteListener {
+                val refreshedUser = auth.currentUser
+                if (refreshedUser != null && refreshedUser.isEmailVerified) {
+                    persistUserSession(refreshedUser)
                     _uiState.update {
                         it.copy(
                             isAuthenticated = true,
                             verificationPending = false,
-                            userEmail = currentUser.email ?: "",
-                            userName = currentUser.displayName ?: currentUser.email?.substringBefore('@') ?: "Operator"
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            isAuthenticated = false,
-                            verificationPending = true,
-                            unverifiedEmail = currentUser.email ?: ""
+                            userEmail = refreshedUser.email ?: "",
+                            userName = refreshedUser.displayName ?: refreshedUser.email?.substringBefore('@') ?: "Operator"
                         )
                     }
                 }
             }
-        } else if (prefs.getBoolean(KEY_AUTHENTICATED, false)) {
-            // Already authenticated locally
-            _uiState.update { it.copy(isAuthenticated = true) }
+        } else {
+            // Check if offline with authenticated cache
+            val wasAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
+            val cachedUid = prefs.getString(KEY_USER_UID, "") ?: ""
+            if (wasAuthenticated && cachedUid.isNotBlank() && !cachedUid.startsWith("google_")) {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticated = true,
+                        userEmail = prefs.getString(KEY_USER_EMAIL, "") ?: "",
+                        userName = prefs.getString(KEY_USER_NAME, "") ?: "Operator"
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(isAuthenticated = false) }
+            }
         }
     }
 
@@ -277,49 +305,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    /**
-     * Sign in using verified Google account info from device account picker
-     */
-    fun signInWithGoogleAccountInfo(email: String, displayName: String, onComplete: () -> Unit) {
-        val resolvedEmail = email.ifBlank { "operator@omniface.ai" }
-        val resolvedName = displayName.ifBlank { resolvedEmail.substringBefore('@') }
-        prefs.edit().apply {
-            putBoolean(KEY_AUTHENTICATED, true)
-            putString(KEY_USER_EMAIL, resolvedEmail)
-            putString(KEY_USER_NAME, resolvedName)
-            putString(KEY_USER_UID, "google_${resolvedEmail.hashCode()}")
-            apply()
-        }
-        _uiState.update {
-            it.copy(
-                isAuthenticated = true,
-                isLoading = false,
-                verificationPending = false,
-                userEmail = resolvedEmail,
-                userName = resolvedName
-            )
-        }
-        onComplete()
-    }
-
-    /**
-     * Quick Institutional / Dev Bypass
-     */
-    fun bypassForDevelopment(onComplete: () -> Unit) {
-        prefs.edit().apply {
-            putBoolean(KEY_AUTHENTICATED, true)
-            putString(KEY_USER_EMAIL, "admin@omniface.ai")
-            putString(KEY_USER_NAME, "Institutional Admin")
-            apply()
-        }
-        _uiState.update {
-            it.copy(
-                isAuthenticated = true,
-                userEmail = "admin@omniface.ai",
-                userName = "Institutional Admin"
-            )
-        }
-        onComplete()
+    fun showError(message: String) {
+        _uiState.update { it.copy(isLoading = false, errorMessage = message) }
     }
 
     fun signOut() {
@@ -335,12 +322,35 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun persistUserSession(user: FirebaseUser) {
+        val email = user.email ?: ""
+        val displayName = user.displayName ?: email.substringBefore('@').ifBlank { "Operator" }
         prefs.edit().apply {
             putBoolean(KEY_AUTHENTICATED, true)
-            putString(KEY_USER_EMAIL, user.email ?: "")
-            putString(KEY_USER_NAME, user.displayName ?: user.email?.substringBefore('@') ?: "Operator")
+            putString(KEY_USER_EMAIL, email)
+            putString(KEY_USER_NAME, displayName)
             putString(KEY_USER_UID, user.uid)
             apply()
+        }
+
+        // Real-time synchronization of operator profile to Firestore database
+        try {
+            val userMap = hashMapOf(
+                "uid" to user.uid,
+                "email" to email,
+                "displayName" to displayName,
+                "emailVerified" to user.isEmailVerified,
+                "lastLoginAt" to Timestamp.now()
+            )
+            firestore.collection("users").document(user.uid)
+                .set(userMap, SetOptions.merge())
+                .addOnSuccessListener {
+                    Log.d(TAG, "Operator profile synchronized to Firestore: ${user.uid}")
+                }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "Firestore operator profile sync warning: ${e.message}")
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not initialize Firestore sync: ${e.message}")
         }
     }
 }

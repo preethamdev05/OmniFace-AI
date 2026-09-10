@@ -1,4 +1,18 @@
 {
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "omniface-ai-prod.firebaseapp.com",
+      "omniface-ai-prod.web.app"
+    ],
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "OmniFace AI",
+        "supportEmail": "preetham.dev.05@gmail.com"
+      }
+    }
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"

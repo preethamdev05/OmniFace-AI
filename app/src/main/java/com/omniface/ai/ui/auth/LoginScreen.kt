@@ -66,14 +66,22 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
 
-    // Google Sign-In Client & Launcher
-    val gso = remember {
+    // Google Sign-In Client & Launcher with real Web Client ID for Firebase Auth token exchange
+    val defaultWebClientId = remember(context) {
+        val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+        if (resId != 0) {
+            context.getString(resId)
+        } else {
+            "323760410829-sdff0g8kcgd1nqdjgkp87q56hkplvii7.apps.googleusercontent.com"
+        }
+    }
+    val gso = remember(defaultWebClientId) {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(defaultWebClientId)
             .requestEmail()
-            .requestId()
             .build()
     }
-    val googleSignInClient = remember(context) { GoogleSignIn.getClient(context, gso) }
+    val googleSignInClient = remember(context, gso) { GoogleSignIn.getClient(context, gso) }
 
     val googleLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -85,13 +93,11 @@ fun LoginScreen(
             if (!idToken.isNullOrEmpty()) {
                 viewModel.signInWithGoogle(idToken, onLoginSuccess)
             } else {
-                val email = account?.email ?: "preetham.shinigami@gmail.com"
-                val name = account?.displayName ?: email.substringBefore('@')
-                viewModel.signInWithGoogleAccountInfo(email, name, onLoginSuccess)
+                viewModel.showError("Google Sign-In did not return an ID token. Please verify Google Play Services.")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Google Sign-In result error: ${e.message}")
-            viewModel.signInWithGoogleAccountInfo("preetham.shinigami@gmail.com", "PREETHAM N", onLoginSuccess)
+            Log.e(TAG, "Google Sign-In error: ${e.message}", e)
+            viewModel.showError(e.localizedMessage ?: "Google Sign-In failed.")
         }
     }
 
@@ -581,28 +587,7 @@ fun LoginScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
 
-                        // Quick Institutional Demo Access
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0x12FFFFFF))
-                                .clickable {
-                                    viewModel.bypassForDevelopment(onLoginSuccess)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Outlined.FlashOn, null, tint = omniCyan(isDark), modifier = Modifier.size(14.dp))
-                            Text(
-                                text = "Quick Institutional Demo Access",
-                                color = omniTextSecondary(isDark),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
                     }
                 }
             }

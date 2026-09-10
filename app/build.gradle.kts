@@ -181,12 +181,13 @@ dependencies {
     // Google Mobile Ads SDK (AdMob)
     implementation("com.google.android.gms:play-services-ads:23.6.0")
 
-    // Firebase (BOM 33.9.0)
-    val firebaseBom = platform("com.google.firebase:firebase-bom:33.9.0")
+    // Firebase (BOM 34.19.0)
+    val firebaseBom = platform("com.google.firebase:firebase-bom:34.19.0")
     implementation(firebaseBom)
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
 
     // Unit Testing

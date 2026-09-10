@@ -125,5 +125,10 @@ service cloud.firestore {
         && request.resource.data.rollNumber == resource.data.rollNumber;
       allow delete: if isAuthenticated() && request.auth.token.role == 'ADMIN';
     }
+
+    // Authenticated User Profiles & Operator Vault
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
   }
 }

@@ -12,7 +12,28 @@
           "package_name": "com.omniface.ai"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "323760410829-ga5gi75rdmriuev1052o8h8g4l895fbi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.omniface.ai",
+            "certificate_hash": "101410811bf989375d0ed582edc76b9f1bcf9cc7"
+          }
+        },
+        {
+          "client_id": "323760410829-jmf98vjcgoerlat02q83e7rl0el1cnro.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.omniface.ai",
+            "certificate_hash": "f6a3d0c5099ab97343c317dbe5711bb1702b2473"
+          }
+        },
+        {
+          "client_id": "323760410829-sdff0g8kcgd1nqdjgkp87q56hkplvii7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBcJeYac3_I3FhRF-7YPmWUcMIj9Gi-EkA"
@@ -20,7 +41,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "323760410829-sdff0g8kcgd1nqdjgkp87q56hkplvii7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

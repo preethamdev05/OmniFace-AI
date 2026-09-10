@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+
 package com.omniface.ai.fcm
 
 import android.app.NotificationChannel

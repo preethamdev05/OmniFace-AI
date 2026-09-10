@@ -15,6 +15,8 @@ import {
   Auth,
 } from 'firebase/auth';
 
+import { getFirestore, Firestore } from 'firebase/firestore';
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyD6N28fgthTBjwXHAps_3uBccf-dRuTYPU',
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'omniface-ai-prod.firebaseapp.com',
@@ -28,6 +30,7 @@ const firebaseConfig = {
 // Initialize Firebase client singleton
 const app: FirebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth: Auth = getAuth(app);
+const db: Firestore = getFirestore(app);
 
 // Configure Google OAuth provider
 const googleProvider = new GoogleAuthProvider();
@@ -38,6 +41,7 @@ googleProvider.setCustomParameters({
 export {
   app,
   auth,
+  db,
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
