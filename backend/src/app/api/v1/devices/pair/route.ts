@@ -92,6 +92,26 @@ export async function POST(req: NextRequest) {
 
     const matchedDevice = matchingCodes[0];
     const orgId = matchedDevice.organizationId;
+
+    // Enforce device count limits based on organization subscription entitlement
+    const { resolveOrgEntitlements } = await import('@/lib/entitlements');
+    const entitlements = await resolveOrgEntitlements(orgId);
+    const existingActiveDevices = await database
+      .select()
+      .from(devices)
+      .where(and(eq(devices.organizationId, orgId), eq(devices.isPaired, 1)));
+
+    if (existingActiveDevices.length >= entitlements.maxDevices) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Device limit reached (${existingActiveDevices.length}/${entitlements.maxDevices}). Upgrade your plan to pair more devices.`,
+          code: 'ENTITLEMENT_DEVICE_LIMIT_EXCEEDED',
+        },
+        { status: 403 }
+      );
+    }
+
     const deviceId = deviceIdentifier || `OMNIFACE-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const name = deviceName || `${model} (${deviceId.slice(-4)})`;
     const hwHash = hardwareHash || crypto.createHash('sha256').update(deviceId + Date.now()).digest('hex');

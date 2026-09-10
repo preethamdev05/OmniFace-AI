@@ -271,4 +271,15 @@ object KioskLockController {
             false
         }
     }
+
+    /**
+     * Remotely triggers kiosk lockdown upon administrative FCM alert.
+     */
+    fun triggerRemoteLockdown(context: Context) {
+        ensureInit(context)
+        failedAttempts = 10
+        lockoutUntilTimestamp = System.currentTimeMillis() + (3600 * 1000L) // 1-hour administrative lockout
+        persistLockoutState(context)
+        android.util.Log.w("KioskLockController", "🚨 Remote lockdown initiated by Administrator via FCM")
+    }
 }

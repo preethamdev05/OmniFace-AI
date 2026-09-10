@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -175,6 +176,17 @@ dependencies {
 
     // Google Play Billing Library 7.x (Subscriptions & In-App Purchases)
     implementation("com.android.billingclient:billing-ktx:7.1.1")
+
+    // Google Mobile Ads SDK (AdMob)
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+
+    // Firebase (BOM 33.9.0)
+    val firebaseBom = platform("com.google.firebase:firebase-bom:33.9.0")
+    implementation(firebaseBom)
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-crashlytics")
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-messaging")
 
     // Unit Testing
     testImplementation("junit:junit:4.13.2")

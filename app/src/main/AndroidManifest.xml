@@ -53,6 +53,20 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Google Mobile Ads Application ID (Google test App ID for safe development/production fallback) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
+        <!-- OmniFace Firebase Cloud Messaging Service -->
+        <service
+            android:name=".fcm.OmniFaceFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

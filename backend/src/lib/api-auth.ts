@@ -18,12 +18,16 @@ export async function authenticateSession(req: NextRequest): Promise<SessionPayl
   return verifySessionToken(rawToken);
 }
 
+import { resolveOrgEntitlements, getTierEntitlements, Entitlements } from './entitlements';
+
+export type AuthenticatedUser = SessionPayload & { entitlements: Entitlements };
+
 export type RequireSessionResult =
-  | { user: SessionPayload; errorResponse?: never }
+  | { user: AuthenticatedUser; errorResponse?: never }
   | { user?: never; errorResponse: NextResponse };
 
 /**
- * Enforces session authentication and role requirements on API routes.
+ * Enforces session authentication, role requirements, and resolves plan entitlements on API routes.
  */
 export async function requireSession(
   req: NextRequest,
@@ -55,7 +59,10 @@ export async function requireSession(
     };
   }
 
-  return { user };
+  const entitlements = user.tier === 'FREE'
+    ? getTierEntitlements('FREE')
+    : await resolveOrgEntitlements(user.orgId);
+  return { user: { ...user, entitlements } };
 }
 
 export interface AuthenticatedDevice {

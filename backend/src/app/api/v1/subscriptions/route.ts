@@ -329,6 +329,7 @@ export async function POST(req: NextRequest) {
           // 1. Insert subscription record
           await database.insert(subscriptions).values({
             organizationId: orgId,
+            orgId: orgId,
             tier,
             status: 'ACTIVE',
             billingProvider: provider,
@@ -336,6 +337,9 @@ export async function POST(req: NextRequest) {
             purchaseToken: purchaseToken || null,
             amountInr: paidAmount,
             peopleLimit,
+            maxPeople: peopleLimit,
+            deviceLimit: tier === 'INSTITUTION' ? 100 : (tier === 'PRO' ? 3 : 1),
+            maxDevices: tier === 'INSTITUTION' ? 100 : (tier === 'PRO' ? 3 : 1),
             validUntil: validUntilDate,
             graceUntil: graceUntilDate,
           });

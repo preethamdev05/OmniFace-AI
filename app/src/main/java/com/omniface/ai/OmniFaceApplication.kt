@@ -49,6 +49,10 @@ class OmniFaceApplication : Application() {
         // 1c. Initialize Fleet Device Pairing Manager
         com.omniface.ai.hardware.DevicePairingManager.initialize(this)
 
+        // 1d. Initialize Google Mobile Ads (AdMob) and Firebase Telemetry
+        com.omniface.ai.ads.AdMobManager.initialize(this)
+        com.omniface.ai.telemetry.TelemetryManager.initialize(this)
+
         // 2. Initialize Room SQLite Database with WAL Mode Concurrency
         val dbBuilder = Room.databaseBuilder(
             applicationContext,

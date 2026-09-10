@@ -35,6 +35,7 @@ export const organizations = pgTable('organizations', {
   graceMinutes: integer('grace_minutes').default(15),
   autoEvaluateStatus: integer('auto_evaluate_status').default(1),
   dpdpCompliance: integer('dpdp_compliance').default(1),
+  onboardingCompleted: integer('onboarding_completed').default(1).notNull(),
   status: varchar('status', { length: 32 }).notNull().default('ACTIVE'), // ACTIVE, GRACE_PERIOD, ARCHIVE_READ_ONLY, SUSPENDED
   gracePeriodEnd: timestamp('grace_period_end'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -249,7 +250,9 @@ export const subscriptions = pgTable('subscriptions', {
   purchaseToken: text('purchase_token'),
   amountInr: integer('amount_inr').notNull().default(0),
   peopleLimit: integer('people_limit').notNull().default(25),
+  maxPeople: integer('max_people').default(25),
   deviceLimit: integer('device_limit').notNull().default(1),
+  maxDevices: integer('max_devices').default(1),
   currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
   currentPeriodEnd: timestamp('current_period_end'),
   validUntil: timestamp('valid_until').notNull(),
@@ -340,3 +343,18 @@ export const institutionLeads = pgTable('institution_leads', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// ── 21. FCM Push Tokens (Real Device Push Notification Registry) ──
+export const fcmTokens = pgTable('fcm_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: varchar('device_id', { length: 128 }),
+  token: text('token').notNull().unique(),
+  platform: varchar('platform', { length: 32 }).default('ANDROID').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_fcm_tokens_org').on(table.organizationId),
+  index('idx_fcm_tokens_user').on(table.userId),
+]);

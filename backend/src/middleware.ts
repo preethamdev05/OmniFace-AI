@@ -38,11 +38,11 @@ function getSessionSecret(): string {
 /**
  * Edge-compatible cryptographic HMAC-SHA256 session verification using Web Crypto.
  */
-async function verifySessionCookie(cookieValue: string | undefined): Promise<boolean> {
-  if (!cookieValue || typeof cookieValue !== 'string') return false;
+async function verifySessionCookie(cookieValue: string | undefined): Promise<any | null> {
+  if (!cookieValue || typeof cookieValue !== 'string') return null;
 
   const parts = cookieValue.split('.');
-  if (parts.length !== 2) return false;
+  if (parts.length !== 2) return null;
 
   const [dataB64, sigB64] = parts;
 
@@ -68,7 +68,7 @@ async function verifySessionCookie(cookieValue: string | undefined): Promise<boo
     }
 
     const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(dataB64));
-    if (!isValid) return false;
+    if (!isValid) return null;
 
     let dataStr = dataB64.replace(/-/g, '+').replace(/_/g, '/');
     while (dataStr.length % 4) {
@@ -77,9 +77,12 @@ async function verifySessionCookie(cookieValue: string | undefined): Promise<boo
     const payload = JSON.parse(atob(dataStr));
     const now = Math.floor(Date.now() / 1000);
 
-    return Boolean(payload.exp && payload.exp > now && payload.userId);
+    if (payload.exp && payload.exp > now && payload.userId) {
+      return payload;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -107,7 +110,8 @@ export async function middleware(request: NextRequest) {
   );
 
   const sessionCookie = request.cookies.get('omniface_session')?.value;
-  const isSessionValid = await verifySessionCookie(sessionCookie);
+  const session = await verifySessionCookie(sessionCookie);
+  const isSessionValid = Boolean(session);
 
   if (isProtected && !isSessionValid) {
     const loginUrl = new URL('/login', request.url);
@@ -129,6 +133,20 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.redirect(new URL(destination, request.url));
     response.headers.set('x-request-id', requestId);
     return response;
+  }
+
+  // ── Enforce Free-Tier Operational Dashboard Lock ──
+  // Free plan includes Android attendance only; operational web dashboard is restricted to Premium+.
+  // Free users are allowed to access /subscription and /onboarding to manage billing.
+  if (isSessionValid && session.tier === 'FREE') {
+    const isOperationalDashboard = isProtected && pathname !== '/subscription';
+    if (isOperationalDashboard) {
+      const upgradeUrl = new URL('/subscription', request.url);
+      upgradeUrl.searchParams.set('upgrade', 'required');
+      const response = NextResponse.redirect(upgradeUrl);
+      response.headers.set('x-request-id', requestId);
+      return response;
+    }
   }
 
   const response = NextResponse.next({

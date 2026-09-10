@@ -25,6 +25,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.rememberNavController
+import com.omniface.ai.ui.components.AdaptiveBannerAd
 import com.omniface.ai.ui.components.DynamicIslandCapsule
 import com.omniface.ai.ui.components.DynamicIslandController
 import com.omniface.ai.ui.components.DynamicIslandEvent
@@ -118,21 +119,26 @@ fun OmniFaceApp() {
                 contentWindowInsets = WindowInsets.statusBars,
                 containerColor = if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7),
                 bottomBar = {
-                    CupertinoTabBar(
-                        currentRoute = currentRoute,
-                        unsyncedCount = unsyncedCount,
-                        onNavigate = { screen ->
-                            if (currentRoute != screen.route) {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (currentRoute != Screen.Scanner.route) {
+                            AdaptiveBannerAd()
+                        }
+                        CupertinoTabBar(
+                            currentRoute = currentRoute,
+                            unsyncedCount = unsyncedCount,
+                            onNavigate = { screen ->
+                                if (currentRoute != screen.route) {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             ) { innerPadding ->
                 Box(

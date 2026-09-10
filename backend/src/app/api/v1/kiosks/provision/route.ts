@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { devices, auditLogs } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
 import { requireSession } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
@@ -29,6 +30,22 @@ export async function POST(req: NextRequest) {
     if (isDbConfigured()) {
       const database = getDb();
       if (database) {
+        const existingCount = await database
+          .select()
+          .from(devices)
+          .where(and(eq(devices.organizationId, orgId), eq(devices.isPaired, 1)));
+
+        if (existingCount.length >= auth.user.entitlements.maxDevices) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Device limit reached (${existingCount.length}/${auth.user.entitlements.maxDevices}). Upgrade to Pro (3 devices) or Institution (Unlimited).`,
+              code: 'ENTITLEMENT_DEVICE_LIMIT_EXCEEDED',
+            },
+            { status: 403 }
+          );
+        }
+
         // Register provisioned kiosk in devices table
         await database.insert(devices).values({
           organizationId: orgId,

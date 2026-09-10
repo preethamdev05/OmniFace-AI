@@ -387,8 +387,19 @@ export async function POST(req: NextRequest) {
     const client = await pool.connect();
 
     try {
-      // Execute table creation statements
-      await client.query(INIT_SQL);
+      // Execute table creation statements sequentially to prevent table-level lock deadlocks
+      const statements = INIT_SQL
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      for (const stmt of statements) {
+        try {
+          await client.query(stmt);
+        } catch (stmtErr: any) {
+          console.warn(`[Migrate Statement Warning] ${stmtErr?.message || stmtErr}`);
+        }
+      }
 
       // Seed default organization
       const database = getDb();
