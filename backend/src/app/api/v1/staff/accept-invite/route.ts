@@ -21,10 +21,38 @@ export async function POST(req: NextRequest) {
     const tokenHash = crypto.createHash('sha256').update(inviteToken.trim()).digest('hex');
 
     if (!isDbConfigured()) {
-      return NextResponse.json({
-        success: true,
-        message: 'Invitation accepted (sandbox mode)',
+      const sandboxUserId = '00000000-0000-0000-0000-000000000099';
+      const sessionToken = signSessionToken({
+        userId: sandboxUserId,
+        email: 'staff.sandbox@omniface.internal',
+        fullName: fullName?.trim() || 'Staff Sandbox User',
+        role: 'TEACHER',
+        orgId: '00000000-0000-0000-0000-000000000001',
+        orgName: 'OmniFace Campus',
+        tier: 'INSTITUTION',
       });
+      const response = NextResponse.json({
+        success: true,
+        message: 'Invitation accepted successfully. Your membership is now active (sandbox mode).',
+        sessionToken,
+        user: {
+          id: sandboxUserId,
+          email: 'staff.sandbox@omniface.internal',
+          role: 'TEACHER',
+          orgId: '00000000-0000-0000-0000-000000000001',
+          sessionToken,
+        },
+      });
+      response.cookies.set({
+        name: 'omniface_session',
+        value: sessionToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60,
+      });
+      return response;
     }
 
     const database = getDb();

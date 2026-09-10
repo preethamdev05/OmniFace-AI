@@ -323,13 +323,19 @@ class ScannerPipelineE2ETest {
 
     @Test
     fun testScannerArchitecture_usesOnlyUnifiedModelFile() {
-        val rootDir = File("C:/AI-HUB/OmniFace-AI")
-        val appJavaDir = File(rootDir, "app/src/main/java/com/omniface/ai")
-
-        // Search FaceSecurityPipeline.kt for legacy model references
-        val pipelineFile = File(appJavaDir, "ml/pipeline/FaceSecurityPipeline.kt")
-        assertTrue(pipelineFile.exists())
-        val pipelineContent = pipelineFile.readText()
+        val relPath = "app/src/main/java/com/omniface/ai/ml/pipeline/FaceSecurityPipeline.kt"
+        val altRelPath = "src/main/java/com/omniface/ai/ml/pipeline/FaceSecurityPipeline.kt"
+        val candidates = listOf(
+            File(relPath),
+            File(altRelPath),
+            File("../$relPath"),
+            File(System.getProperty("user.dir"), relPath),
+            File(System.getProperty("user.dir"), altRelPath),
+            File("C:/AI-HUB/OmniFace-AI/$relPath")
+        )
+        val pipelineFile = candidates.firstOrNull { it.exists() }
+        assertNotNull("FaceSecurityPipeline.kt must exist in repository", pipelineFile)
+        val pipelineContent = pipelineFile!!.readText()
 
         assertTrue(
             "FaceSecurityPipeline must directly invoke processScannerFace on UnifiedFaceIntelligenceEngine",

@@ -12,6 +12,22 @@ jobs:
     name: 🌐 Backend & Multi-Tenant Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: omniface_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -32,6 +48,8 @@ jobs:
         run: |
           cd backend
           npm run build
+        env:
+          DATABASE_URL: 'postgresql://test_user:test_password@localhost:5432/omniface_test'
 
       - name: 🧪 Run Backend Integration Tests
         run: |
@@ -40,6 +58,7 @@ jobs:
         env:
           OMNIFACE_SESSION_SECRET: 'omni_test_session_secret_7f8a9b0c1d2e3f4a5b6c7d8e9f'
           MIGRATION_SECRET: 'omni_migration_secret_secure_entropy_key_9981'
+          DATABASE_URL: 'postgresql://test_user:test_password@localhost:5432/omniface_test'
 
   android_ci:
     name: 🧪 Run Android Biometric Unit Tests
@@ -59,9 +78,7 @@ jobs:
           java-version: '17'
 
       - name: 🐘 Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-home-cache-cleanup: true
+        uses: gradle/actions/setup-gradle@v4
 
       - name: 🔑 Grant execute permission for gradlew
         run: chmod +x gradlew

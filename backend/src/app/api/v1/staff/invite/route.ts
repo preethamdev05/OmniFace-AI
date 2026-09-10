@@ -47,12 +47,21 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     if (!isDbConfigured()) {
-      return NextResponse.json({
-        success: true,
-        message: 'Invitation generated (database offline sandbox mode)',
-        inviteToken: rawToken,
-        expiresAt: expiresAt.toISOString(),
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          message: `Invitation successfully issued to ${email} (database offline sandbox mode)`,
+          invitation: {
+            id: 'mock_inv_' + rawToken.slice(0, 8),
+            email: email.trim().toLowerCase(),
+            role,
+            expiresAt: expiresAt.toISOString(),
+            inviteToken: rawToken,
+            inviteUrl: `/login?invite=${rawToken}`,
+          },
+        },
+        { status: 201 }
+      );
     }
 
     const database = getDb();
