@@ -7,7 +7,7 @@ import { eq, desc } from 'drizzle-orm';
 
 const VerifySubscriptionSchema = z.object({
   orgId: z.string().optional().default(DEFAULT_ORG_ID),
-  tier: z.enum(['FREE', 'PREMIUM', 'BUSINESS']),
+  tier: z.enum(['FREE', 'PREMIUM', 'PROFESSIONAL', 'BUSINESS']),
   provider: z.enum(['GOOGLE_PLAY', 'RAZORPAY', 'OFFLINE_LICENSE']).default('GOOGLE_PLAY'),
   purchaseToken: z.string().optional(),
   razorpayPaymentId: z.string().optional(),
@@ -63,6 +63,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const getTierAmount = (t: string) => {
+      if (t === 'BUSINESS') return 999;
+      if (t === 'PROFESSIONAL') return 499;
+      if (t === 'PREMIUM') return 199;
+      return 0;
+    };
+
     return NextResponse.json({
       success: true,
       subscription: {
@@ -70,7 +77,7 @@ export async function GET(req: NextRequest) {
         tier: activeTier,
         status,
         provider,
-        amountInr: activeTier === 'BUSINESS' ? 999 : (activeTier === 'PREMIUM' ? 199 : 0),
+        amountInr: getTierAmount(activeTier),
         validUntil,
         offlineGraceUntil: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
       },
@@ -115,7 +122,7 @@ export async function POST(req: NextRequest) {
             billingProvider: provider,
             externalSubscriptionId: razorpaySubscriptionId || razorpayPaymentId || null,
             purchaseToken: purchaseToken || null,
-            amountInr: tier === 'PREMIUM' ? 199 : (tier === 'BUSINESS' ? 999 : 0),
+            amountInr: tier === 'BUSINESS' ? 999 : (tier === 'PROFESSIONAL' ? 499 : (tier === 'PREMIUM' ? 199 : 0)),
             validUntil: validUntilDate,
           });
 
@@ -130,6 +137,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const paidAmount = tier === 'BUSINESS' ? 999 : (tier === 'PROFESSIONAL' ? 499 : (tier === 'PREMIUM' ? 199 : 0));
+
     return NextResponse.json(
       {
         success: true,
@@ -139,7 +148,7 @@ export async function POST(req: NextRequest) {
           tier,
           status: 'ACTIVE',
           provider,
-          amountInr: tier === 'PREMIUM' ? 199 : 999,
+          amountInr: paidAmount,
           validUntil,
           offlineGraceUntil: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
         },

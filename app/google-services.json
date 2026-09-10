@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "710938226211",
+    "project_id": "bca-ai-connect",
+    "storage_bucket": "bca-ai-connect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710938226211:android:4d50c3278c9a83b003cb96",
+        "android_client_info": {
+          "package_name": "com.omniface.ai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "710938226211-t96unq1p349qtnklnmf097k04sj4ggha.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAlZCG5RTFjEgDTQuFpt7BZWevd2wxWxk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "710938226211-t96unq1p349qtnklnmf097k04sj4ggha.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

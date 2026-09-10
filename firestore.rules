@@ -1,0 +1,129 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: kiosks
+// Document ID: [OMNIFACE-TERMINAL-XX]
+// Fields:
+//   - kioskId: string (required, immutable) - Terminal identifier
+//   - model: string (required) - Hardware / OS description
+//   - location: string (required) - Campus gate / department
+//   - status: string (required, 'ONLINE' | 'OFFLINE' | 'MAINTENANCE')
+//   - lastPing: timestamp (required) - Telemetry timestamp
+//   - deviceFingerprint: string (required, immutable) - SHA-256 hardware hash
+//   - appVersion: string (optional) - OmniFace build version
+//   - batteryPct: int (optional, 0-100) - Battery percentage
+//   - syncedRecordsCount: int (optional, >= 0) - Lifetime synced count
+//
+// Collection: attendance_events
+// Document ID: [rec_...]
+// Fields:
+//   - recordId: string (required, immutable) - Event ID
+//   - studentRoll: string (required) - Student / employee ID
+//   - studentName: string (required) - Subject full name
+//   - sessionDate: string (required, YYYY-MM-DD format)
+//   - timestamp: timestamp (required) - Verification timestamp
+//   - confidencePct: int (required, 0-100) - Matching confidence
+//   - securityTier: string (required, 'HIGH' | 'MEDIUM')
+//   - deviceId: string (required) - Generating kiosk ID
+//   - sha256Hash: string (required, 64-char hex) - Aegis block hash
+//
+// Collection: roster_profiles
+// Document ID: [rollNumber]
+// Fields:
+//   - rollNumber: string (required, immutable)
+//   - fullName: string (required)
+//   - department: string (required)
+//   - role: string (required, 'STUDENT' | 'FACULTY' | 'STAFF')
+//   - status: string (required, 'ACTIVE' | 'INACTIVE')
+//   - enrolledAt: timestamp (required)
+//   - lastSeenAt: timestamp (optional)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions & Validators
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidKiosk(data) {
+      return data.kioskId is string && data.kioskId.size() > 3
+        && data.model is string && data.model.size() > 0
+        && data.location is string && data.location.size() > 0
+        && data.status in ['ONLINE', 'OFFLINE', 'MAINTENANCE']
+        && data.lastPing is timestamp
+        && data.deviceFingerprint is string && data.deviceFingerprint.size() >= 16;
+    }
+
+    function isValidAttendance(data) {
+      return data.recordId is string && data.recordId.size() > 3
+        && data.studentRoll is string && data.studentRoll.size() > 0
+        && data.studentName is string && data.studentName.size() > 0
+        && data.sessionDate is string && data.sessionDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.timestamp is timestamp
+        && data.confidencePct is int && data.confidencePct >= 0 && data.confidencePct <= 100
+        && data.securityTier in ['HIGH', 'MEDIUM']
+        && data.deviceId is string && data.deviceId.size() > 0
+        && data.sha256Hash is string && data.sha256Hash.size() == 64;
+    }
+
+    function isValidRosterProfile(data) {
+      return data.rollNumber is string && data.rollNumber.size() > 0
+        && data.fullName is string && data.fullName.size() > 0
+        && data.department is string && data.department.size() > 0
+        && data.role in ['STUDENT', 'FACULTY', 'STAFF']
+        && data.status in ['ACTIVE', 'INACTIVE']
+        && data.enrolledAt is timestamp;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // Kiosk Devices & Heartbeats
+    match /kiosks/{kioskId} {
+      // Authenticated admins and kiosk terminals can read telemetry
+      allow read: if isAuthenticated();
+
+      // Kiosks can create or update their own telemetry heartbeat
+      allow create: if isAuthenticated() && isValidKiosk(request.resource.data);
+      allow update: if isAuthenticated() && isValidKiosk(request.resource.data)
+        && request.resource.data.kioskId == resource.data.kioskId
+        && request.resource.data.deviceFingerprint == resource.data.deviceFingerprint;
+      allow delete: if isAuthenticated() && request.auth.token.role == 'ADMIN';
+    }
+
+    // Biometric Attendance Events (Append-Only Ledger)
+    match /attendance_events/{eventId} {
+      // Dashboard operators can read events
+      allow read: if isAuthenticated();
+
+      // Verified devices can write new attendance events (immutable, no updates allowed)
+      allow create: if isAuthenticated() && isValidAttendance(request.resource.data);
+      allow update: if false; // Append-only audit integrity under Aegis
+      allow delete: if isAuthenticated() && request.auth.token.role == 'ADMIN';
+    }
+
+    // Web Roster Directory Sync
+    match /roster_profiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidRosterProfile(request.resource.data);
+      allow update: if isAuthenticated() && isValidRosterProfile(request.resource.data)
+        && request.resource.data.rollNumber == resource.data.rollNumber;
+      allow delete: if isAuthenticated() && request.auth.token.role == 'ADMIN';
+    }
+  }
+}

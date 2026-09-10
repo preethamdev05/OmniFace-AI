@@ -40,6 +40,16 @@ enum class SubscriptionTier(
         displaysAds = false,
         hasWebDashboard = false
     ),
+    PROFESSIONAL(
+        title = "Professional",
+        maxStudents = 1000,
+        priceInrMonthly = 499,
+        allowsReportExports = true,
+        allowsCloudSync = true,
+        allowsMultiDevice = true,
+        displaysAds = false,
+        hasWebDashboard = true
+    ),
     BUSINESS(
         title = "Enterprise Business",
         maxStudents = Int.MAX_VALUE,

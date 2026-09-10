@@ -4,9 +4,9 @@ import React, { useState } from 'react';
 import { useToast } from '@/components/Toast';
 
 export default function SubscriptionPage() {
-  const [activeTier, setActiveTier] = useState<'BUSINESS' | 'PREMIUM' | 'FREE'>('BUSINESS');
+  const [activeTier, setActiveTier] = useState<'BUSINESS' | 'PROFESSIONAL' | 'PREMIUM' | 'FREE'>('BUSINESS');
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
-  const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState<'BUSINESS' | 'PREMIUM'>('BUSINESS');
+  const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState<'BUSINESS' | 'PROFESSIONAL' | 'PREMIUM'>('PROFESSIONAL');
   const [processingPayment, setProcessingPayment] = useState(false);
   const [viewingInvoice, setViewingInvoice] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -22,8 +22,16 @@ export default function SubscriptionPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const getPlanPrice = (tier: string) => {
+    if (tier === 'BUSINESS') return 999;
+    if (tier === 'PROFESSIONAL') return 499;
+    if (tier === 'PREMIUM') return 199;
+    return 0;
+  };
+
   const handleSimulatePayment = async () => {
     setProcessingPayment(true);
+    const amount = getPlanPrice(selectedPlanForCheckout);
     try {
       const res = await fetch('/api/v1/subscriptions', {
         method: 'POST',
@@ -40,7 +48,7 @@ export default function SubscriptionPage() {
       if (res.ok && data.success) {
         setActiveTier(selectedPlanForCheckout);
         setShowCheckoutModal(false);
-        showToast(`Payment successful! ₹${selectedPlanForCheckout === 'BUSINESS' ? 999 : 199} ${selectedPlanForCheckout} Plan activated with instant GST Invoice.`, 'success');
+        showToast(`Payment successful! ₹${amount} ${selectedPlanForCheckout} Plan activated with instant GST Tax Invoice.`, 'success');
       } else {
         setActiveTier(selectedPlanForCheckout);
         setShowCheckoutModal(false);
@@ -98,26 +106,67 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* Strategic Billing & Channel Architecture Banner */}
+      <div
+        style={{
+          background: 'rgba(6, 182, 212, 0.05)',
+          border: '1px solid rgba(6, 182, 212, 0.25)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          fontSize: '13px',
+        }}
+      >
+        <div
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            background: 'var(--primary-glow)',
+            color: 'var(--primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '18px',
+            flexShrink: 0,
+          }}
+        >
+          💳
+        </div>
+        <div style={{ flex: 1, lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--text-main)' }}>Channel & Invoicing Architecture:</strong>{' '}
+          <span style={{ color: 'var(--text-muted)' }}>
+            <strong>₹199 Premium</strong> is billed via <strong>Google Play 1-Tap Subscription</strong> inside the Android app (ideal for individual tutors).{' '}
+            <strong>₹499 Professional</strong> and <strong>₹999 Business</strong> are billed directly through this <strong>Web Console via Razorpay</strong> to provide formal 18% GST Tax Invoices, institutional receipts, and support for corporate bank transfers/NEFT/UPI.
+          </span>
+        </div>
+      </div>
+
       {/* Plan Comparison Grid */}
       <div style={{ marginBottom: '32px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '16px' }}>Commercial Tiers Overview</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
           {/* Free Tier */}
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', opacity: activeTier === 'FREE' ? 1 : 0.8 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', opacity: activeTier === 'FREE' ? 1 : 0.85, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Free Plan</h3>
               <span className="badge badge-warning">STARTER</span>
             </div>
-            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '14px' }}>
+            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
               ₹0<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / forever</span>
             </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <li>✓ Up to 25 people max capacity</li>
-              <li>✓ On-device face registration & attendance</li>
-              <li>✓ Basic on-device history</li>
-              <li>✗ Local database only (no cloud sync)</li>
-              <li>✗ Standard exports locked</li>
-              <li>✗ Banner ads active</li>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Free Android App Download</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
+              <li>✓ Up to <strong>25 people</strong> capacity</li>
+              <li>✓ On-device face registration</li>
+              <li>✓ High-accuracy biometric scanning</li>
+              <li>✓ Local SQLite history</li>
+              <li>✗ Cloud backup & sync locked</li>
+              <li>✗ Excel/PDF reports locked</li>
+              <li>✗ In-app promotional banners</li>
             </ul>
             {activeTier !== 'FREE' ? (
               <button
@@ -126,73 +175,110 @@ export default function SubscriptionPage() {
                   showToast('Downgraded to Free Starter Tier', 'info');
                 }}
                 className="btn btn-secondary"
-                style={{ width: '100%', fontSize: '12px' }}
+                style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
               >
                 Downgrade to Free
               </button>
             ) : (
-              <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-dim)', padding: '8px' }}>Active Plan</div>
+              <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-dim)', padding: '8px', marginTop: 'auto' }}>Active Plan</div>
             )}
           </div>
 
           {/* Premium Tier */}
-          <div style={{ background: 'var(--surface)', border: activeTier === 'PREMIUM' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px' }}>
+          <div style={{ background: 'var(--surface)', border: activeTier === 'PREMIUM' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Premium Plan</h3>
-              <span className="badge badge-primary">POPULAR</span>
+              <span className="badge badge-primary" style={{ fontSize: '10px' }}>PLAY STORE</span>
             </div>
-            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '14px' }}>
+            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
               ₹199<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / month</span>
             </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <li>✓ Up to 250 people capacity</li>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>1-Tap Google Play Subscription</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
+              <li>✓ Up to <strong>250 people</strong> capacity</li>
               <li>✓ Google Drive cloud backup & restore</li>
               <li>✓ Multi-device sync queue</li>
               <li>✓ Excel & PDF report exports</li>
               <li>✓ 100% ad-free experience</li>
+              <li>✓ Best for individual teachers & tutors</li>
               <li>✗ Web dashboard & API not included</li>
             </ul>
             <button
               onClick={() => {
-                setSelectedPlanForCheckout('PREMIUM');
+                showToast('Premium (₹199/mo) is billed via Google Play Store inside the Android app.', 'info');
+              }}
+              className={activeTier === 'PREMIUM' ? 'btn btn-secondary' : 'btn btn-secondary'}
+              style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
+            >
+              {activeTier === 'PREMIUM' ? 'Active on Google Play' : 'Subscribe via Google Play'}
+            </button>
+          </div>
+
+          {/* Professional Tier (NEW) */}
+          <div style={{ background: 'var(--surface-raised)', border: activeTier === 'PROFESSIONAL' ? '2px solid var(--primary)' : '1px solid rgba(6, 182, 212, 0.3)', borderRadius: '12px', padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ position: 'absolute', top: '-11px', right: '16px', background: 'var(--primary)', color: '#03141e', padding: '2px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700 }}>
+              INSTITUTION SWEET SPOT
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Professional</h3>
+              <span className="badge badge-warning" style={{ fontSize: '10px' }}>WEB BILLING</span>
+            </div>
+            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
+              ₹499<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / month</span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Razorpay GST Invoice & Centralized Billing</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
+              <li>✓ Up to <strong>1,000 people</strong> capacity</li>
+              <li>✓ Multiple classes & up to 2 branches</li>
+              <li>✓ <strong>Basic Web Dashboard</strong> access</li>
+              <li>✓ <strong>2 Administrator</strong> accounts & roles</li>
+              <li>✓ Multi-device fleet sync</li>
+              <li>✓ Automated Excel/PDF audit reports</li>
+              <li>✓ Official GST Tax Invoices for accounting</li>
+            </ul>
+            <button
+              onClick={() => {
+                setSelectedPlanForCheckout('PROFESSIONAL');
                 setShowCheckoutModal(true);
               }}
-              className={activeTier === 'PREMIUM' ? 'btn btn-secondary' : 'btn btn-primary'}
-              style={{ width: '100%', fontSize: '12px' }}
+              className="btn btn-primary"
+              style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
             >
-              {activeTier === 'PREMIUM' ? 'Renew Premium (₹199)' : 'Upgrade to Premium (₹199)'}
+              {activeTier === 'PROFESSIONAL' ? 'Renew Professional (₹499)' : 'Upgrade to Professional (₹499)'}
             </button>
           </div>
 
           {/* Business Tier */}
-          <div style={{ background: 'var(--surface-raised)', border: activeTier === 'BUSINESS' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px', position: 'relative' }}>
+          <div style={{ background: 'var(--surface-raised)', border: activeTier === 'BUSINESS' ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: '12px', padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
             {activeTier === 'BUSINESS' && (
-              <div style={{ position: 'absolute', top: '-11px', right: '20px', background: 'var(--primary)', color: '#03141e', padding: '2px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700 }}>
+              <div style={{ position: 'absolute', top: '-11px', right: '16px', background: 'var(--success)', color: '#03141e', padding: '2px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700 }}>
                 CURRENT PLAN
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)' }}>Business Plan</h3>
-              <span className="badge badge-success">UNLIMITED</span>
+              <span className="badge badge-success" style={{ fontSize: '10px' }}>UNLIMITED</span>
             </div>
-            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '14px' }}>
+            <div className="tnum" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>
               ₹999<span style={{ fontSize: '12px', color: 'var(--text-muted)' }}> / month</span>
             </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '14px' }}>Institutional Invoicing & Enterprise SLA</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>
               <li>✓ <strong>Unlimited</strong> people & classes</li>
-              <li>✓ Multiple departments & class sections</li>
-              <li>✓ Multiple admin roles & permissions</li>
-              <li>✓ Full Next.js Web Dashboard</li>
-              <li>✓ REST API access & Fleet Kiosk Keys</li>
-              <li>✓ Priority support & SLA</li>
+              <li>✓ Unlimited campuses & departments</li>
+              <li>✓ <strong>Unlimited Admins</strong> & granular RBAC</li>
+              <li>✓ Full Next.js Web Dashboard & Live Monitor</li>
+              <li>✓ <strong>REST API & Kiosk QR Key Provisioning</strong></li>
+              <li>✓ pgvector 512-D similarity search</li>
+              <li>✓ Dedicated SLA & Priority 24/7 Support</li>
             </ul>
             <button
               onClick={() => {
                 setSelectedPlanForCheckout('BUSINESS');
                 setShowCheckoutModal(true);
               }}
-              className="btn btn-primary"
-              style={{ width: '100%', fontSize: '12px' }}
+              className={activeTier === 'BUSINESS' ? 'btn btn-primary' : 'btn btn-primary'}
+              style={{ width: '100%', fontSize: '12px', marginTop: 'auto' }}
             >
               {activeTier === 'BUSINESS' ? 'Renew Business (₹999)' : 'Upgrade to Business (₹999)'}
             </button>
@@ -274,19 +360,19 @@ export default function SubscriptionPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
                 <span style={{ color: 'var(--text-muted)' }}>{selectedPlanForCheckout} Tier Subscription</span>
                 <span className="tnum" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                  ₹{selectedPlanForCheckout === 'BUSINESS' ? '999.00' : '199.00'}
+                  ₹{getPlanPrice(selectedPlanForCheckout)}.00
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Taxes (GST-exempt small business)</span>
+                <span style={{ color: 'var(--text-muted)' }}>Applicable GST (18% inclusive)</span>
                 <span className="tnum" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                  ₹0.00
+                  ₹{Math.round(getPlanPrice(selectedPlanForCheckout) * 0.18 * 100 / 118)}.00
                 </span>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}>
                 <strong style={{ color: 'var(--text-main)' }}>Total Payable</strong>
                 <strong className="tnum" style={{ color: 'var(--primary)', fontSize: '18px' }}>
-                  ₹{selectedPlanForCheckout === 'BUSINESS' ? '999.00' : '199.00'}
+                  ₹{getPlanPrice(selectedPlanForCheckout)}.00
                 </strong>
               </div>
             </div>
@@ -294,10 +380,10 @@ export default function SubscriptionPage() {
             {/* Pre-payment Legal Disclosures */}
             <div style={{ padding: '12px', background: 'rgba(2,132,199,0.06)', border: '1px solid rgba(2,132,199,0.2)', borderRadius: '8px', marginBottom: '20px', fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
               <div style={{ fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>Notice & Consent Before Payment:</div>
-              By proceeding, you authorize payment and acknowledge that you agree to our{' '}
+              By proceeding, you authorize institutional payment and acknowledge that you agree to our{' '}
               <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Terms of Service & EULA</a>,{' '}
               <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>Biometric Privacy Policy</a>, and{' '}
-              <a href="/refund-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>3-Day Refund Policy</a>. Subscriptions auto-renew monthly until cancelled.
+              <a href="/refund-policy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>3-Day Refund Policy</a>. Tax invoice with GSTIN will be automatically generated upon payment confirmation.
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -305,7 +391,7 @@ export default function SubscriptionPage() {
                 Cancel
               </button>
               <button onClick={handleSimulatePayment} className="btn btn-primary" disabled={processingPayment}>
-                {processingPayment ? 'Authorizing UPI...' : `Pay ₹${selectedPlanForCheckout === 'BUSINESS' ? '999' : '199'} with Razorpay`}
+                {processingPayment ? 'Authorizing Razorpay Gateway...' : `Pay ₹${getPlanPrice(selectedPlanForCheckout)} with Razorpay`}
               </button>
             </div>
           </div>
