@@ -5,7 +5,9 @@
       "127.0.0.1",
       "192.168.29.159",
       "omniface-ai-prod.firebaseapp.com",
-      "omniface-ai-prod.web.app"
+      "omniface-ai-prod.web.app",
+      "omniface.vercel.app",
+      "omniface-ai.vercel.app"
     ],
     "providers": {
       "emailPassword": true,
