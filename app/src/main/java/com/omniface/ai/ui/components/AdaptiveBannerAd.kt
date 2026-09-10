@@ -22,6 +22,13 @@ import com.google.android.gms.ads.LoadAdError
 import com.omniface.ai.ads.AdMobManager
 import com.omniface.ai.billing.SubscriptionTierManager
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+
 private const val TAG = "AdaptiveBannerAd"
 
 /**
@@ -44,41 +51,53 @@ fun AdaptiveBannerAd(
         return
     }
 
-    val context = LocalContext.current
+    var activeUnitId by remember(adUnitId) { mutableStateOf(adUnitId) }
+    var isLoaded by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .wrapContentHeight()
-            .background(Color(0xFF12141A)),
+            .then(
+                if (isLoaded) Modifier.wrapContentHeight().background(Color(0xFF12141A))
+                else Modifier.height(0.dp)
+            ),
         contentAlignment = Alignment.Center
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxWidth(),
-            factory = { ctx ->
-                AdView(ctx).apply {
-                    setAdUnitId(adUnitId)
-                    val adSize = getAdaptiveAdSize(ctx)
-                    setAdSize(adSize)
+        key(activeUnitId) {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth(),
+                factory = { ctx ->
+                    AdView(ctx).apply {
+                        setAdUnitId(activeUnitId)
+                        val adSize = getAdaptiveAdSize(ctx)
+                        setAdSize(adSize)
 
-                    adListener = object : AdListener() {
-                        override fun onAdLoaded() {
-                            Log.d(TAG, "AdMob banner loaded successfully ($adUnitId)")
+                        adListener = object : AdListener() {
+                            override fun onAdLoaded() {
+                                Log.d(TAG, "AdMob banner loaded successfully ($activeUnitId)")
+                                isLoaded = true
+                            }
+
+                            override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                                Log.w(TAG, "AdMob banner failed to load ($activeUnitId): ${loadAdError.message} (code: ${loadAdError.code})")
+                                if (activeUnitId == AdMobManager.PROD_BANNER_AD_UNIT_ID && (loadAdError.code == 3 || loadAdError.code == 0)) {
+                                    Log.i(TAG, "Prod ad unit warming up. Swapping to test unit fallback...")
+                                    activeUnitId = AdMobManager.TEST_BANNER_AD_UNIT_ID
+                                } else {
+                                    isLoaded = false
+                                }
+                            }
                         }
 
-                        override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                            Log.w(TAG, "AdMob banner failed to load: ${loadAdError.message} (code: ${loadAdError.code})")
-                        }
+                        val adRequest = AdRequest.Builder().build()
+                        loadAd(adRequest)
                     }
-
-                    val adRequest = AdRequest.Builder().build()
-                    loadAd(adRequest)
+                },
+                update = {
+                    // Banner view maintained across recompositions
                 }
-            },
-            update = { adView ->
-                // Banner view maintained across recompositions
-            }
-        )
+            )
+        }
     }
 }
 

@@ -160,6 +160,8 @@ data class ScannerUiState(
     val matchSubtitle: String = "Tap 'START SCAN' to begin",
     val matchedRoll: String = "",
     val matchedName: String = "",
+    val matchedRole: String = "STUDENT",
+    val orgType: String = LocalizationManager.currentOrgType.value,
     val matchedTimeFormatted: String = "",
     val lastConfidence: Float = 0f,
     val matchedMargin: Float = 0f,
@@ -208,12 +210,15 @@ class ScannerViewModel : ViewModel() {
     private val securityPipeline: com.omniface.ai.ml.pipeline.FaceSecurityPipeline =
         com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(OmniFaceApplication.instance)
     private val recognitionEngine: FaceRecognitionEngine = securityPipeline.recognitionEngine
-    private val qualcommIntelligenceEngine: QualcommFaceIntelligenceEngine? = securityPipeline.qualcommEngine
+    private val omniFaceIntelligenceEngine: OmniFaceIntelligenceEngine? = securityPipeline.omniFaceEngine
+    private val qualcommIntelligenceEngine: OmniFaceIntelligenceEngine? get() = omniFaceIntelligenceEngine
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val faceTracker: FaceTracker = securityPipeline.tracker
 
     @Volatile
     private var cachedStudentMap: Map<String, String> = OmniFaceApplication.cachedStudentMap
+    @Volatile
+    private var cachedStudentRoleMap: Map<String, String> = emptyMap()
     @Volatile
     private var cachedTemplates: List<FaceTemplateEntity> = OmniFaceApplication.cachedTemplates
 
@@ -475,27 +480,44 @@ class ScannerViewModel : ViewModel() {
         }
     }
 
+    private fun getEmptySubtitle(isModelAvailable: Boolean, isEmpty: Boolean, isPaused: Boolean = false): String {
+        val orgType = LocalizationManager.currentOrgType.value
+        val entityPlural = LocalizationManager.getEntityPlural(orgType).lowercase()
+        val tabTitle = LocalizationManager.getDirectoryTabTitle(orgType)
+        return when {
+            !isModelAvailable -> "Download AI Face Pack to identify people"
+            isEmpty -> "No $entityPlural enrolled • Enroll in $tabTitle tab"
+            isPaused -> "Align face within frame • Tap 'START SCAN'"
+            else -> "Position face within frame to scan"
+        }
+    }
+
     fun refreshEnrolledTemplates() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val students = db.studentDao().getAllStudents()
                 val templates = db.studentDao().getAllTemplates()
                 val map = students.associate { it.rollNumber to it.fullName }
+                val roleMap = students.associate { it.rollNumber to it.role }
                 cachedStudentMap = map
+                cachedStudentRoleMap = roleMap
                 cachedTemplates = templates
                 OmniFaceApplication.cachedStudentMap = map
                 OmniFaceApplication.cachedTemplates = templates
                 securityPipeline.preloadTemplates(templates)
                 val isEmpty = students.isEmpty()
                 val count = students.size
+                val orgType = LocalizationManager.currentOrgType.value
+                val entityPlural = LocalizationManager.getEntityPlural(orgType)
                 _uiState.update {
                     it.copy(
                         isDatabaseEmpty = isEmpty,
                         enrolledCount = count,
+                        orgType = orgType,
                         isTwoFactorQrActive = QrBarcode2FaScanner.isTwoFactorModeEnabled,
-                        isDatabaseRefreshedMessage = "Database Refreshed ($count Students)",
+                        isDatabaseRefreshedMessage = "Database Refreshed ($count $entityPlural)",
                         matchTitle = if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
-                        matchSubtitle = if (isEmpty) "No students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "Align face within frame • Tap 'START SCAN'" else "Position face within frame to scan")
+                        matchSubtitle = getEmptySubtitle(it.isModelAvailable, isEmpty, it.isScanningPaused)
                     )
                 }
                 kotlinx.coroutines.delay(2000)
@@ -511,20 +533,24 @@ class ScannerViewModel : ViewModel() {
             db.studentDao().getAllStudentsFlow().collect { students ->
                 val templates = db.studentDao().getAllTemplates()
                 val map = students.associate { it.rollNumber to it.fullName }
+                val roleMap = students.associate { it.rollNumber to it.role }
                 cachedStudentMap = map
+                cachedStudentRoleMap = roleMap
                 cachedTemplates = templates
                 OmniFaceApplication.cachedStudentMap = map
                 OmniFaceApplication.cachedTemplates = templates
                 securityPipeline.preloadTemplates(templates)
                 val isEmpty = students.isEmpty()
                 val count = students.size
+                val orgType = LocalizationManager.currentOrgType.value
                 _uiState.update {
                     it.copy(
                         isDatabaseEmpty = isEmpty,
                         enrolledCount = count,
+                        orgType = orgType,
                         scanState = if (isEmpty) ScannerScanState.EMPTY_DATABASE else (if (it.scanState == ScannerScanState.EMPTY_DATABASE) ScannerScanState.READY_TO_SCAN else it.scanState),
                         matchTitle = if (!it.isModelAvailable) "CAMERA PREVIEW" else if (isEmpty) "DATABASE EMPTY" else (if (it.isScanningPaused) "READY TO SCAN" else it.matchTitle),
-                        matchSubtitle = if (!it.isModelAvailable) "Download AI Face Pack to identify students" else if (isEmpty) "No students enrolled • Enroll in Students tab" else (if (it.isScanningPaused) "Align face within frame • Tap 'START SCAN'" else "Position face within frame to scan")
+                        matchSubtitle = getEmptySubtitle(it.isModelAvailable, isEmpty, it.isScanningPaused)
                     )
                 }
             }
@@ -643,7 +669,7 @@ class ScannerViewModel : ViewModel() {
                     visualGeometryData = emptyList(),
                     scanState = if (it.isDatabaseEmpty) ScannerScanState.EMPTY_DATABASE else ScannerScanState.READY_TO_SCAN,
                     matchTitle = if (!it.isModelAvailable) "CAMERA PREVIEW" else if (it.isDatabaseEmpty) "DATABASE EMPTY" else "READY TO SCAN",
-                    matchSubtitle = if (!it.isModelAvailable) "Download AI Face Pack to identify students" else if (it.isDatabaseEmpty) "No students enrolled • Enroll in Students tab" else "Position face within frame to scan"
+                    matchSubtitle = getEmptySubtitle(it.isModelAvailable, it.isDatabaseEmpty, false)
                 )
             }
         }
@@ -758,7 +784,7 @@ class ScannerViewModel : ViewModel() {
                 matchedTimeFormatted = "",
                 scanState = if (it.isDatabaseEmpty) ScannerScanState.EMPTY_DATABASE else ScannerScanState.READY_TO_SCAN,
                 matchTitle = if (!it.isModelAvailable) "CAMERA PREVIEW" else if (it.isDatabaseEmpty) "DATABASE EMPTY" else "READY TO SCAN",
-                matchSubtitle = if (!it.isModelAvailable) "Download AI Face Pack to identify students" else if (it.isDatabaseEmpty) "No students enrolled • Enroll in Students tab" else "Position face within frame to scan"
+                matchSubtitle = getEmptySubtitle(it.isModelAvailable, it.isDatabaseEmpty, it.isScanningPaused)
             )
         }
     }
@@ -921,7 +947,7 @@ class ScannerViewModel : ViewModel() {
                     visualGeometryData = emptyList(),
                     scanState = if (isEmpty) ScannerScanState.EMPTY_DATABASE else ScannerScanState.READY_TO_SCAN,
                     matchTitle = if (!it.isModelAvailable) "CAMERA PREVIEW" else if (isEmpty) "DATABASE EMPTY" else "READY TO SCAN",
-                    matchSubtitle = if (!it.isModelAvailable) "Download AI Face Pack to identify students" else if (isEmpty) "No students enrolled • Enroll in Students tab" else "Position face within frame to scan",
+                    matchSubtitle = getEmptySubtitle(it.isModelAvailable, isEmpty, it.isScanningPaused),
                     matchedRoll = "",
                     matchedName = "",
                     lastConfidence = 0f,
@@ -1224,7 +1250,7 @@ class ScannerViewModel : ViewModel() {
                 if (templates.isEmpty()) {
                     scanState = ScannerScanState.EMPTY_DATABASE
                     topMatchTitle = "FACE DETECTED"
-                    topMatchSubtitle = "Database empty • Enroll students in Students tab"
+                    topMatchSubtitle = "Database empty • Enroll in ${LocalizationManager.getDirectoryTabTitle(_uiState.value.orgType)} tab"
                 } else {
                     when (decision.gateState) {
                         com.omniface.ai.ml.pipeline.PipelineGateState.PASS -> {
@@ -1412,11 +1438,15 @@ class ScannerViewModel : ViewModel() {
                     }
                 }
 
+                val activeOrgType = LocalizationManager.currentOrgType.value
+                val matchedRoleVal = cachedStudentRoleMap[decision.matchedStudentRoll] ?: "STUDENT"
                 _uiState.update { current ->
                     current.copy(
                         scanState = scanState,
                         matchedRoll = decision.matchedStudentRoll,
                         matchedName = decision.matchedStudentName,
+                        matchedRole = matchedRoleVal,
+                        orgType = activeOrgType,
                         matchedTimeFormatted = timeStr,
                         matchTitle = topMatchTitle,
                         matchSubtitle = topMatchSubtitle,
@@ -1514,32 +1544,34 @@ fun ScannerScreen(
             ScannerScanState.ATTENDANCE_RECORDED -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 val lang = LocalizationManager.currentLanguage.value
-                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getString(StringKey.TAB_STUDENTS, lang)
+                val personName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getEntitySingular(state.orgType)
+                val roleSuffix = if (state.matchedRole.isNotBlank()) " [${LocalizationManager.getRoleBadgeLabel(state.matchedRole).uppercase()}]" else ""
                 dynamicIslandController.postEvent(
                     DynamicIslandEvent(
-                        title = "Attendance Recorded",
-                        subtitle = "$studentName • ${state.matchedRoll}",
+                        title = "Attendance Recorded$roleSuffix",
+                        subtitle = "$personName • ${state.matchedRoll}",
                         accentColor = Color(0xFF34C759)
                     )
                 )
                 snackbarHostState.showSnackbar(
-                    message = "✓ ${LocalizationManager.getString(StringKey.RECOGNITION_CONFIRMED, lang)}: $studentName",
+                    message = "✓ ${LocalizationManager.getString(StringKey.RECOGNITION_CONFIRMED, lang)}: $personName$roleSuffix",
                     duration = SnackbarDuration.Short
                 )
             }
             ScannerScanState.DUPLICATE_ATTENDANCE -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 val lang = LocalizationManager.currentLanguage.value
-                val studentName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getString(StringKey.TAB_STUDENTS, lang)
+                val personName = if (state.matchedName.isNotBlank()) state.matchedName else LocalizationManager.getEntitySingular(state.orgType)
+                val roleSuffix = if (state.matchedRole.isNotBlank()) " [${LocalizationManager.getRoleBadgeLabel(state.matchedRole).uppercase()}]" else ""
                 dynamicIslandController.postEvent(
                     DynamicIslandEvent(
-                        title = "Already Checked In",
-                        subtitle = "$studentName (${state.matchedRoll})",
+                        title = "Already Checked In$roleSuffix",
+                        subtitle = "$personName (${state.matchedRoll})",
                         accentColor = Color(0xFFF59E0B)
                     )
                 )
                 snackbarHostState.showSnackbar(
-                    message = "⚠️ Already Checked In: $studentName",
+                    message = "⚠️ Already Checked In: $personName$roleSuffix",
                     duration = SnackbarDuration.Short
                 )
             }
@@ -1833,7 +1865,7 @@ fun ScannerScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "0 students enrolled. Enroll students to enable face verification.",
+                                    text = "0 ${LocalizationManager.getEntityPlural(state.orgType).lowercase()} enrolled. Enroll in ${LocalizationManager.getDirectoryTabTitle(state.orgType)} to enable face verification.",
                                     color = omniTextMuted(isDark),
                                     fontSize = 10.5.sp,
                                     lineHeight = 14.sp
@@ -2686,14 +2718,34 @@ fun ScannerScreen(
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = state.matchTitle,
-                                    color = omniTextPrimary(isDark),
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = state.matchTitle,
+                                        color = omniTextPrimary(isDark),
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    if (state.matchedRoll.isNotBlank() && (state.scanState == ScannerScanState.RECOGNIZED || state.scanState == ScannerScanState.ATTENDANCE_RECORDED || state.scanState == ScannerScanState.DUPLICATE_ATTENDANCE)) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        val roleBadge = LocalizationManager.getRoleBadgeLabel(state.matchedRole)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(OmniViolet.copy(alpha = 0.15f))
+                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = roleBadge.uppercase(),
+                                                color = OmniSky,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = state.matchSubtitle,
@@ -2846,7 +2898,7 @@ fun ScannerScreen(
                             modifier = Modifier.weight(1f, fill = false)
                         ) {
                             Text(
-                                text = "${state.enrolledCount} ${LocalizationManager.get(StringKey.STUDENTS_ENROLLED)}",
+                                text = "${state.enrolledCount} ${LocalizationManager.getEntityPlural(state.orgType)} Enrolled",
                                 color = omniTextMuted(isDark),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,

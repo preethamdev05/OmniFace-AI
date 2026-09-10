@@ -10,6 +10,7 @@ interface MemberRecord {
   id: string;
   studentRoll: string;
   fullName: string;
+  role: string;
   department: string;
   semester: string;
   vectorCount: number;
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const dept = searchParams.get('department');
+  const role = searchParams.get('role');
   const search = searchParams.get('q')?.toLowerCase();
 
   if (isDbConfigured()) {
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
             id: faceEmbeddings.id,
             studentRoll: faceEmbeddings.studentRoll,
             fullName: faceEmbeddings.fullName,
+            role: faceEmbeddings.role,
             department: faceEmbeddings.department,
             semester: faceEmbeddings.semester,
             qualityScore: faceEmbeddings.qualityScore,
@@ -52,6 +55,7 @@ export async function GET(req: NextRequest) {
           id: rec.id,
           studentRoll: rec.studentRoll,
           fullName: rec.fullName,
+          role: rec.role || 'STUDENT',
           department: rec.department,
           semester: rec.semester,
           vectorCount: 5,
@@ -62,6 +66,9 @@ export async function GET(req: NextRequest) {
 
         if (dept && dept !== 'ALL') {
           members = members.filter((m) => m.department === dept);
+        }
+        if (role && role !== 'ALL') {
+          members = members.filter((m) => m.role.toUpperCase() === role.toUpperCase());
         }
         if (search) {
           members = members.filter(
@@ -98,17 +105,19 @@ export async function POST(req: NextRequest) {
     const orgId = user.orgId;
 
     const body = await req.json();
-    const { studentRoll, fullName, department, semester, embedding } = body;
+    const { studentRoll, fullName, department, semester, embedding, role } = body;
 
     if (!studentRoll || !fullName) {
       return NextResponse.json({ error: 'Missing required fields: studentRoll and fullName' }, { status: 400 });
     }
 
+    const memberRole = (role || 'STUDENT').toUpperCase();
     const newMemberId = crypto.randomUUID();
     const newMember: MemberRecord = {
       id: newMemberId,
       studentRoll,
       fullName,
+      role: memberRole,
       department: department || 'General',
       semester: semester || 'I',
       vectorCount: 5, // 5 biometric angles captured
@@ -133,6 +142,7 @@ export async function POST(req: NextRequest) {
             orgId,
             studentRoll,
             fullName,
+            role: memberRole,
             department: department || 'General',
             semester: semester || 'I',
             angleType: 'FRONTAL',
@@ -144,10 +154,10 @@ export async function POST(req: NextRequest) {
             organizationId: orgId,
             userId: user.userId,
             action: 'MEMBER_ENROLLED',
-            entityType: 'STUDENT',
+            entityType: memberRole,
             entityId: `${studentRoll} (${fullName})`,
-            newValues: JSON.stringify({ roll: studentRoll, dept: department, semester }),
-            reason: 'Student enrolled via administrative console',
+            newValues: JSON.stringify({ roll: studentRoll, dept: department, semester, role: memberRole }),
+            reason: `${memberRole} enrolled via administrative console`,
           });
         } catch (dbErr) {
           console.error('PostgreSQL enrollment persistence warning:', dbErr);

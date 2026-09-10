@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -122,6 +123,8 @@ data class EnrollmentUiState(
     val isOcrScanning: Boolean = false,
     val rollNumber: String = "",
     val fullName: String = "",
+    val role: String = "STUDENT",
+    val selectedRoleFilter: String = "ALL",
     val department: String = "AI & Biometrics",
     val semester: String = "VI",
     val enrolledStudentsList: List<StudentEntity> = emptyList(),
@@ -131,8 +134,10 @@ data class EnrollmentUiState(
     val isEditProfileOpen: Boolean = false,
     val isDeleteConfirmOpen: Boolean = false,
     val editFullName: String = "",
+    val editRole: String = "STUDENT",
     val editDepartment: String = "",
     val editSemester: String = "",
+    val orgType: String = "SCHOOL",
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
     val isModelAvailable: Boolean = false,
@@ -208,6 +213,16 @@ class EnrollmentViewModel : ViewModel() {
     private val capturedQualityScores = mutableListOf<Float>()
 
     init {
+        viewModelScope.launch {
+            LocalizationManager.currentOrgType.collect { currentType ->
+                val defaultRole = when (currentType.uppercase()) {
+                    "CORPORATE" -> "EMPLOYEE"
+                    "GYM_EVENT" -> "MEMBER"
+                    else -> "STUDENT"
+                }
+                _uiState.update { it.copy(orgType = currentType, role = defaultRole) }
+            }
+        }
         observeEnrolledStudents()
     }
 
@@ -217,7 +232,7 @@ class EnrollmentViewModel : ViewModel() {
                 _uiState.update { current ->
                     current.copy(
                         enrolledStudentsList = list,
-                        filteredEnrolledStudents = filterStudents(list, current.searchQuery)
+                        filteredEnrolledStudents = filterStudents(list, current.searchQuery, current.selectedRoleFilter)
                     )
                 }
             }
@@ -228,18 +243,40 @@ class EnrollmentViewModel : ViewModel() {
         _uiState.update { current ->
             current.copy(
                 searchQuery = query,
-                filteredEnrolledStudents = filterStudents(current.enrolledStudentsList, query)
+                filteredEnrolledStudents = filterStudents(current.enrolledStudentsList, query, current.selectedRoleFilter)
             )
         }
     }
 
-    private fun filterStudents(list: List<StudentEntity>, query: String): List<StudentEntity> {
+    fun onRoleFilterChanged(roleFilter: String) {
+        _uiState.update { current ->
+            current.copy(
+                selectedRoleFilter = roleFilter,
+                filteredEnrolledStudents = filterStudents(current.enrolledStudentsList, current.searchQuery, roleFilter)
+            )
+        }
+    }
+
+    private fun filterStudents(
+        list: List<StudentEntity>,
+        query: String,
+        roleFilter: String = _uiState.value.selectedRoleFilter
+    ): List<StudentEntity> {
         val q = query.trim().lowercase(java.util.Locale.getDefault())
-        if (q.isEmpty()) return list
         return list.filter { s ->
-            s.fullName.lowercase(java.util.Locale.getDefault()).contains(q) ||
-            s.rollNumber.lowercase(java.util.Locale.getDefault()).contains(q) ||
-            s.department.lowercase(java.util.Locale.getDefault()).contains(q)
+            val matchesQuery = q.isEmpty() ||
+                s.fullName.lowercase(java.util.Locale.getDefault()).contains(q) ||
+                s.rollNumber.lowercase(java.util.Locale.getDefault()).contains(q) ||
+                s.department.lowercase(java.util.Locale.getDefault()).contains(q)
+
+            val matchesRole = when (roleFilter) {
+                "ALL" -> true
+                "STAFF" -> s.role.equals("FACULTY", ignoreCase = true) || s.role.equals("STAFF", ignoreCase = true) || s.role.equals("MANAGER", ignoreCase = true) || s.role.equals("TRAINER", ignoreCase = true)
+                "PRIMARY" -> s.role.equals("STUDENT", ignoreCase = true) || s.role.equals("EMPLOYEE", ignoreCase = true) || s.role.equals("MEMBER", ignoreCase = true)
+                "VISITOR" -> s.role.equals("VISITOR", ignoreCase = true) || s.role.equals("CONTRACTOR", ignoreCase = true)
+                else -> s.role.equals(roleFilter, ignoreCase = true)
+            }
+            matchesQuery && matchesRole
         }
     }
 
@@ -248,6 +285,7 @@ class EnrollmentViewModel : ViewModel() {
             it.copy(
                 selectedStudentForManage = student,
                 editFullName = student.fullName,
+                editRole = student.role,
                 editDepartment = student.department,
                 editSemester = student.semester,
                 isEditProfileOpen = false,
@@ -272,6 +310,7 @@ class EnrollmentViewModel : ViewModel() {
             it.copy(
                 isEditProfileOpen = true,
                 editFullName = s.fullName,
+                editRole = s.role,
                 editDepartment = s.department,
                 editSemester = s.semester
             )
@@ -282,10 +321,11 @@ class EnrollmentViewModel : ViewModel() {
         _uiState.update { it.copy(isEditProfileOpen = false) }
     }
 
-    fun updateEditFields(name: String? = null, dept: String? = null, sem: String? = null) {
+    fun updateEditFields(name: String? = null, dept: String? = null, sem: String? = null, role: String? = null) {
         _uiState.update {
             it.copy(
                 editFullName = name ?: it.editFullName,
+                editRole = role ?: it.editRole,
                 editDepartment = dept ?: it.editDepartment,
                 editSemester = sem ?: it.editSemester
             )
@@ -295,6 +335,7 @@ class EnrollmentViewModel : ViewModel() {
     fun saveEditedProfile(context: Context) {
         val currentStudent = _uiState.value.selectedStudentForManage ?: return
         val newName = _uiState.value.editFullName.trim()
+        val newRole = _uiState.value.editRole.trim()
         val newDept = _uiState.value.editDepartment.trim()
         val newSem = _uiState.value.editSemester.trim()
 
@@ -306,6 +347,7 @@ class EnrollmentViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = currentStudent.copy(
                 fullName = newName,
+                role = if (newRole.isNotBlank()) newRole else currentStudent.role,
                 department = if (newDept.isNotBlank()) newDept else currentStudent.department,
                 semester = if (newSem.isNotBlank()) newSem else currentStudent.semester
             )
@@ -371,11 +413,12 @@ class EnrollmentViewModel : ViewModel() {
         // Context is retained for future hot-swap delegate scenarios.
     }
 
-    fun updateForm(roll: String? = null, name: String? = null, dept: String? = null, sem: String? = null) {
+    fun updateForm(roll: String? = null, name: String? = null, dept: String? = null, sem: String? = null, role: String? = null) {
         _uiState.update {
             it.copy(
                 rollNumber = roll ?: it.rollNumber,
                 fullName = name ?: it.fullName,
+                role = role ?: it.role,
                 department = dept ?: it.department,
                 semester = sem ?: it.semester
             )
@@ -404,12 +447,14 @@ class EnrollmentViewModel : ViewModel() {
         val name = _uiState.value.fullName.trim()
 
         if (!downloadManager.isModelAvailable()) {
-            Toast.makeText(context, "AI Face Pack required to enroll students. Please download the model in Settings.", Toast.LENGTH_LONG).show()
+            val entityPlural = LocalizationManager.getEntityPlural(_uiState.value.orgType).lowercase()
+            Toast.makeText(context, "AI Face Pack required to enroll $entityPlural. Please download the model in Settings.", Toast.LENGTH_LONG).show()
             return
         }
 
         if (roll.isBlank() || name.isBlank()) {
-            Toast.makeText(context, "Please enter Student Full Name and Roll Number", Toast.LENGTH_SHORT).show()
+            val idLabel = LocalizationManager.getIdLabel(_uiState.value.orgType)
+            Toast.makeText(context, "Please enter Full Name and $idLabel", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -962,6 +1007,7 @@ class EnrollmentViewModel : ViewModel() {
             val student = StudentEntity(
                 rollNumber = roll,
                 fullName = name,
+                role = _uiState.value.role,
                 department = dept,
                 semester = sem
             )
@@ -1079,7 +1125,7 @@ private fun RegistrationFormView(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "STUDENTS",
+                        text = LocalizationManager.getEntityPlural(state.orgType).uppercase(),
                         color = OmniViolet,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -1087,7 +1133,7 @@ private fun RegistrationFormView(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = LocalizationManager.get(StringKey.TAB_STUDENTS),
+                        text = LocalizationManager.getEntityPlural(state.orgType),
                         color = omniTextPrimary(isDark),
                         fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -1095,7 +1141,7 @@ private fun RegistrationFormView(
                         maxLines = 1
                     )
                     Text(
-                        text = "Biometric Vault & Directory",
+                        text = "Biometric Vault & Multi-Role Directory",
                         color = omniTextMuted(isDark),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
@@ -1119,12 +1165,17 @@ private fun RegistrationFormView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ENROLL NEW STUDENT",
+                        text = "ENROLL NEW ${LocalizationManager.getEntitySingular(state.orgType).uppercase()}",
                         color = omniTextMuted(isDark),
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.6.sp
+                        letterSpacing = 0.6.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+
+                    Spacer(modifier = Modifier.width(8.dp))
 
                     IOSGlassPill(
                         text = "✦ Enterprise 3D",
@@ -1133,6 +1184,43 @@ private fun RegistrationFormView(
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
+
+                // Role Selector Chips
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "ROLE & DESIGNATION",
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val roles = LocalizationManager.getAllowedRoles(state.orgType)
+                        items(roles) { r ->
+                            val isSelected = state.role.equals(r, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.updateForm(role = r) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = LocalizationManager.getRoleBadgeLabel(r),
+                                    color = if (isSelected) Color.White else omniTextMuted(isDark),
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Full Name
                 OutlinedTextField(
@@ -1153,12 +1241,12 @@ private fun RegistrationFormView(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Roll Number
+                // ID / Roll Number
                 OutlinedTextField(
                     value = state.rollNumber,
                     onValueChange = { viewModel.updateForm(roll = it) },
-                    label = { Text(LocalizationManager.get(StringKey.ROLL_NUMBER), fontSize = 12.sp) },
-                    placeholder = { Text("e.g. CS2024-042", color = omniTextMuted(isDark), fontSize = 13.sp) },
+                    label = { Text(LocalizationManager.getIdLabel(state.orgType), fontSize = 12.sp) },
+                    placeholder = { Text(if (state.orgType.uppercase() == "CORPORATE") "e.g. EMP-1042" else "e.g. CS2024-042", color = omniTextMuted(isDark), fontSize = 13.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -1194,7 +1282,7 @@ private fun RegistrationFormView(
                     OutlinedTextField(
                         value = state.semester,
                         onValueChange = { viewModel.updateForm(sem = it) },
-                        label = { Text(LocalizationManager.get(StringKey.SEMESTER), fontSize = 12.sp) },
+                        label = { Text(LocalizationManager.getGroupLabel(state.orgType), fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
@@ -1257,7 +1345,7 @@ private fun RegistrationFormView(
                                     color = omniTextPrimary(isDark)
                                 )
                                 Text(
-                                    text = "Download the 380 MB AI Face Pack in Settings to extract facial templates and enroll students.",
+                                    text = "Download the 380 MB AI Face Pack in Settings to extract facial templates and enroll ${LocalizationManager.getEntityPlural(state.orgType).lowercase()}.",
                                     fontSize = 11.sp,
                                     color = omniTextSecondary(isDark),
                                     lineHeight = 15.sp
@@ -1312,16 +1400,47 @@ private fun RegistrationFormView(
         item {
             IOSCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeader(
-                    text = "ENROLLED STUDENTS (${state.enrolledStudentsList.size} / ${SubscriptionTierManager.getMaxStudentsDisplay()})"
+                    text = "ENROLLED ${LocalizationManager.getEntityPlural(state.orgType).uppercase()} (${state.enrolledStudentsList.size} / ${SubscriptionTierManager.getMaxStudentsDisplay()})"
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                // Role Filter Chips Row
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                ) {
+                    val filters = listOf(
+                        "ALL" to "All People",
+                        "PRIMARY" to LocalizationManager.getEntityPlural(state.orgType),
+                        "STAFF" to "Staff & Faculty",
+                        "VISITOR" to "Visitors"
+                    )
+                    items(filters) { (key, label) ->
+                        val isSelected = state.selectedRoleFilter == key
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                .clickable { viewModel.onRoleFilterChanged(key) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.White else omniTextMuted(isDark),
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
 
                 // Search Box
                 CupertinoSearchField(
                     query = state.searchQuery,
                     onQueryChange = { viewModel.onSearchQueryChanged(it) },
-                    placeholder = LocalizationManager.get(StringKey.SEARCH_STUDENTS)
+                    placeholder = "Search by name, ${LocalizationManager.getIdLabel(state.orgType).lowercase()}, or department..."
                 )
 
                 if (state.searchQuery.isNotBlank()) {
@@ -1339,8 +1458,8 @@ private fun RegistrationFormView(
                 if (state.enrolledStudentsList.isEmpty()) {
                     EmptyState(
                         icon = Icons.Default.PersonAdd,
-                        title = "No students enrolled yet",
-                        subtitle = "Register your first student above to enable face identification"
+                        title = "No ${LocalizationManager.getEntityPlural(state.orgType).lowercase()} enrolled yet",
+                        subtitle = "Register your first ${LocalizationManager.getEntitySingular(state.orgType).lowercase()} or staff member above to enable face identification"
                     )
                 } else if (state.filteredEnrolledStudents.isEmpty()) {
                     EmptyState(
@@ -1380,12 +1499,30 @@ private fun RegistrationFormView(
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(
-                                        text = student.fullName,
-                                        color = omniTextPrimary(isDark),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = student.fullName,
+                                            color = omniTextPrimary(isDark),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(OmniViolet.copy(alpha = 0.15f))
+                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = roleBadge.uppercase(),
+                                                color = OmniSky,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "${student.rollNumber} • ${student.department} (${student.semester})",
@@ -1468,15 +1605,33 @@ private fun RegistrationFormView(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = student.fullName,
-                            color = omniTextPrimary(isDark),
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = student.fullName,
+                                color = omniTextPrimary(isDark),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(OmniViolet.copy(alpha = 0.15f))
+                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = roleBadge.uppercase(),
+                                    color = OmniSky,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${LocalizationManager.get(StringKey.ROLL_NUMBER)}: ${student.rollNumber}",
+                            text = "${LocalizationManager.getIdLabel(state.orgType)}: ${student.rollNumber}",
                             color = omniCyan(isDark),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
@@ -1501,9 +1656,9 @@ private fun RegistrationFormView(
                             Text(student.department, color = omniTextPrimary(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(LocalizationManager.get(StringKey.SEMESTER).uppercase(), color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(LocalizationManager.getGroupLabel(state.orgType).uppercase(), color = omniTextMuted(isDark), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${LocalizationManager.get(StringKey.SEMESTER)} ${student.semester}", color = omniTextPrimary(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (student.semester.isNotBlank()) student.semester else "Standard", color = omniTextPrimary(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -1550,7 +1705,7 @@ private fun RegistrationFormView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "2FA STUDENT DIGITAL BADGE",
+                            text = "2FA DIGITAL BADGE",
                             color = omniTextMuted(isDark),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -1580,7 +1735,7 @@ private fun RegistrationFormView(
                             ) {
                                 androidx.compose.foundation.Image(
                                     bitmap = qrBitmap.asImageBitmap(),
-                                    contentDescription = "Student 2FA QR Badge",
+                                    contentDescription = "2FA QR Badge",
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -1645,7 +1800,7 @@ private fun RegistrationFormView(
 
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "ID: ${student.rollNumber} • Present to kiosk camera for 2-Factor Auth",
+                        text = "${LocalizationManager.getIdLabel(state.orgType)}: ${student.rollNumber} • Present to kiosk camera for 2-Factor Auth",
                         color = omniTextMuted(isDark),
                         fontSize = 11.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1698,10 +1853,43 @@ private fun RegistrationFormView(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "${LocalizationManager.get(StringKey.ROLL_NUMBER)}: ${state.selectedStudentForManage.rollNumber}",
+                        text = "${LocalizationManager.getIdLabel(state.orgType)}: ${state.selectedStudentForManage.rollNumber}",
                         color = omniTextMuted(isDark),
                         fontSize = 12.sp
                     )
+
+                    // Role selector chips
+                    Text(
+                        text = "ROLE & DESIGNATION",
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val roles = LocalizationManager.getAllowedRoles(state.orgType)
+                        items(roles) { r ->
+                            val isSelected = state.editRole.equals(r, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.updateEditFields(role = r) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = LocalizationManager.getRoleBadgeLabel(r),
+                                    color = if (isSelected) Color.White else omniTextMuted(isDark),
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = state.editFullName,
@@ -1736,7 +1924,7 @@ private fun RegistrationFormView(
                     OutlinedTextField(
                         value = state.editSemester,
                         onValueChange = { viewModel.updateEditFields(sem = it) },
-                        label = { Text(LocalizationManager.get(StringKey.SEMESTER), fontSize = 12.sp) },
+                        label = { Text(LocalizationManager.getGroupLabel(state.orgType), fontSize = 12.sp) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),

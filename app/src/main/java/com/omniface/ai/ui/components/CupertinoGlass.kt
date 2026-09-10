@@ -197,52 +197,44 @@ fun Modifier.liquidGlassBackdrop(
  * Pure Apple iOS Specular Reflection Border Brush (Kyant & Philipp Lackner Tokens).
  * Simulates top-left 135° ambient light source highlight with bottom-right hairline refraction shadow.
  */
-fun omniLiquidSpecularBorder(isDark: Boolean): Brush {
-    return if (isDark) {
-        Brush.linearGradient(
-            0.0f to Color(0x4DFFFFFF),
-            0.25f to Color(0x24FFFFFF),
-            0.60f to Color(0x0AFFFFFF),
-            1.0f to Color(0x05000000),
-            start = Offset(0f, 0f),
-            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-        )
-    } else {
-        Brush.linearGradient(
-            0.0f to Color(0x99FFFFFF),
-            0.40f to Color(0x26000000),
-            1.0f to Color(0x0F000000),
-            start = Offset(0f, 0f),
-            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-        )
-    }
-}
+private val DarkLiquidSpecularBorder = Brush.linearGradient(
+    0.0f to Color(0x4DFFFFFF),
+    0.25f to Color(0x24FFFFFF),
+    0.60f to Color(0x0AFFFFFF),
+    1.0f to Color(0x05000000),
+    start = Offset(0f, 0f),
+    end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+)
 
-/**
- * Layered Refraction Surface Diffusion Brush (AGENTS.md Liquid Glass Standard #2).
- * Translucent multi-stop vertical gradients let camera viewfinders and canvas
- * animations refract naturally through every glass surface.
- * Dark: #381E293B → #3D0B0F19 · Light: #F0FFFFFF → #C8F1F5F9
- */
-fun omniLiquidSurfaceBrush(isDark: Boolean): Brush {
-    return if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color(0x401E293B),
-                Color(0x281E293B),
-                Color(0x4D0B0F19)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xF0FFFFFF),
-                Color(0xE6FFFFFF),
-                Color(0xC8F1F5F9)
-            )
-        )
-    }
-}
+private val LightLiquidSpecularBorder = Brush.linearGradient(
+    0.0f to Color(0x99FFFFFF),
+    0.40f to Color(0x26000000),
+    1.0f to Color(0x0F000000),
+    start = Offset(0f, 0f),
+    end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+)
+
+fun omniLiquidSpecularBorder(isDark: Boolean): Brush =
+    if (isDark) DarkLiquidSpecularBorder else LightLiquidSpecularBorder
+
+private val DarkLiquidSurfaceBrush = Brush.verticalGradient(
+    listOf(
+        Color(0x401E293B),
+        Color(0x281E293B),
+        Color(0x4D0B0F19)
+    )
+)
+
+private val LightLiquidSurfaceBrush = Brush.verticalGradient(
+    listOf(
+        Color(0xF0FFFFFF),
+        Color(0xE6FFFFFF),
+        Color(0xC8F1F5F9)
+    )
+)
+
+fun omniLiquidSurfaceBrush(isDark: Boolean): Brush =
+    if (isDark) DarkLiquidSurfaceBrush else LightLiquidSurfaceBrush
 
 /**
  * Standardized Apple iOS Grouped Surface Card (20dp major, 16dp compact).
@@ -261,40 +253,47 @@ fun IOSCard(
     val effectiveBg = backgroundBrush ?: omniLiquidSurfaceBrush(isDark)
     val effectiveBorder = borderBrush ?: omniLiquidSpecularBorder(isDark)
     val shadowElevation = elevation ?: (if (isDark) 4.dp else 6.dp)
-
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed && onClick != null) 0.985f else 1.0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "cardScale"
-    )
-
     val cardShape = RoundedCornerShape(cornerRadius)
 
-    val baseModifier = modifier
-        .scale(scale)
-        .shadow(
-            elevation = shadowElevation,
-            shape = cardShape,
-            ambientColor = if (isDark) Color(0x66000000) else Color(0x1F0F172A),
-            spotColor = if (isDark) Color(0x4D000000) else Color(0x140F172A)
-        )
-        .clip(cardShape)
-        .background(effectiveBg)
-        .border(0.75.dp, effectiveBorder, cardShape)
-
     val cardModifier = if (onClick != null) {
-        baseModifier.clickable(
-            interactionSource = interactionSource,
-            indication = null
-        ) { onClick() }
+        val interactionSource = remember { MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+
+        val scale by animateFloatAsState(
+            targetValue = if (isPressed) 0.985f else 1.0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            ),
+            label = "cardScale"
+        )
+
+        modifier
+            .scale(scale)
+            .shadow(
+                elevation = shadowElevation,
+                shape = cardShape,
+                ambientColor = if (isDark) Color(0x66000000) else Color(0x1F0F172A),
+                spotColor = if (isDark) Color(0x4D000000) else Color(0x140F172A)
+            )
+            .clip(cardShape)
+            .background(effectiveBg)
+            .border(0.75.dp, effectiveBorder, cardShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null
+            ) { onClick() }
     } else {
-        baseModifier
+        modifier
+            .shadow(
+                elevation = shadowElevation,
+                shape = cardShape,
+                ambientColor = if (isDark) Color(0x66000000) else Color(0x1F0F172A),
+                spotColor = if (isDark) Color(0x4D000000) else Color(0x140F172A)
+            )
+            .clip(cardShape)
+            .background(effectiveBg)
+            .border(0.75.dp, effectiveBorder, cardShape)
     }
 
     CompositionLocalProvider(LocalContentColor provides omniTextPrimary(isDark)) {

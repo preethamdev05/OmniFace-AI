@@ -99,6 +99,7 @@ export const students = pgTable('students', {
   departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
   rollNumber: varchar('roll_number', { length: 64 }).notNull(),
   fullName: varchar('full_name', { length: 255 }).notNull(),
+  role: varchar('role', { length: 32 }).notNull().default('STUDENT'), // STUDENT, FACULTY, STAFF, EMPLOYEE, MANAGER, MEMBER, TRAINER, CONTRACTOR, VISITOR
   email: varchar('email', { length: 255 }),
   phone: varchar('phone', { length: 32 }),
   status: varchar('status', { length: 32 }).notNull().default('ACTIVE'), // ACTIVE, INACTIVE, SUSPENDED
@@ -107,7 +108,9 @@ export const students = pgTable('students', {
 }, (table) => [
   index('idx_students_org_dept').on(table.organizationId, table.departmentId),
   index('idx_students_org_roll').on(table.organizationId, table.rollNumber),
+  index('idx_students_org_role').on(table.organizationId, table.role),
 ]);
+export const people = students; // Unified roster alias
 
 // ── 7. Student Classes (Many-to-Many Enrollment) ──
 export const studentClasses = pgTable('student_classes', {
@@ -119,6 +122,7 @@ export const studentClasses = pgTable('student_classes', {
 }, (table) => [
   index('idx_student_classes_org_class').on(table.organizationId, table.classId),
 ]);
+export const peopleClasses = studentClasses; // Unified class mapping alias
 
 // ── 8. Devices (Hardware Kiosks & Fleet) ──
 export const devices = pgTable('devices', {
@@ -158,6 +162,7 @@ export const faceTemplates = pgTable('face_templates', {
   studentId: uuid('student_id').references(() => students.id, { onDelete: 'cascade' }),
   studentRoll: varchar('student_roll', { length: 64 }).notNull(),
   fullName: varchar('full_name', { length: 255 }).notNull(),
+  role: varchar('role', { length: 32 }).notNull().default('STUDENT'),
   department: varchar('department', { length: 128 }).notNull().default('General'),
   semester: varchar('semester', { length: 32 }).notNull().default('I'),
   angleType: varchar('angle_type', { length: 32 }).notNull().default('FRONTAL'), // FRONTAL, LEFT_15, RIGHT_15, UP_10, DOWN_10

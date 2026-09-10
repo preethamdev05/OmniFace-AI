@@ -10,7 +10,7 @@ import androidx.room.PrimaryKey
     tableName = "students",
     indices = [Index(value = ["roll_number"], unique = true)]
 )
-data class StudentEntity(
+data class PersonEntity(
     @PrimaryKey
     @ColumnInfo(name = "roll_number")
     val rollNumber: String,
@@ -23,16 +23,22 @@ data class StudentEntity(
     
     @ColumnInfo(name = "semester")
     val semester: String,
+
+    @ColumnInfo(name = "role", defaultValue = "STUDENT")
+    val role: String = "STUDENT",
     
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()
 )
 
+/** Universal domain typealias */
+typealias StudentEntity = PersonEntity
+
 @Entity(
     tableName = "face_templates",
     foreignKeys = [
         ForeignKey(
-            entity = StudentEntity::class,
+            entity = PersonEntity::class,
             parentColumns = ["roll_number"],
             childColumns = ["student_roll"],
             onDelete = ForeignKey.CASCADE
@@ -81,7 +87,7 @@ data class FaceTemplateEntity(
     tableName = "attendance_records",
     foreignKeys = [
         ForeignKey(
-            entity = StudentEntity::class,
+            entity = PersonEntity::class,
             parentColumns = ["roll_number"],
             childColumns = ["student_roll"],
             onDelete = ForeignKey.CASCADE

@@ -195,7 +195,7 @@ fun PaywallBottomSheet(
                     badge = "Institutes",
                     badgeColor = omniCyan(isDark),
                     features = listOf("500+ users", "Unlimited devices", "Multi-admin", "Departments & classes", "Audit logs & reports", "Custom onboarding"),
-                    isSelected = selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS,
+                    isSelected = selectedPlan == SubscriptionTier.INSTITUTION,
                     isDark = isDark,
                     modifier = Modifier.width(145.dp),
                     onClick = { selectedPlan = SubscriptionTier.INSTITUTION }
@@ -259,7 +259,7 @@ fun PaywallBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("START PRO (₹349 / MO)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
-            } else if (selectedPlan == SubscriptionTier.INSTITUTION || selectedPlan == SubscriptionTier.BUSINESS) {
+            } else if (selectedPlan == SubscriptionTier.INSTITUTION) {
                 Button(
                     onClick = {
                         val portalUrl = "https://omniface.vercel.app/subscription"

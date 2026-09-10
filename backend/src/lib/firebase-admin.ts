@@ -18,7 +18,7 @@ export function getFirebaseAdmin(): App | null {
   }
 
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'bca-ai-connect';
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'omniface-ai-prod';
 
   if (serviceAccountJson) {
     try {

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.omniface.ai.data.local.entity.AttendanceRecordEntity
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
+import com.omniface.ai.data.local.entity.PersonEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 import com.omniface.ai.i18n.LocalizationManager
 import com.omniface.ai.i18n.StringKey
@@ -39,8 +40,8 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StudentInfoSheet(
-    student: StudentEntity,
+fun PersonInfoSheet(
+    person: PersonEntity,
     templates: List<FaceTemplateEntity> = emptyList(),
     attendanceCount: Int = 0,
     recentRecords: List<AttendanceRecordEntity> = emptyList(),
@@ -51,11 +52,13 @@ fun StudentInfoSheet(
     onReEnrollClick: () -> Unit = {},
     onDeleteClick: (() -> Unit)? = null
 ) {
+    val student = person
     BackHandler {
         onDismiss()
     }
 
     val context = LocalContext.current
+    val orgType by LocalizationManager.currentOrgType.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -130,17 +133,24 @@ fun StudentInfoSheet(
                 Spacer(modifier = Modifier.width(16.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = student.fullName,
-                        color = omniTextPrimary(isDark),
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = student.fullName,
+                            color = omniTextPrimary(isDark),
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IOSGlassPill(
+                            text = LocalizationManager.getRoleBadgeLabel(student.role).uppercase(),
+                            accentColor = OmniSky
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Roll: ${student.rollNumber}",
+                        text = "${LocalizationManager.getIdLabel(orgType)}: ${student.rollNumber}",
                         color = omniCyan(isDark),
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -153,10 +163,12 @@ fun StudentInfoSheet(
                             text = student.department.ifBlank { "General" },
                             accentColor = omniCyan(isDark)
                         )
-                        IOSGlassPill(
-                            text = if (student.semester.isNotBlank()) "Sem ${student.semester}" else "Active",
-                            accentColor = Color(0xFF10B981)
-                        )
+                        if (student.semester.isNotBlank()) {
+                            IOSGlassPill(
+                                text = student.semester,
+                                accentColor = Color(0xFF10B981)
+                            )
+                        }
                     }
                 }
             }
@@ -172,7 +184,7 @@ fun StudentInfoSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "ACADEMIC INFORMATION",
+                        text = "${LocalizationManager.getDirectoryTabTitle(orgType).uppercase()} INFORMATION",
                         color = omniTextMuted(isDark),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
@@ -188,7 +200,7 @@ fun StudentInfoSheet(
                             Text(student.department.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Semester / Year", color = omniTextMuted(isDark), fontSize = 11.5.sp)
+                            Text(LocalizationManager.getGroupLabel(orgType), color = omniTextMuted(isDark), fontSize = 11.5.sp)
                             Text(student.semester.ifBlank { "N/A" }, color = omniTextPrimary(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -233,7 +245,7 @@ fun StudentInfoSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "2FA STUDENT DIGITAL BADGE",
+                            text = "2FA DIGITAL BADGE",
                             color = omniTextMuted(isDark),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -258,7 +270,7 @@ fun StudentInfoSheet(
                         ) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "Student 2FA QR Badge",
+                                contentDescription = "2FA QR Badge",
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -586,3 +598,29 @@ fun StudentInfoSheet(
         )
     }
 }
+
+/** Backward compatibility alias for StudentInfoSheet */
+@Composable
+fun StudentInfoSheet(
+    student: PersonEntity,
+    templates: List<FaceTemplateEntity> = emptyList(),
+    attendanceCount: Int = 0,
+    recentRecords: List<AttendanceRecordEntity> = emptyList(),
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    onEditClick: () -> Unit = {},
+    onViewAttendanceClick: () -> Unit = {},
+    onReEnrollClick: () -> Unit = {},
+    onDeleteClick: (() -> Unit)? = null
+) = PersonInfoSheet(
+    person = student,
+    templates = templates,
+    attendanceCount = attendanceCount,
+    recentRecords = recentRecords,
+    isDark = isDark,
+    onDismiss = onDismiss,
+    onEditClick = onEditClick,
+    onViewAttendanceClick = onViewAttendanceClick,
+    onReEnrollClick = onReEnrollClick,
+    onDeleteClick = onDeleteClick
+)

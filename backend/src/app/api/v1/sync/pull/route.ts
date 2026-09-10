@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
             id: r.id,
             studentRoll: r.studentRoll,
             fullName: r.fullName,
+            role: r.role || 'STUDENT',
             angleType: r.angleType,
             embedding: r.embedding,
             qualityScore: r.qualityScore,
@@ -45,6 +46,7 @@ export async function GET(req: NextRequest) {
               id: studentsTable.id,
               rollNumber: studentsTable.rollNumber,
               fullName: studentsTable.fullName,
+              role: studentsTable.role,
             })
             .from(studentsTable)
             .where(eq(studentsTable.organizationId, orgId));
@@ -52,6 +54,7 @@ export async function GET(req: NextRequest) {
           students = studentRows.map((s) => ({
             roll: s.rollNumber,
             name: s.fullName,
+            role: s.role || 'STUDENT',
             department: 'Enrolled Member',
             semester: 'I',
           }));

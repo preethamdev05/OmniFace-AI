@@ -68,7 +68,8 @@ class OmniFaceApplication : Application() {
                 AppDatabase.MIGRATION_1_4,
                 AppDatabase.MIGRATION_2_4,
                 AppDatabase.MIGRATION_4_5,
-                AppDatabase.MIGRATION_5_6
+                AppDatabase.MIGRATION_5_6,
+                AppDatabase.MIGRATION_6_7
             )
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {

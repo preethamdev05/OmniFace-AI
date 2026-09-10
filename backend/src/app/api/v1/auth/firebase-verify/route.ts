@@ -17,6 +17,19 @@ export async function POST(req: NextRequest) {
     // Verify token against Google Firebase Auth
     const firebasePayload = await verifyFirebaseIdToken(idToken);
 
+    // Enforce Gmail / Email verification
+    if (!firebasePayload.email_verified) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Email verification required. Please check your Gmail or email inbox and click the verification link.',
+          code: 'EMAIL_NOT_VERIFIED',
+          email: firebasePayload.email,
+        },
+        { status: 403 }
+      );
+    }
+
     // Resolve user & RBAC role (OWNER, ADMIN, TEACHER, VIEWER)
     const authenticatedUser = await resolveUserFromFirebase(firebasePayload);
 

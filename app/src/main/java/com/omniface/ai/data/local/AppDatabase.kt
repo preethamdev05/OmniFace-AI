@@ -5,22 +5,25 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.omniface.ai.data.local.dao.AttendanceDao
+import com.omniface.ai.data.local.dao.PersonDao
 import com.omniface.ai.data.local.dao.StudentDao
 import com.omniface.ai.data.local.entity.AttendanceRecordEntity
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
+import com.omniface.ai.data.local.entity.PersonEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 
 @Database(
     entities = [
-        StudentEntity::class,
+        PersonEntity::class,
         FaceTemplateEntity::class,
         AttendanceRecordEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun studentDao(): StudentDao
+    abstract fun personDao(): PersonDao
+    open fun studentDao(): PersonDao = personDao()
     abstract fun attendanceDao(): AttendanceDao
 
     companion object {
@@ -111,6 +114,12 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_attendance_records_student_roll` ON `attendance_records` (`student_roll`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_attendance_records_is_synced` ON `attendance_records` (`is_synced`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_attendance_records_timestamp` ON `attendance_records` (`timestamp`)")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `students` ADD COLUMN `role` TEXT NOT NULL DEFAULT 'STUDENT'")
             }
         }
     }

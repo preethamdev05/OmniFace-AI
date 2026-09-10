@@ -3,64 +3,109 @@ package com.omniface.ai.data.local.dao
 import androidx.room.*
 import com.omniface.ai.data.local.entity.AttendanceRecordEntity
 import com.omniface.ai.data.local.entity.FaceTemplateEntity
+import com.omniface.ai.data.local.entity.PersonEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface StudentDao {
+interface PersonDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertStudent(student: StudentEntity)
+    suspend fun insertPerson(person: PersonEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertStudents(students: List<StudentEntity>)
+    suspend fun insertStudent(student: PersonEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPersons(persons: List<PersonEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStudents(students: List<PersonEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTemplates(templates: List<FaceTemplateEntity>)
 
     @Query("SELECT COUNT(*) FROM students")
+    suspend fun getPersonCount(): Int
+
+    @Query("SELECT COUNT(*) FROM students")
     suspend fun getStudentCount(): Int
 
+    @Query("SELECT * FROM students WHERE roll_number = :roll LIMIT 1")
+    suspend fun getPersonByRoll(roll: String): PersonEntity?
 
     @Query("SELECT * FROM students WHERE roll_number = :roll LIMIT 1")
-    suspend fun getStudentByRoll(roll: String): StudentEntity?
+    suspend fun getStudentByRoll(roll: String): PersonEntity?
 
     @Query("SELECT * FROM students ORDER BY roll_number ASC")
-    fun getAllStudentsFlow(): Flow<List<StudentEntity>>
+    fun getAllPersonsFlow(): Flow<List<PersonEntity>>
+
+    @Query("SELECT * FROM students ORDER BY roll_number ASC")
+    fun getAllStudentsFlow(): Flow<List<PersonEntity>>
 
     @Query("SELECT * FROM students")
-    suspend fun getAllStudents(): List<StudentEntity>
+    suspend fun getAllPersons(): List<PersonEntity>
+
+    @Query("SELECT * FROM students")
+    suspend fun getAllStudents(): List<PersonEntity>
 
     @Query("SELECT * FROM face_templates")
     suspend fun getAllTemplates(): List<FaceTemplateEntity>
 
     @Query("SELECT * FROM face_templates WHERE student_roll = :roll")
+    suspend fun getTemplatesForPerson(roll: String): List<FaceTemplateEntity>
+
+    @Query("SELECT * FROM face_templates WHERE student_roll = :roll")
     suspend fun getTemplatesForStudent(roll: String): List<FaceTemplateEntity>
 
     @Query("SELECT COUNT(*) FROM students")
-    fun getStudentCountFlow(): Flow<Int>
+    fun getPersonCountFlow(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM students")
+    fun getStudentCountFlow(): Flow<Int>
 
     @Query("UPDATE face_templates SET embedding_encrypted_csv = :newCsv WHERE id = :templateId")
     suspend fun updateTemplateEmbedding(templateId: String, newCsv: String)
 
     @Query("DELETE FROM face_templates WHERE student_roll = :roll")
+    suspend fun deleteTemplatesForPerson(roll: String)
+
+    @Query("DELETE FROM face_templates WHERE student_roll = :roll")
     suspend fun deleteTemplatesForStudent(roll: String)
 
     @Transaction
-    suspend fun enrollStudentWithTemplates(student: StudentEntity, templates: List<FaceTemplateEntity>) {
+    suspend fun enrollPersonWithTemplates(person: PersonEntity, templates: List<FaceTemplateEntity>) {
+        insertPerson(person)
+        insertTemplates(templates)
+    }
+
+    @Transaction
+    suspend fun enrollStudentWithTemplates(student: PersonEntity, templates: List<FaceTemplateEntity>) {
         insertStudent(student)
         insertTemplates(templates)
     }
 
     @Query("DELETE FROM students WHERE roll_number = :roll")
+    suspend fun deletePersonByRoll(roll: String)
+
+    @Query("DELETE FROM students WHERE roll_number = :roll")
     suspend fun deleteStudentByRoll(roll: String)
 
     @Update
-    suspend fun updateStudent(student: StudentEntity)
+    suspend fun updatePerson(person: PersonEntity)
+
+    @Update
+    suspend fun updateStudent(student: PersonEntity)
 
     @Delete
-    suspend fun deleteStudent(student: StudentEntity)
+    suspend fun deletePerson(person: PersonEntity)
+
+    @Delete
+    suspend fun deleteStudent(student: PersonEntity)
 }
+
+/** Universal domain typealias */
+typealias StudentDao = PersonDao
+
 
 @Dao
 interface AttendanceDao {

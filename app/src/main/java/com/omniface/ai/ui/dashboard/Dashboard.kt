@@ -313,6 +313,7 @@ fun DashboardScreen(
     onOpenSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val orgType by LocalizationManager.currentOrgType.collectAsState()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -530,7 +531,7 @@ fun DashboardScreen(
                         modifier = Modifier.weight(1f),
                         title = "Total Enrolled",
                         value = "$animatedEnrolledCount",
-                        subtitle = "Students Enrolled",
+                        subtitle = "${LocalizationManager.getEntityPlural(orgType)} Enrolled",
                         icon = Icons.Default.People,
                         accentColor = OmniViolet,
                         onClick = { onNavigate(Screen.Enrollment) }
@@ -661,7 +662,7 @@ fun DashboardScreen(
                     EmptyState(
                         icon = Icons.Default.History,
                         title = "No attendance records yet",
-                        subtitle = "Verified students will appear here in real-time."
+                        subtitle = "Verified ${LocalizationManager.getEntityPlural(orgType).lowercase()} will appear here in real-time."
                     )
                 } else {
                     state.recentScans.forEachIndexed { index, record ->

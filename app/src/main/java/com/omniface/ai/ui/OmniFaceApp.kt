@@ -43,6 +43,8 @@ import com.omniface.ai.ui.scanner.ScannerViewModel
 import com.omniface.ai.ui.settings.SettingsScreen
 import com.omniface.ai.ui.settings.SettingsViewModel
 import com.omniface.ai.ui.onboarding.OnboardingWizard
+import com.omniface.ai.ui.auth.LoginScreen
+import com.omniface.ai.ui.auth.AuthViewModel
 import com.omniface.ai.ui.theme.CyanCore
 import com.omniface.ai.ui.theme.LocalThemeIsDark
 import com.omniface.ai.ui.theme.OmniFaceTheme
@@ -97,6 +99,9 @@ fun OmniFaceApp() {
                 .distinctUntilChanged()
         }.collectAsStateWithLifecycle(initialValue = 0)
 
+        val authViewModel: AuthViewModel = viewModel()
+        val authState by authViewModel.uiState.collectAsStateWithLifecycle()
+
         val appPrefs = remember { context.getSharedPreferences("omniface_app_prefs", android.content.Context.MODE_PRIVATE) }
         var isOnboardingCompleted by remember {
             mutableStateOf(appPrefs.getBoolean("onboarding_completed", false))
@@ -105,7 +110,14 @@ fun OmniFaceApp() {
         CompositionLocalProvider(
             LocalDynamicIslandController provides dynamicIslandController
         ) {
-            if (!isOnboardingCompleted) {
+            if (!authState.isAuthenticated) {
+                LoginScreen(
+                    viewModel = authViewModel,
+                    onLoginSuccess = {
+                        // Successfully authenticated
+                    }
+                )
+            } else if (!isOnboardingCompleted) {
                 OnboardingWizard(
                     onComplete = {
                         isOnboardingCompleted = true
@@ -214,7 +226,19 @@ fun OmniFaceApp() {
                                         )
                                     )
                                 },
-                                onDismiss = null
+                                onDismiss = null,
+                                onSignOut = {
+                                    authViewModel.signOut()
+                                    dynamicIslandController.postEvent(
+                                        DynamicIslandEvent(
+                                            title = "Session Terminated",
+                                            subtitle = "Signed out of fleet authority",
+                                            accentColor = Color(0xFFEF4444)
+                                        )
+                                    )
+                                },
+                                userEmail = authState.userEmail,
+                                userName = authState.userName
                             )
                         }
                     }

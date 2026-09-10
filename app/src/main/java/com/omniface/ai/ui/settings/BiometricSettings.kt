@@ -232,7 +232,7 @@ fun BiometricSettingsSubScreen(
                                     ) {
                                         Icon(Icons.Default.CloudDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Download AI Face Pack (45 MB)", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Text("Download OmniFace Sovereign Engine (380 MB)", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                     }
                                 } else {
                                     Row(

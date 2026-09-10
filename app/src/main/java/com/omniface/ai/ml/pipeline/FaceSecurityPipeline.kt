@@ -69,9 +69,11 @@ data class PipelineFrameOutput(
 class FaceSecurityPipeline(
     private val context: Context,
     val recognitionEngine: FaceRecognitionEngine,
-    val qualcommEngine: QualcommFaceIntelligenceEngine?,
+    val omniFaceEngine: OmniFaceIntelligenceEngine?,
     val tracker: FaceTracker = FaceTracker()
 ) : Closeable {
+
+    val qualcommEngine: OmniFaceIntelligenceEngine? get() = omniFaceEngine
 
     companion object {
         private const val TAG = "FaceSecurityPipeline"
@@ -85,12 +87,12 @@ class FaceSecurityPipeline(
                 INSTANCE ?: run {
                     val appContext = context.applicationContext
                     val recEngine = FaceRecognitionEngine.getInstance(appContext)
-                    val qcEngine = try {
-                        QualcommFaceIntelligenceEngine.getInstance(appContext)
+                    val intelEngine = try {
+                        OmniFaceIntelligenceEngine.getInstance(appContext)
                     } catch (_: Throwable) {
                         null
                     }
-                    FaceSecurityPipeline(appContext, recEngine, qcEngine).also { INSTANCE = it }
+                    FaceSecurityPipeline(appContext, recEngine, intelEngine).also { INSTANCE = it }
                 }
             }
     }

@@ -59,6 +59,7 @@ fun CupertinoTabBar(
     unsyncedCount: Int = 0,
     onNavigate: (Screen) -> Unit
 ) {
+    val orgType by LocalizationManager.currentOrgType.collectAsState()
     val isDark = LocalThemeIsDark.current
     val haptic = LocalHapticFeedback.current
     val dockShape = RoundedCornerShape(30.dp)
@@ -196,7 +197,7 @@ fun CupertinoTabBar(
                     val localizedTitle = when (screen) {
                         Screen.Dashboard -> LocalizationManager.get(StringKey.TAB_OVERVIEW)
                         Screen.Scanner -> LocalizationManager.get(StringKey.TAB_SCANNER)
-                        Screen.Enrollment -> LocalizationManager.get(StringKey.TAB_STUDENTS)
+                        Screen.Enrollment -> LocalizationManager.getDirectoryTabTitle(orgType)
                         Screen.Ledger -> LocalizationManager.get(StringKey.TAB_LEDGER)
                         Screen.Settings -> LocalizationManager.get(StringKey.TAB_SETTINGS)
                     }

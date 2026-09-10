@@ -412,7 +412,7 @@ fun LedgerScreen(
                         EmptyState(
                             icon = Icons.Default.ReceiptLong,
                             title = "No Verification Records Yet",
-                            subtitle = "Cryptographic attendance logs will appear here upon student detection"
+                            subtitle = "Cryptographic attendance logs will appear here upon person detection"
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         NeonSparklineWave(height = 36.dp)

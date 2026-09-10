@@ -71,16 +71,16 @@ class SubscriptionTierManagerTest {
     }
 
     @Test
-    fun testBusinessTierInvariants() {
-        val tier = SubscriptionTier.BUSINESS
-        assertEquals("Enterprise Business", tier.title)
-        assertEquals(Int.MAX_VALUE, tier.maxStudents)
-        assertEquals(0, tier.priceInrMonthly)
-        assertTrue(tier.allowsReportExports)
-        assertTrue(tier.allowsCloudSync)
-        assertTrue(tier.allowsMultiDevice)
-        assertFalse(tier.displaysAds)
-        assertTrue(tier.hasWebDashboard)
+    fun testLegacyTierMappingInvariants() {
+        val institutionTier = SubscriptionTier.INSTITUTION
+        assertEquals("Institution", institutionTier.title)
+        assertEquals(Int.MAX_VALUE, institutionTier.maxStudents)
+        assertEquals(0, institutionTier.priceInrMonthly)
+        assertTrue(institutionTier.allowsReportExports)
+        assertTrue(institutionTier.allowsCloudSync)
+        assertTrue(institutionTier.allowsMultiDevice)
+        assertFalse(institutionTier.displaysAds)
+        assertTrue(institutionTier.hasWebDashboard)
     }
 
     @Test
@@ -123,9 +123,9 @@ class SubscriptionTierManagerTest {
         assertTrue(249 < premiumTier.maxStudents)
         assertFalse(250 < premiumTier.maxStudents)
 
-        // Business tier (unlimited)
-        val businessTier = SubscriptionTier.BUSINESS
-        assertTrue(250 < businessTier.maxStudents)
-        assertTrue(10_000 < businessTier.maxStudents)
+        // Institution tier (unlimited)
+        val institutionTier = SubscriptionTier.INSTITUTION
+        assertTrue(250 < institutionTier.maxStudents)
+        assertTrue(10_000 < institutionTier.maxStudents)
     }
 }

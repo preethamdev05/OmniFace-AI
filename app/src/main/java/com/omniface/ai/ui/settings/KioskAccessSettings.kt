@@ -510,11 +510,11 @@ fun KioskAccessSettingsSubScreen(
 
             // 5. Cloud Dashboard Device Pairing
             item {
-                val isPaired = pairedInfo?.isPaired == true
+                val isPaired = pairedInfo.isPaired
                 IOSCard(cornerRadius = 20.dp) {
                     SettingRow(
                         title = "Dashboard Pairing",
-                        subtitle = if (isPaired) "Paired • Terminal: ${pairedInfo?.deviceId} (${pairedInfo?.organizationId})" else "Link this Android terminal to your Web Admin Dashboard",
+                        subtitle = if (isPaired) "Paired • Terminal: ${pairedInfo.deviceId} (${pairedInfo.organizationId})" else "Link this Android terminal to your Web Admin Dashboard",
                         icon = if (isPaired) Icons.Default.CloudDone else Icons.Default.CloudOff,
                         trailing = {
                             CupertinoActionPill(

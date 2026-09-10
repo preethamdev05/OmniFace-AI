@@ -39,6 +39,9 @@ node_modules/
 backend/node_modules/
 .next/
 graphify-out/
+.vite/
+.canvas-meta.json
+users.json
 
 # Python ML & Training caches
 __pycache__/

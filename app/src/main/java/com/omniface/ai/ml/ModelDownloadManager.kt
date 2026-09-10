@@ -1,6 +1,7 @@
 package com.omniface.ai.ml
 
 import android.content.Context
+import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,9 +84,9 @@ class ModelDownloadManager(private val context: Context) {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(600, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
@@ -93,20 +94,46 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     private fun getModelsDirectory(): File {
-        val dir = File(context.filesDir, MODELS_DIR)
+        val ext = context.getExternalFilesDir(null)?.let { File(it, MODELS_DIR) }
+        val dir = ext ?: File(context.filesDir, MODELS_DIR)
         if (!dir.exists()) {
             dir.mkdirs()
         }
         return dir
     }
 
-    fun getLocalModelFile(): File {
-        return File(getModelsDirectory(), TARGET_MODEL_FILENAME)
+    fun findExistingModelFile(): File? {
+        val candidates = listOfNotNull(
+            context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/$TARGET_MODEL_FILENAME") },
+            File(context.filesDir, "$MODELS_DIR/$TARGET_MODEL_FILENAME"),
+            File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME"),
+            File("/sdcard/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
+        )
+        for (candidate in candidates) {
+            if (candidate.exists() && candidate.length() > 1024 * 1024) {
+                if (verifyModelIntegrity(candidate)) {
+                    return candidate
+                }
+            }
+        }
+        return null
     }
 
+    fun getLocalModelFile(): File {
+        return findExistingModelFile() ?: File(getModelsDirectory(), TARGET_MODEL_FILENAME)
+    }
+
+    @Volatile private var cachedModelAvailable: Boolean? = null
+
     fun isModelAvailable(): Boolean {
-        val file = getLocalModelFile()
-        return verifyModelIntegrity(file)
+        cachedModelAvailable?.let { return it }
+        val available = findExistingModelFile() != null
+        cachedModelAvailable = available
+        return available
+    }
+
+    fun invalidateModelCache() {
+        cachedModelAvailable = null
     }
 
     fun isNeuralModelInstalled(): Boolean {
@@ -124,7 +151,7 @@ class ModelDownloadManager(private val context: Context) {
     private fun getInitialState(): ModelDownloadState {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
         val file = getLocalModelFile()
-        if (unified.isModelLoaded || verifyModelIntegrity(file)) {
+        if (unified.isModelLoaded || isModelAvailable()) {
             return ModelDownloadState.Ready(
                 activeModelName = "OmniFace Deep AI Engine",
                 modelSizeBytes = if (file.exists()) file.length() else 380182456L
@@ -148,9 +175,12 @@ class ModelDownloadManager(private val context: Context) {
 
         val targetFile = getLocalModelFile()
         val tmpFile = File(getModelsDirectory(), "$TARGET_MODEL_FILENAME$TMP_EXTENSION")
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OmniFace:ModelDownloadWakeLock")
 
         downloadJob = scope.launch {
             try {
+                wakeLock?.acquire(15 * 60 * 1000L)
                 val token = HfSecureGateway.getAuthToken(context)
                 val targetUrl = HfSecureGateway.buildResolveUrl(context, TARGET_MODEL_FILENAME)
                 val repoId = HfSecureGateway.getRepoId(context)
@@ -270,6 +300,8 @@ class ModelDownloadManager(private val context: Context) {
                 val renamed = tmpFile.renameTo(installedModelFile)
                 if (renamed) {
                     Log.i(TAG, "✅ Model successfully installed: ${installedModelFile.absolutePath} (${installedModelFile.length()} bytes)")
+                    invalidateModelCache()
+                    cachedModelAvailable = true
                     UnifiedFaceIntelligenceEngine.getInstance(context).reloadModel()
                     _downloadState.value = ModelDownloadState.Ready(
                         activeModelName = "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)",
@@ -295,6 +327,11 @@ class ModelDownloadManager(private val context: Context) {
                 }
             } finally {
                 activeCall = null
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (_: Throwable) {}
             }
         }
     }
@@ -321,6 +358,7 @@ class ModelDownloadManager(private val context: Context) {
      */
     fun deleteDownloadedModel(): Boolean {
         cancelDownload()
+        invalidateModelCache()
         val file = getLocalModelFile()
         val deleted = if (file.exists()) file.delete() else true
         val alt = File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")

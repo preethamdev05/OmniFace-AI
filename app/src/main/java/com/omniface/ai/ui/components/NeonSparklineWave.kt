@@ -1,4 +1,4 @@
-﻿package com.omniface.ai.ui.components
+package com.omniface.ai.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -54,6 +55,28 @@ fun NeonSparklineWave(
         label = "phaseShift2"
     )
 
+    val path1 = remember { Path() }
+    val fillPath1 = remember { Path() }
+    val path2 = remember { Path() }
+
+    val glowBrush = remember(waveColor1, waveColor2, waveColor3) {
+        Brush.horizontalGradient(
+            colors = listOf(waveColor1.copy(alpha = 0.45f), waveColor2.copy(alpha = 0.45f), waveColor3.copy(alpha = 0.45f))
+        )
+    }
+
+    val sharpBrush = remember(waveColor1, waveColor2, waveColor3) {
+        Brush.horizontalGradient(
+            colors = listOf(waveColor1, waveColor2, waveColor3)
+        )
+    }
+
+    val secondaryBrush = remember(waveColor1, waveColor2, waveColor3) {
+        Brush.horizontalGradient(
+            colors = listOf(waveColor3.copy(alpha = 0.6f), waveColor1.copy(alpha = 0.6f), waveColor2.copy(alpha = 0.6f))
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -65,9 +88,9 @@ fun NeonSparklineWave(
             val midY = height * 0.55f
 
             // Primary Wave Path
-            val path1 = Path()
-            val fillPath1 = Path()
-            val step = 4f
+            path1.reset()
+            fillPath1.reset()
+            val step = 8f
             var first = true
 
             fillPath1.moveTo(0f, height)
@@ -111,23 +134,19 @@ fun NeonSparklineWave(
             // Glow Stroke 1 (Thick blurred layer)
             drawPath(
                 path = path1,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(waveColor1.copy(alpha = 0.45f), waveColor2.copy(alpha = 0.45f), waveColor3.copy(alpha = 0.45f))
-                ),
+                brush = glowBrush,
                 style = Stroke(width = 6.0f, cap = StrokeCap.Round)
             )
 
             // Sharp Foreground Wave Stroke 1
             drawPath(
                 path = path1,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(waveColor1, waveColor2, waveColor3)
-                ),
+                brush = sharpBrush,
                 style = Stroke(width = 2.5f, cap = StrokeCap.Round)
             )
 
             // Secondary Wave Path (Secondary frequency harmonic)
-            val path2 = Path()
+            path2.reset()
             var first2 = true
             for (x in 0..width.toInt() step step.toInt()) {
                 val xNorm = (x / width) * 2f * Math.PI.toFloat()
@@ -146,9 +165,7 @@ fun NeonSparklineWave(
             // Secondary Wave Stroke
             drawPath(
                 path = path2,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(waveColor3.copy(alpha = 0.6f), waveColor1.copy(alpha = 0.6f), waveColor2.copy(alpha = 0.6f))
-                ),
+                brush = secondaryBrush,
                 style = Stroke(width = 1.75f, cap = StrokeCap.Round)
             )
         }

@@ -110,7 +110,15 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     }
 
     fun getLocalUnifiedModelFile(): File {
-        return File(File(context.filesDir, "models"), MODEL_ASSET)
+        val ext = context.getExternalFilesDir(null)?.let { File(it, "models/$MODEL_ASSET") }
+        if (ext != null && ext.exists() && ext.length() > 10_000_000L) return ext
+        val internal = File(File(context.filesDir, "models"), MODEL_ASSET)
+        if (internal.exists() && internal.length() > 10_000_000L) return internal
+        val dev = File("/storage/emulated/0/AI-HUB/FR/models/$MODEL_ASSET")
+        if (dev.exists() && dev.length() > 10_000_000L) return dev
+        val sdcard = File("/sdcard/AI-HUB/FR/models/$MODEL_ASSET")
+        if (sdcard.exists() && sdcard.length() > 10_000_000L) return sdcard
+        return ext ?: internal
     }
 
     @Synchronized
@@ -147,35 +155,27 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
 
     private fun loadUnifiedModel() {
         try {
-            val localFile = getLocalUnifiedModelFile()
-            val externalDevFile = File("/storage/emulated/0/AI-HUB/FR/models/$MODEL_ASSET")
+            val candidates = listOfNotNull(
+                context.getExternalFilesDir(null)?.let { File(it, "models/$MODEL_ASSET") },
+                File(File(context.filesDir, "models"), MODEL_ASSET),
+                File("/storage/emulated/0/AI-HUB/FR/models/$MODEL_ASSET"),
+                File("/sdcard/AI-HUB/FR/models/$MODEL_ASSET")
+            )
 
-            val modelBuffer: ByteBuffer = when {
-                localFile.exists() && localFile.length() > 10_000_000L -> {
-                    Log.i(TAG, "⚡ Loading unified model from app private storage: ${localFile.absolutePath} (${localFile.length() / 1024 / 1024} MB)")
-                    FileInputStream(localFile).channel.use { channel ->
-                        channel.map(FileChannel.MapMode.READ_ONLY, 0, localFile.length())
-                    }
-                }
-                runCatching { externalDevFile.exists() && externalDevFile.canRead() && externalDevFile.length() > 10_000_000L }.getOrDefault(false) -> {
-                    val buf = runCatching {
-                        Log.i(TAG, "⚡ Loading unified model from external test storage: ${externalDevFile.absolutePath}")
-                        FileInputStream(externalDevFile).channel.use { channel ->
-                            channel.map(FileChannel.MapMode.READ_ONLY, 0, externalDevFile.length())
-                        }
-                    }.getOrNull()
-                    buf ?: run {
-                        isModelLoaded = false
-                        _isModelLoadedState.value = false
-                        return
-                    }
-                }
-                else -> {
-                    Log.i(TAG, "Unified model not present in local storage. Model must be downloaded on-demand from Cloudflare R2.")
-                    isModelLoaded = false
-                    _isModelLoadedState.value = false
-                    return
-                }
+            val resolvedFile = candidates.firstOrNull { file ->
+                runCatching { file.exists() && file.canRead() && file.length() > 10_000_000L }.getOrDefault(false)
+            }
+
+            if (resolvedFile == null) {
+                Log.i(TAG, "Unified model not present in local storage. Model must be downloaded on-demand from Cloudflare R2.")
+                isModelLoaded = false
+                _isModelLoadedState.value = false
+                return
+            }
+
+            Log.i(TAG, "⚡ Loading unified model from: ${resolvedFile.absolutePath} (${resolvedFile.length() / 1024 / 1024} MB)")
+            val modelBuffer: ByteBuffer = FileInputStream(resolvedFile).channel.use { channel ->
+                channel.map(FileChannel.MapMode.READ_ONLY, 0, resolvedFile.length())
             }
 
             // Fast-Path Multi-Threaded XNNPACK SIMD (Sub-300ms Instant Startup)

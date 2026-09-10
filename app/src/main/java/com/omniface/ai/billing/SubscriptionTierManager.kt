@@ -59,28 +59,6 @@ enum class SubscriptionTier(
         allowsMultiDevice = true,
         displaysAds = false,
         hasWebDashboard = true
-    ),
-    @Deprecated("Use PRO instead", ReplaceWith("PRO"))
-    PROFESSIONAL(
-        title = "Professional",
-        maxStudents = 500,
-        priceInrMonthly = 349,
-        allowsReportExports = true,
-        allowsCloudSync = true,
-        allowsMultiDevice = true,
-        displaysAds = false,
-        hasWebDashboard = false
-    ),
-    @Deprecated("Use INSTITUTION instead", ReplaceWith("INSTITUTION"))
-    BUSINESS(
-        title = "Enterprise Business",
-        maxStudents = Int.MAX_VALUE,
-        priceInrMonthly = 0,
-        allowsReportExports = true,
-        allowsCloudSync = true,
-        allowsMultiDevice = true,
-        displaysAds = false,
-        hasWebDashboard = true
     );
 
     fun getFeaturesList(): List<String> {
@@ -100,7 +78,7 @@ enum class SubscriptionTier(
                 "Excel & PDF report exports",
                 "100% Ad-Free"
             )
-            PRO, PROFESSIONAL -> listOf(
+            PRO -> listOf(
                 "500 users",
                 "Everything in Premium",
                 "Multiple classes & sections",
@@ -108,7 +86,7 @@ enum class SubscriptionTier(
                 "Higher storage & sync limits",
                 "Priority support"
             )
-            INSTITUTION, BUSINESS -> listOf(
+            INSTITUTION -> listOf(
                 "500+ users",
                 "Unlimited devices",
                 "Multi-admin",
@@ -127,7 +105,11 @@ enum class SubscriptionTier(
 enum class PaywallTriggerReason(val headline: String, val description: String) {
     STUDENT_LIMIT_REACHED(
         headline = "Free Plan Limit Reached",
-        description = "You have reached the 25-person Free Plan limit. Upgrade to Premium to enroll up to 250 students/employees."
+        description = "You have reached the 25-person Free Plan limit. Upgrade to Premium to enroll up to 250 people/members."
+    ),
+    PERSON_LIMIT_REACHED(
+        headline = "Free Plan Limit Reached",
+        description = "You have reached the 25-person Free Plan limit. Upgrade to Premium to enroll up to 250 people/members."
     ),
     EXCEL_PDF_EXPORT_LOCKED(
         headline = "Unlock Excel & PDF Reports",
@@ -135,7 +117,7 @@ enum class PaywallTriggerReason(val headline: String, val description: String) {
     ),
     CLOUD_SYNC_LOCKED(
         headline = "Unlock Cloud & Multi-Device Sync",
-        description = "Seamlessly synchronize student face embeddings and attendance across multiple kiosks with Premium."
+        description = "Seamlessly synchronize face embeddings and attendance across multiple kiosks with Premium."
     ),
     MULTI_DEVICE_LOCKED(
         headline = "Multi-Kiosk Fleet Access",
@@ -187,10 +169,14 @@ object SubscriptionTierManager {
     fun evaluateCurrentTier(): SubscriptionTier {
         val p = prefs ?: return SubscriptionTier.FREE
         val tierName = p.getString(KEY_TIER, SubscriptionTier.FREE.name) ?: SubscriptionTier.FREE.name
-        val rawTier = try {
-            SubscriptionTier.valueOf(tierName)
-        } catch (_: Exception) {
-            SubscriptionTier.FREE
+        val rawTier = when (tierName.uppercase()) {
+            "PROFESSIONAL" -> SubscriptionTier.PRO
+            "BUSINESS" -> SubscriptionTier.INSTITUTION
+            else -> try {
+                SubscriptionTier.valueOf(tierName)
+            } catch (_: Exception) {
+                SubscriptionTier.FREE
+            }
         }
 
         if (rawTier == SubscriptionTier.FREE) {
@@ -259,23 +245,25 @@ object SubscriptionTierManager {
                     "Approaching Premium limit ($studentCount/250). Upgrade to Pro (500 people) on Google Play."
                 } else null
             }
-            SubscriptionTier.PRO, SubscriptionTier.PROFESSIONAL -> {
+            SubscriptionTier.PRO -> {
                 if (studentCount >= 495) {
                     "Approaching Pro limit ($studentCount/500). Contact our team for an Institution plan (custom capacity, SLA, web dashboard)."
                 } else null
             }
-            SubscriptionTier.INSTITUTION, SubscriptionTier.BUSINESS -> null
+            SubscriptionTier.INSTITUTION -> null
         }
     }
 
-    fun getMaxStudentsDisplay(): String {
+    fun getMaxPeopleDisplay(): String {
         return when (_currentTier.value) {
             SubscriptionTier.FREE -> "25"
             SubscriptionTier.PREMIUM -> "250"
-            SubscriptionTier.PRO, SubscriptionTier.PROFESSIONAL -> "500"
-            SubscriptionTier.INSTITUTION, SubscriptionTier.BUSINESS -> "500+"
+            SubscriptionTier.PRO -> "500"
+            SubscriptionTier.INSTITUTION -> "500+"
         }
     }
+
+    fun getMaxStudentsDisplay(): String = getMaxPeopleDisplay()
 
     fun setSubscription(tier: SubscriptionTier, expiryTimestampMs: Long, purchaseToken: String? = null) {
         prefs?.edit()?.apply {

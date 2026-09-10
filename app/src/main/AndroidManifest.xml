@@ -53,10 +53,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Google Mobile Ads Application ID (Google test App ID for safe development/production fallback) -->
+        <!-- Google Mobile Ads Application ID (OmniFace Production AdMob App) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-7395899775185670~2717408031" />
 
         <!-- OmniFace Firebase Cloud Messaging Service -->
         <service

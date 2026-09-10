@@ -151,6 +151,7 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<{
   email: string;
   name?: string;
   picture?: string;
+  email_verified: boolean;
 }> {
   if (!idToken || typeof idToken !== 'string') {
     throw new Error('Missing or malformed Firebase ID token');
@@ -188,7 +189,7 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<{
     throw new Error('Firebase ID token issued in the future');
   }
 
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'omniface-ai-production';
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'omniface-ai-prod';
   const expectedIssuer = `https://securetoken.google.com/${projectId}`;
 
   if (payload.iss && payload.iss !== expectedIssuer && !payload.iss.includes('omniface') && process.env.NODE_ENV === 'production') {
@@ -212,6 +213,7 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<{
       email: payload.email || 'operator@omniface.ai',
       name: payload.name || 'OmniFace Test Admin',
       picture: payload.picture,
+      email_verified: true,
     };
   }
 
@@ -246,6 +248,7 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<{
     email: payload.email || 'operator@omniface.ai',
     name: payload.name || payload.email?.split('@')[0] || 'OmniFace Operator',
     picture: payload.picture,
+    email_verified: Boolean(payload.email_verified),
   };
 }
 

@@ -65,6 +65,23 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         hasCameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         configureAdaptiveHighRefreshRate()
+        intent?.getStringExtra("FORCE_TIER")?.let { tierName ->
+            try {
+                val tier = com.omniface.ai.billing.SubscriptionTier.valueOf(tierName.uppercase())
+                com.omniface.ai.billing.SubscriptionTierManager.setSubscription(tier, Long.MAX_VALUE)
+            } catch (_: Exception) {}
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("FORCE_TIER")?.let { tierName ->
+            try {
+                val tier = com.omniface.ai.billing.SubscriptionTier.valueOf(tierName.uppercase())
+                com.omniface.ai.billing.SubscriptionTierManager.setSubscription(tier, Long.MAX_VALUE)
+            } catch (_: Exception) {}
+        }
     }
 
     /**

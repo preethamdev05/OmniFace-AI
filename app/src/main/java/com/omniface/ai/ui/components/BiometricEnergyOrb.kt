@@ -1,4 +1,4 @@
-﻿package com.omniface.ai.ui.components
+package com.omniface.ai.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -71,6 +72,8 @@ fun BiometricEnergyOrb(
         ),
         label = "coreGlowAlpha"
     )
+
+    val arcPath = remember { Path() }
 
     Box(
         modifier = modifier.size(size),
@@ -158,14 +161,13 @@ fun BiometricEnergyOrb(
             }
 
             // 4. Internal Curved Biometric Luminous Arc
-            val arcPath = Path().apply {
-                moveTo(center.x - sphereRadius * 0.65f, center.y + sphereRadius * 0.15f)
-                cubicTo(
-                    center.x - sphereRadius * 0.2f, center.y + sphereRadius * 0.65f,
-                    center.x + sphereRadius * 0.2f, center.y + sphereRadius * 0.65f,
-                    center.x + sphereRadius * 0.65f, center.y + sphereRadius * 0.15f
-                )
-            }
+            arcPath.reset()
+            arcPath.moveTo(center.x - sphereRadius * 0.65f, center.y + sphereRadius * 0.15f)
+            arcPath.cubicTo(
+                center.x - sphereRadius * 0.2f, center.y + sphereRadius * 0.65f,
+                center.x + sphereRadius * 0.2f, center.y + sphereRadius * 0.65f,
+                center.x + sphereRadius * 0.65f, center.y + sphereRadius * 0.15f
+            )
             drawPath(
                 path = arcPath,
                 brush = Brush.horizontalGradient(

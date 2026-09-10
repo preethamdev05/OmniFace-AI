@@ -239,15 +239,37 @@ object LocalizationManager {
 
     private const val PREFS_NAME = "omniface_i18n_prefs"
     private const val KEY_LANG = "selected_app_language"
+    private const val APP_PREFS_NAME = "omniface_app_prefs"
+    private const val KEY_ORG_TYPE = "org_type"
 
     private val _currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
     val currentLanguage: StateFlow<AppLanguage> = _currentLanguage.asStateFlow()
+
+    private val _currentOrgType = MutableStateFlow("SCHOOL")
+    val currentOrgType: StateFlow<String> = _currentOrgType.asStateFlow()
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedCode = prefs.getString(KEY_LANG, AppLanguage.ENGLISH.code)
         val lang = AppLanguage.entries.find { it.code == savedCode } ?: AppLanguage.ENGLISH
         _currentLanguage.value = lang
+
+        initOrgType(context)
+    }
+
+    fun initOrgType(context: Context) {
+        val prefs = context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_ORG_TYPE, "SCHOOL") ?: "SCHOOL"
+        _currentOrgType.value = saved.uppercase()
+    }
+
+    fun setOrgType(orgType: String, context: Context? = null) {
+        val normalized = orgType.uppercase()
+        _currentOrgType.value = normalized
+        context?.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(KEY_ORG_TYPE, normalized)
+            ?.apply()
     }
 
     fun setLanguage(context: Context, language: AppLanguage) {
@@ -266,6 +288,74 @@ object LocalizationManager {
     fun get(key: StringKey): String {
         val lang by currentLanguage.collectAsState()
         return getString(key, lang)
+    }
+
+    fun getDirectoryTabTitle(orgType: String = _currentOrgType.value): String {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> "Employees"
+            "GYM_EVENT" -> "Members"
+            "COACHING" -> "Learners"
+            else -> getString(StringKey.TAB_STUDENTS)
+        }
+    }
+
+    fun getEntityPlural(orgType: String = _currentOrgType.value): String {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> "Employees"
+            "GYM_EVENT" -> "Members"
+            "COACHING" -> "Learners"
+            else -> "Students"
+        }
+    }
+
+    fun getEntitySingular(orgType: String = _currentOrgType.value): String {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> "Employee"
+            "GYM_EVENT" -> "Member"
+            "COACHING" -> "Learner"
+            else -> "Student"
+        }
+    }
+
+    fun getIdLabel(orgType: String = _currentOrgType.value): String {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> "Employee ID"
+            "GYM_EVENT" -> "Member ID"
+            "COACHING" -> "Student ID"
+            else -> getString(StringKey.ROLL_NUMBER)
+        }
+    }
+
+    fun getGroupLabel(orgType: String = _currentOrgType.value): String {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> "Shift / Designation"
+            "GYM_EVENT" -> "Membership Plan"
+            "COACHING" -> "Batch / Course"
+            else -> getString(StringKey.SEMESTER)
+        }
+    }
+
+    fun getAllowedRoles(orgType: String = _currentOrgType.value): List<String> {
+        return when (orgType.uppercase()) {
+            "CORPORATE" -> listOf("EMPLOYEE", "STAFF", "MANAGER", "CONTRACTOR", "VISITOR")
+            "GYM_EVENT" -> listOf("MEMBER", "TRAINER", "STAFF", "VISITOR")
+            "COACHING" -> listOf("STUDENT", "FACULTY", "STAFF", "VISITOR")
+            else -> listOf("STUDENT", "FACULTY", "STAFF", "VISITOR")
+        }
+    }
+
+    fun getRoleBadgeLabel(role: String): String {
+        return when (role.uppercase()) {
+            "FACULTY" -> "Faculty"
+            "STAFF" -> "Staff"
+            "MANAGER" -> "Manager"
+            "EMPLOYEE" -> "Employee"
+            "CONTRACTOR" -> "Contractor"
+            "MEMBER" -> "Member"
+            "TRAINER" -> "Trainer"
+            "VISITOR" -> "Visitor"
+            else -> "Student"
+        }
     }
 
     // Comprehensive Dictionary across 10 Languages

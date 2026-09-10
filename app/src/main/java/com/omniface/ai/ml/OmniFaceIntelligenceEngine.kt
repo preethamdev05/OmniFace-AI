@@ -55,8 +55,8 @@ data class MediaPipeMeshResult(
 )
 
 /**
- * Qualcomm AI Hub Neural Intelligence Suite:
- * Powered natively by the consolidated single LiteRT model `unified_omniface.tflite`
+ * ⚡ OmniFace Neural Intelligence Suite:
+ * Powered natively by the consolidated single sovereign LiteRT model `unified_omniface.tflite`
  * via UnifiedFaceIntelligenceEngine.
  *
  * Provides:
@@ -66,16 +66,16 @@ data class MediaPipeMeshResult(
  * 4. HRNetFace: High-Resolution Deep Landmark & Pose Heatmap Extractor (29 keypoints)
  * 5. MediaPipe Face Mesh: 468 3D Dense Keypoints (X, Y, Z Depth)
  */
-class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseable {
+class OmniFaceIntelligenceEngine(private val context: Context) : AutoCloseable {
 
     companion object {
-        private const val TAG = "QualcommFaceIntel"
+        private const val TAG = "OmniFaceIntel"
 
-        @Volatile private var INSTANCE: QualcommFaceIntelligenceEngine? = null
+        @Volatile private var INSTANCE: OmniFaceIntelligenceEngine? = null
 
-        fun getInstance(context: Context): QualcommFaceIntelligenceEngine =
+        fun getInstance(context: Context): OmniFaceIntelligenceEngine =
             INSTANCE ?: synchronized(this) {
-                INSTANCE ?: QualcommFaceIntelligenceEngine(context.applicationContext).also { INSTANCE = it }
+                INSTANCE ?: OmniFaceIntelligenceEngine(context.applicationContext).also { INSTANCE = it }
             }
     }
 
@@ -346,3 +346,6 @@ class QualcommFaceIntelligenceEngine(private val context: Context) : AutoCloseab
         isSuiteLoaded = false
     }
 }
+
+/** Backward compatibility alias for legacy call sites */
+typealias QualcommFaceIntelligenceEngine = OmniFaceIntelligenceEngine

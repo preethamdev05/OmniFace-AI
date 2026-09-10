@@ -509,12 +509,16 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                     val subObj = json.optJSONObject("subscription")
                     val remoteTierStr = subObj?.optString("tier", "FREE") ?: "FREE"
                     val remoteTier = try {
-                        SubscriptionTier.valueOf(remoteTierStr)
+                        when (remoteTierStr.uppercase()) {
+                            "BUSINESS" -> SubscriptionTier.INSTITUTION
+                            "PROFESSIONAL" -> SubscriptionTier.PRO
+                            else -> SubscriptionTier.valueOf(remoteTierStr)
+                        }
                     } catch (_: Exception) {
                         SubscriptionTier.FREE
                     }
 
-                    val finalTier = if (remoteTier == SubscriptionTier.BUSINESS || remoteTier == SubscriptionTier.INSTITUTION) {
+                    val finalTier = if (remoteTier == SubscriptionTier.INSTITUTION) {
                         Log.i(TAG, "🏛️ Active Enterprise/Institution license detected on Web Dashboard! Unlocking kiosk fleet.")
                         val validUntil = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(365)
                         SubscriptionTierManager.setSubscription(

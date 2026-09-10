@@ -1,36 +1,26 @@
 {
   "project_info": {
-    "project_number": "710938226211",
-    "project_id": "bca-ai-connect",
-    "storage_bucket": "bca-ai-connect.firebasestorage.app"
+    "project_number": "323760410829",
+    "project_id": "omniface-ai-prod",
+    "storage_bucket": "omniface-ai-prod.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:710938226211:android:4d50c3278c9a83b003cb96",
+        "mobilesdk_app_id": "1:323760410829:android:5e67e2391fc950b2e01984",
         "android_client_info": {
           "package_name": "com.omniface.ai"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "710938226211-t96unq1p349qtnklnmf097k04sj4ggha.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAAlZCG5RTFjEgDTQuFpt7BZWevd2wxWxk"
+          "current_key": "AIzaSyBcJeYac3_I3FhRF-7YPmWUcMIj9Gi-EkA"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "710938226211-t96unq1p349qtnklnmf097k04sj4ggha.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

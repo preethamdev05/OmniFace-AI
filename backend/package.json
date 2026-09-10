@@ -17,6 +17,7 @@
   "dependencies": {
     "drizzle-orm": "^0.38.3",
     "exceljs": "^4.4.0",
+    "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
     "next": "^15.1.0",
     "pdfkit": "^0.20.2",

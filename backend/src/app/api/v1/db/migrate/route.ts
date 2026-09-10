@@ -342,6 +342,10 @@ CREATE INDEX IF NOT EXISTS "idx_face_templates_embedding_hnsw" ON "face_template
 CREATE INDEX IF NOT EXISTS "idx_staff_invitations_token" ON "staff_invitations" ("token_hash");
 CREATE INDEX IF NOT EXISTS "idx_staff_invitations_org" ON "staff_invitations" ("organization_id");
 CREATE INDEX IF NOT EXISTS "idx_institution_leads_status" ON "institution_leads" ("status");
+
+ALTER TABLE "students" ADD COLUMN IF NOT EXISTS "role" varchar(32) DEFAULT 'STUDENT' NOT NULL;
+ALTER TABLE "face_templates" ADD COLUMN IF NOT EXISTS "role" varchar(32) DEFAULT 'STUDENT' NOT NULL;
+CREATE INDEX IF NOT EXISTS "idx_students_org_role" ON "students" ("organization_id", "role");
 `;
 
 export async function POST(req: NextRequest) {

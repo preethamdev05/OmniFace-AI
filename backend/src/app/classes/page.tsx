@@ -166,7 +166,7 @@ export default function ClassesPage() {
                 <th>Department</th>
                 <th>Timetable Schedule</th>
                 <th>Grace Threshold</th>
-                <th>Enrolled Students</th>
+                <th>Enrolled Members</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -179,7 +179,7 @@ export default function ClassesPage() {
                   <td style={{ color: 'var(--text-muted)' }}>{cls.departmentName || 'General'}</td>
                   <td className="tnum">{cls.scheduleStartTime} – {cls.scheduleEndTime}</td>
                   <td className="tnum">{cls.graceMinutes} mins</td>
-                  <td className="tnum" style={{ fontWeight: 600 }}>{cls.enrolledCount} Students</td>
+                  <td className="tnum" style={{ fontWeight: 600 }}>{cls.enrolledCount} Enrolled</td>
                   <td><span className="badge badge-success">{cls.status}</span></td>
                   <td>
                     <div style={{ display: 'flex', gap: '10px' }}>
