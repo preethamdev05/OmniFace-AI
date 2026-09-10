@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       const studentName = r.student_name || r.studentName || 'Student';
       const sessionDate = r.session_date || r.sessionDate || new Date().toISOString().split('T')[0];
       const timestamp = r.timestamp || Date.now();
-      const confidencePct = r.confidence_pct ?? r.confidencePct ?? 95;
+      const confidencePct = Math.round(Number(r.confidence_pct ?? r.confidencePct ?? 95));
       const securityTier = r.security_tier || r.securityTier || 'HIGH';
       const sha256Hash = r.sha256_hash || r.sha256Hash || '';
 

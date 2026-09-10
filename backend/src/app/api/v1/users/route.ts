@@ -165,3 +165,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err?.message || 'Enrollment failed' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    const roll = searchParams.get('roll');
+
+    if (!id && !roll) {
+      return NextResponse.json({ error: 'id or roll required' }, { status: 400 });
+    }
+
+    if (isDbConfigured()) {
+      const database = getDb();
+      if (database) {
+        if (id) {
+          await database.delete(faceEmbeddings).where(eq(faceEmbeddings.id, id));
+        } else if (roll) {
+          await database.delete(faceEmbeddings).where(eq(faceEmbeddings.studentRoll, roll));
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Member and biometric vectors purged under DPDP Act 2023 Section 12',
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Delete failed' }, { status: 500 });
+  }
+}
+

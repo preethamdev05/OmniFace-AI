@@ -27,6 +27,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Allow full-viewport layout for login page without dashboard sidebar/header
+  if (pathname === '/login') {
+    return <ToastProvider>{children}</ToastProvider>;
+  }
+
   return (
     <div className="app-container">
       {/* Mobile Backdrop Overlay */}

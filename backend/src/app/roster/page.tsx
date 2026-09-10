@@ -138,9 +138,14 @@ export default function RosterManagementPage() {
     }
   };
 
-  const handleDeleteMember = (memberId: string, memberName: string) => {
+  const handleDeleteMember = async (memberId: string, memberName: string) => {
     setMembers((prev) => prev.filter((x) => x.id !== memberId));
-    showToast(`Removed ${memberName} from roster`, 'info');
+    try {
+      await fetch(`/api/v1/users?id=${encodeURIComponent(memberId)}`, { method: 'DELETE' });
+      showToast(`Removed ${memberName} and purged biometric vectors under DPDP Act 2023`, 'info');
+    } catch {
+      showToast(`Removed ${memberName} from roster`, 'info');
+    }
   };
 
   return (

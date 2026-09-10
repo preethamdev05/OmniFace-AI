@@ -45,6 +45,8 @@ export default function ApiKeysPage() {
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [devices, setDevices] = useState<KioskDevice[]>(initialDevices);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [provisionedKiosk, setProvisionedKiosk] = useState<any | null>(null);
+  const [isProvisioning, setIsProvisioning] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDeviceLocation, setNewDeviceLocation] = useState('Academic Block C');
   const { showToast } = useToast();
@@ -53,6 +55,7 @@ export default function ApiKeysPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowProvisionModal(false);
+        setProvisionedKiosk(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -124,24 +127,44 @@ export default function ApiKeysPage() {
     }
   };
 
-  const handleProvisionDevice = (e: React.FormEvent) => {
+  const handleProvisionDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDeviceName) return;
+    setIsProvisioning(true);
 
-    const newId = 'OMNIFACE-TERMINAL-0' + (devices.length + 1);
-    const createdDevice: KioskDevice = {
-      id: newId,
-      model: newDeviceName,
-      location: newDeviceLocation,
-      ping: '16ms',
-      lastSync: 'Pending enrollment',
-      status: 'ONLINE',
-    };
+    try {
+      const res = await fetch('/api/v1/kiosks/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: newDeviceName,
+          location: newDeviceLocation,
+        }),
+      });
 
-    setDevices([...devices, createdDevice]);
-    setNewDeviceName('');
-    setShowProvisionModal(false);
-    showToast(`Provisioned ${newId} for ${newDeviceLocation}!`, 'success');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const k = data.kiosk;
+        const newDevice: KioskDevice = {
+          id: k.id,
+          model: k.model,
+          location: k.location,
+          ping: k.ping || '12ms',
+          lastSync: k.lastSync || 'Just now',
+          status: 'ONLINE',
+        };
+        setDevices((prev) => [newDevice, ...prev]);
+        setProvisionedKiosk(k);
+        setShowProvisionModal(false);
+        showToast(`Provisioned ${k.id} successfully!`, 'success');
+      } else {
+        showToast(data.error || 'Provisioning failed', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error provisioning kiosk: ' + err.message, 'error');
+    } finally {
+      setIsProvisioning(false);
+    }
   };
 
   return (
@@ -304,11 +327,105 @@ export default function ApiKeysPage() {
                 <button type="button" onClick={() => setShowProvisionModal(false)} className="btn btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Authorize & Provision
+                <button type="submit" disabled={isProvisioning} className="btn btn-primary">
+                  {isProvisioning ? 'Provisioning...' : 'Authorize & Provision'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Scannable Provisioning QR & Secret Modal */}
+      {provisionedKiosk && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="provisioned-kiosk-title"
+          className="modal-overlay"
+          onClick={() => setProvisionedKiosk(null)}
+        >
+          <div
+            className="modal-dialog"
+            style={{
+              background: 'var(--surface-raised)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              maxWidth: '520px',
+              padding: '24px',
+              boxShadow: '0 25px 50px rgba(0,0,0,0.7)',
+              textAlign: 'center',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ textAlign: 'left' }}>
+                <h2 id="provisioned-kiosk-title" style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Kiosk Terminal Activated
+                </h2>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Scan this QR code from the OmniFace Android Kiosk to pair instantly
+                </p>
+              </div>
+              <button
+                onClick={() => setProvisionedKiosk(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: '18px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '16px', background: '#0a0c10', borderRadius: '12px', display: 'inline-block', margin: '8px auto 16px auto', border: '1px solid var(--border)' }}>
+              {/* Dynamic Secure QR Generator */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(provisionedKiosk.qrString)}&bgcolor=0a0c10&color=22c55e`}
+                alt="OmniFace Kiosk Provisioning QR Code"
+                width="220"
+                height="220"
+                style={{ display: 'block', borderRadius: '8px' }}
+              />
+            </div>
+
+            <div style={{ textAlign: 'left', background: 'var(--surface)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Terminal ID:</span>
+                <span className="tnum" style={{ fontWeight: 600, color: 'var(--text-main)' }}>{provisionedKiosk.id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Location:</span>
+                <span style={{ color: 'var(--text-main)' }}>{provisionedKiosk.location}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Sync Endpoint:</span>
+                <span className="tnum" style={{ color: 'var(--primary)', wordBreak: 'break-all' }}>{provisionedKiosk.syncEndpoint}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>HMAC Secret:</span>
+                <span className="tnum" style={{ fontFamily: 'var(--font-mono)', color: 'var(--success)' }}>
+                  {provisionedKiosk.hmacSecret.slice(0, 12)}••••••••
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(JSON.stringify(provisionedKiosk.qrConfig, null, 2));
+                  showToast('Kiosk provisioning payload copied to clipboard!', 'success');
+                }}
+                className="btn btn-secondary"
+              >
+                Copy JSON Config
+              </button>
+              <button
+                type="button"
+                onClick={() => setProvisionedKiosk(null)}
+                className="btn btn-primary"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

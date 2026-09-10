@@ -37,11 +37,24 @@ export function TopBarStatus() {
     return () => clearInterval(interval);
   }, []);
 
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await fetch('/api/v1/auth/logout', { method: 'POST' });
+    } catch {
+      // Proceed to login
+    } finally {
+      window.location.href = '/login';
+    }
+  };
+
   const isPostgres = status?.driver === 'postgres';
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         <button
           onClick={() => setShowModal(true)}
           style={{
@@ -87,6 +100,66 @@ export function TopBarStatus() {
             }}
           />
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Aegis Active</span>
+        </div>
+
+        {/* Admin Session Badge & Sign Out Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--border)', paddingLeft: '14px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              color: 'var(--text-main)',
+              fontWeight: 500,
+            }}
+          >
+            <div
+              style={{
+                width: '22px',
+                height: '22px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #06b6d4, #3b82f6)',
+                color: '#fff',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              A
+            </div>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Admin</span>
+          </div>
+
+          <button
+            onClick={handleSignOut}
+            disabled={signingOut}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '2px 8px',
+              color: 'var(--text-dim)',
+              fontSize: '11px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'color 120ms ease, border-color 120ms ease',
+            }}
+            title="Sign out of OmniFace Console"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--danger)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-dim)';
+              e.currentTarget.style.borderColor = 'var(--border)';
+            }}
+          >
+            {signingOut ? '...' : 'Sign Out'}
+          </button>
         </div>
       </div>
 
