@@ -55,13 +55,15 @@ jobs:
         run: |
           cd backend
           npm test
+          npm run test:audit
+          npm run backup:test
         env:
           OMNIFACE_SESSION_SECRET: 'omni_test_session_secret_7f8a9b0c1d2e3f4a5b6c7d8e9f'
           MIGRATION_SECRET: 'omni_migration_secret_secure_entropy_key_9981'
           DATABASE_URL: 'postgresql://test_user:test_password@localhost:5432/omniface_test'
 
   android_ci:
-    name: 🧪 Run Android Biometric Unit Tests
+    name: 🧪 Run Android Biometric Unit Tests & Package Verification
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -85,6 +87,9 @@ jobs:
 
       - name: 🧪 Execute Biometric Unit Tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: 📦 Assemble Debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: 📊 Upload Test Results
         if: always()
