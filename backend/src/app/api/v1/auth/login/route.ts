@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
 import { users, organizations, organizationMembers } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { signSessionToken, UserRole } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
 
@@ -10,93 +9,101 @@ export async function POST(req: NextRequest) {
     const { email, password } = await req.json();
 
     if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Email and password are required' }, { status: 400 });
     }
 
     if (password.length < 6) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      return NextResponse.json({ success: false, error: 'Invalid credentials' }, { status: 401 });
     }
 
-    let userId = 'usr_admin_01';
-    let userRole: UserRole = 'ADMIN';
-    let orgId = DEFAULT_ORG_ID;
-    let orgName = 'National Institute of Technology';
-    let tier = 'PRO';
+    if (!isDbConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Database service is unavailable' },
+        { status: 503 }
+      );
+    }
 
-    if (isDbConfigured()) {
-      const database = getDb();
-      if (database) {
-        try {
-          await ensureDefaultOrganization(database);
-          const existing = await database
-            .select()
-            .from(users)
-            .where(eq(users.email, email))
-            .limit(1);
+    const database = getDb();
+    if (!database) {
+      return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
+    }
 
-          if (existing.length > 0) {
-            userId = existing[0].id;
-            userRole = (existing[0].role as UserRole) || 'ADMIN';
-            if (existing[0].orgId) orgId = existing[0].orgId;
-          } else {
-            const inserted = await database
-              .insert(users)
-              .values({
-                email,
-                fullName: email.split('@')[0],
-                orgId: DEFAULT_ORG_ID,
-                role: 'ADMIN',
-              })
-              .returning({ id: users.id });
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = await database
+      .select()
+      .from(users)
+      .where(eq(users.email, cleanEmail))
+      .limit(1);
 
-            userId = inserted[0]?.id || userId;
-            await database.insert(organizationMembers).values({
-              organizationId: DEFAULT_ORG_ID,
-              userId,
-              role: 'ADMIN',
-              status: 'ACTIVE',
-            });
-          }
+    if (existing.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid credentials. User account does not exist.' },
+        { status: 401 }
+      );
+    }
 
-          const org = await database
-            .select()
-            .from(organizations)
-            .where(eq(organizations.id, orgId))
-            .limit(1);
+    const user = existing[0];
+    const userId = user.id;
+    let userRole: UserRole = (user.role as UserRole) || 'ADMIN';
+    let userOrgId: string | null = user.orgId || null;
+    let orgName: string | null = null;
+    let tier = 'FREE';
 
-          if (org.length > 0) {
-            orgName = org[0].name;
-            tier = org[0].tier;
-          }
-        } catch (dbErr) {
-          console.warn('Login database user lookup warning:', dbErr);
-        }
+    // Query organization membership
+    const membership = await database
+      .select({
+        role: organizationMembers.role,
+        organizationId: organizationMembers.organizationId,
+      })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, userId))
+      .limit(1);
+
+    if (membership.length > 0) {
+      userRole = (membership[0].role as UserRole) || userRole;
+      if (membership[0].organizationId) {
+        userOrgId = membership[0].organizationId;
       }
     }
 
-    const adminUser = {
+    if (userOrgId) {
+      const org = await database
+        .select({ name: organizations.name, tier: organizations.tier })
+        .from(organizations)
+        .where(eq(organizations.id, userOrgId))
+        .limit(1);
+
+      if (org.length > 0) {
+        orgName = org[0].name;
+        tier = org[0].tier || 'FREE';
+      } else {
+        userOrgId = null;
+      }
+    }
+
+    const authenticatedUser = {
       id: userId,
-      email,
-      fullName: email.split('@')[0].toUpperCase() + ' (Admin)',
+      email: user.email,
+      fullName: user.fullName,
       role: userRole,
-      orgId,
+      orgId: userOrgId,
       orgName,
       tier,
     };
 
     const sessionToken = signSessionToken({
       userId,
-      email,
-      fullName: adminUser.fullName,
+      email: user.email,
+      fullName: user.fullName,
       role: userRole,
-      orgId,
+      orgId: userOrgId,
       orgName,
       tier,
     });
 
     const response = NextResponse.json({
       success: true,
-      user: adminUser,
+      user: authenticatedUser,
       token: sessionToken,
     });
 
@@ -112,6 +119,6 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || 'Authentication failed' }, { status: 500 });
+    return NextResponse.json({ success: false, error: err?.message || 'Authentication failed' }, { status: 500 });
   }
 }

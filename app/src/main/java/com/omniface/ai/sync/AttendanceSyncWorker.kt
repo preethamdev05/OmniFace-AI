@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.omniface.ai.OmniFaceApplication
 import com.omniface.ai.data.local.entity.AttendanceRecordEntity
+import com.omniface.ai.hardware.DevicePairingManager
 import com.omniface.ai.security.AndroidSecurityUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -26,6 +27,11 @@ class AttendanceSyncWorker(
             return@withContext Result.failure()
         }
         if (isStopped) return@withContext Result.failure()
+
+        if (!DevicePairingManager.isDevicePaired(applicationContext)) {
+            Log.w("AttendanceSync", "Sync skipped: Device is not paired to an authoritative organization.")
+            return@withContext Result.retry()
+        }
 
         val db = OmniFaceApplication.instance.database
         // Paginate to avoid OOM — fetch at most 200 unsynced records per attempt
@@ -73,7 +79,12 @@ class AttendanceSyncWorker(
         val prefs = applicationContext.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
         val securePrefs = AndroidSecurityUtils.getEncryptedPrefs(applicationContext, "OMNIFACE_SECURE_DEVICE_PREFS")
         val deviceToken = securePrefs.getString("DEVICE_TOKEN", null) ?: prefs.getString("DEVICE_TOKEN", null)
-        val orgId = securePrefs.getString("ORGANIZATION_ID", null) ?: prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
+        val orgId = securePrefs.getString("ORGANIZATION_ID", null) ?: prefs.getString("ORGANIZATION_ID", null)
+
+        if (orgId.isNullOrBlank()) {
+            Log.w("AttendanceSync", "Sync skipped: Device is missing authoritative organizationId.")
+            return false
+        }
 
         val payloadString = buildPayloadString(deviceId, records, orgId)
         val requestTimestamp = System.currentTimeMillis()

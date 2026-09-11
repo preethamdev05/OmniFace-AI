@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { users, organizationMembers, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization } from '@/db/helpers';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireSession } from '@/lib/api-auth';
 import { UserRole } from '@/lib/auth';
@@ -15,6 +14,13 @@ export async function GET(req: NextRequest) {
     }
     const orgId = auth.user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     if (!isDbConfigured()) {
       return NextResponse.json({ success: true, staff: [], totalCount: 0 });
     }
@@ -24,7 +30,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, staff: [], totalCount: 0 });
     }
 
-    await ensureDefaultOrganization(database);
     const members = await database
       .select({
         membershipId: organizationMembers.id,
@@ -63,6 +68,13 @@ export async function POST(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { email, fullName, role = 'TEACHER' } = body;
 
@@ -90,8 +102,6 @@ export async function POST(req: NextRequest) {
     if (!database) {
       return NextResponse.json({ success: false, error: 'Database offline' }, { status: 500 });
     }
-
-    await ensureDefaultOrganization(database);
 
     // 1. Find or create user record
     let targetUserId: string;
@@ -180,6 +190,13 @@ export async function DELETE(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
     const membershipId = searchParams.get('membershipId');
@@ -194,6 +211,10 @@ export async function DELETE(req: NextRequest) {
         { success: false, error: 'Cannot revoke your own administrative membership.' },
         { status: 400 }
       );
+    }
+
+    if (!isDbConfigured()) {
+      return NextResponse.json({ success: false, error: 'Database offline' }, { status: 503 });
     }
 
     const database = getDb();

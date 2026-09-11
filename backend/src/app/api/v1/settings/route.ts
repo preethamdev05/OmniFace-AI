@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { isDbConfigured, getDb } from '@/db';
 import { organizations, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization } from '@/db/helpers';
 import { eq } from 'drizzle-orm';
 import { requireSession } from '@/lib/api-auth';
 
@@ -26,6 +25,13 @@ export async function GET(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     if (!isDbConfigured()) {
       return NextResponse.json({
         success: true,
@@ -47,7 +53,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
     }
 
-    await ensureDefaultOrganization(database);
     const rows = await database
       .select()
       .from(organizations)
@@ -86,6 +91,13 @@ export async function PUT(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const result = SettingsUpdateSchema.safeParse(body);
     if (!result.success) {
@@ -118,8 +130,6 @@ export async function PUT(req: NextRequest) {
     if (!database) {
       return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
     }
-
-    await ensureDefaultOrganization(database);
 
     await database
       .update(organizations)

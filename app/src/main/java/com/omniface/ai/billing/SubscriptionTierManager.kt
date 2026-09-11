@@ -36,9 +36,9 @@ enum class SubscriptionTier(
         priceInrMonthly = 199,
         allowsReportExports = true,
         allowsCloudSync = true,
-        allowsMultiDevice = true,
+        allowsMultiDevice = false,
         displaysAds = false,
-        hasWebDashboard = false
+        hasWebDashboard = true
     ),
     PRO(
         title = "Pro",
@@ -48,7 +48,7 @@ enum class SubscriptionTier(
         allowsCloudSync = true,
         allowsMultiDevice = true,
         displaysAds = false,
-        hasWebDashboard = false
+        hasWebDashboard = true
     ),
     INSTITUTION(
         title = "Institution",
@@ -68,35 +68,35 @@ enum class SubscriptionTier(
                 "Face recognition",
                 "Attendance marking",
                 "Local SQLite database",
-                "Single kiosk device"
+                "Single kiosk device",
+                "Advertisements supported"
             )
             PREMIUM -> listOf(
                 "250 users",
-                "Everything in Free",
-                "Auto cloud sync",
-                "Multi-device synchronization",
-                "Excel & PDF report exports",
+                "Single kiosk device",
+                "Cloud synchronization",
+                "Web dashboard access",
+                "Basic reports (CSV export)",
                 "100% Ad-Free"
             )
             PRO -> listOf(
                 "500 users",
+                "Up to 3 kiosk devices",
                 "Everything in Premium",
-                "Multiple classes & sections",
-                "Advanced reports & audit log",
-                "Higher storage & sync limits",
+                "Advanced reports",
+                "Excel (XLSX) & PDF exports",
                 "Priority support"
             )
             INSTITUTION -> listOf(
                 "500+ users",
-                "Unlimited devices",
-                "Multi-admin",
-                "Departments",
-                "Classes",
-                "Staff roles",
+                "Multiple devices",
+                "Full web dashboard",
+                "Multiple administrators",
+                "Departments & sections",
+                "Staff roles & RBAC",
                 "Audit logs",
-                "Advanced reporting",
-                "Custom onboarding",
-                "Custom pricing"
+                "Enterprise API",
+                "Custom onboarding & pricing"
             )
         }
     }
@@ -169,14 +169,10 @@ object SubscriptionTierManager {
     fun evaluateCurrentTier(): SubscriptionTier {
         val p = prefs ?: return SubscriptionTier.FREE
         val tierName = p.getString(KEY_TIER, SubscriptionTier.FREE.name) ?: SubscriptionTier.FREE.name
-        val rawTier = when (tierName.uppercase()) {
-            "PROFESSIONAL" -> SubscriptionTier.PRO
-            "BUSINESS" -> SubscriptionTier.INSTITUTION
-            else -> try {
-                SubscriptionTier.valueOf(tierName)
-            } catch (_: Exception) {
-                SubscriptionTier.FREE
-            }
+        val rawTier = try {
+            SubscriptionTier.valueOf(tierName.uppercase())
+        } catch (_: Exception) {
+            SubscriptionTier.FREE
         }
 
         if (rawTier == SubscriptionTier.FREE) {

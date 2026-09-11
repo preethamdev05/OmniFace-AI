@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
-import { devices, organizations } from '@/db/schema';
-import { ensureDefaultOrganization } from '@/db/helpers';
+import { devices } from '@/db/schema';
 import { requireSession } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
@@ -13,6 +12,13 @@ export async function POST(req: NextRequest) {
     }
     const { user } = auth;
     const orgId = user.orgId;
+
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
 
     // Generate 6-digit numeric one-time code (valid 15 mins)
     const pairingCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -26,7 +32,6 @@ export async function POST(req: NextRequest) {
       const database = getDb();
       if (database) {
         try {
-          await ensureDefaultOrganization(database);
           await database.insert(devices).values({
             organizationId: orgId,
             deviceIdentifier: tempDeviceId,

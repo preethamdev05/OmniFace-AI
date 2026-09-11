@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
 import { departments, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization } from '@/db/helpers';
 import { eq, and, desc } from 'drizzle-orm';
 import { requireSession } from '@/lib/api-auth';
 
@@ -12,17 +11,26 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse;
     }
     const orgId = auth.user.orgId;
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'User does not belong to an organization. Please complete onboarding.' },
+        { status: 400 }
+      );
+    }
 
     if (!isDbConfigured()) {
-      return NextResponse.json({ success: true, departments: [], totalCount: 0 });
+      return NextResponse.json({
+        success: true,
+        departments: [],
+        totalCount: 0,
+      });
     }
 
     const database = getDb();
     if (!database) {
-      return NextResponse.json({ success: true, departments: [], totalCount: 0 });
+      return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
     }
 
-    await ensureDefaultOrganization(database);
     const rows = await database
       .select({
         id: departments.id,
@@ -57,6 +65,12 @@ export async function POST(req: NextRequest) {
     }
     const { user } = auth;
     const orgId = user.orgId;
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'User does not belong to an organization. Please complete onboarding.' },
+        { status: 400 }
+      );
+    }
 
     const body = await req.json();
     const { name, code, description } = body;
@@ -70,17 +84,16 @@ export async function POST(req: NextRequest) {
 
     if (!isDbConfigured()) {
       return NextResponse.json(
-        { success: false, error: 'Database is not configured' },
-        { status: 500 }
+        { success: false, error: 'Database service is unavailable' },
+        { status: 503 }
       );
     }
 
     const database = getDb();
     if (!database) {
-      return NextResponse.json({ success: false, error: 'Database offline' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
     }
 
-    await ensureDefaultOrganization(database);
     const inserted = await database
       .insert(departments)
       .values({
@@ -122,6 +135,13 @@ export async function PUT(req: NextRequest) {
     }
     const { user } = auth;
     const orgId = user.orgId;
+
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
     const { id, name, code, description } = body;
@@ -174,6 +194,13 @@ export async function DELETE(req: NextRequest) {
     }
     const { user } = auth;
     const orgId = user.orgId;
+
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

@@ -135,6 +135,24 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  // ── Enforce Onboarding for Unassigned Users ──
+  if (isSessionValid && (!session.orgId || session.orgId.trim() === '')) {
+    if (pathname !== '/onboarding' && !pathname.startsWith('/onboarding')) {
+      const onboardingUrl = new URL('/onboarding', request.url);
+      const response = NextResponse.redirect(onboardingUrl);
+      response.headers.set('x-request-id', requestId);
+      return response;
+    }
+  }
+
+  // ── Redirect Already-Onboarded Users Away From Onboarding ──
+  if (isSessionValid && session.orgId && session.orgId.trim() !== '' && pathname === '/onboarding') {
+    const dest = session.tier === 'FREE' ? '/subscription' : '/';
+    const response = NextResponse.redirect(new URL(dest, request.url));
+    response.headers.set('x-request-id', requestId);
+    return response;
+  }
+
   // ── Enforce Free-Tier Operational Dashboard Lock ──
   // Free plan includes Android attendance only; operational web dashboard is restricted to Premium+.
   // Free users are allowed to access /subscription and /onboarding to manage billing.

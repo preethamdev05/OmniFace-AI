@@ -13,6 +13,13 @@ export async function POST(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const token = (body.token || body.fcmToken || '').trim();
     const { deviceId, platform = 'ANDROID' } = body;

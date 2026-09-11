@@ -11,6 +11,12 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse;
     }
     const orgId = auth.user.orgId;
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
 
     const todayStr = new Date().toISOString().split('T')[0];
 

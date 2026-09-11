@@ -12,6 +12,13 @@ export async function GET(req: NextRequest) {
     }
     const orgId = auth.user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const dateParam = searchParams.get('date'); // 'YYYY-MM-DD' or 'ALL'
     const statusParam = searchParams.get('status'); // 'ALL' or specific status

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isDbConfigured, getDb } from '@/db';
 import { attendanceEvents, attendanceAdjustments, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { eq, or, and } from 'drizzle-orm';
 import { requireSession } from '@/lib/api-auth';
 
@@ -16,6 +15,12 @@ export async function POST(req: NextRequest) {
     const { user } = auth;
     const sessionUserId = user.userId;
     const sessionOrgId = user.orgId;
+    if (!sessionOrgId) {
+      return NextResponse.json(
+        { success: false, error: 'User does not belong to an organization. Please complete onboarding.' },
+        { status: 400 }
+      );
+    }
 
     const body = await req.json();
     const {
@@ -51,11 +56,19 @@ export async function POST(req: NextRequest) {
     let previousStatus = 'ABSENT';
     let targetEventId = attendanceEventId || recordId;
 
-    if (isDbConfigured()) {
-      const database = getDb();
-      if (database) {
-        try {
-          await ensureDefaultOrganization(database);
+    if (!isDbConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Database service is unavailable' },
+        { status: 503 }
+      );
+    }
+
+    const database = getDb();
+    if (!database) {
+      return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
+    }
+
+    try {
 
           // Locate attendance event scoped to session organizationId
           const events = await database
@@ -114,11 +127,12 @@ export async function POST(req: NextRequest) {
               { status: 404 }
             );
           }
-        } catch (dbErr) {
-          console.warn('DB attendance adjustment error:', dbErr);
-        }
+      } catch (dbErr: any) {
+        return NextResponse.json(
+          { success: false, error: dbErr?.message || 'Failed to update attendance record in database' },
+          { status: 500 }
+        );
       }
-    }
 
     return NextResponse.json({
       success: true,

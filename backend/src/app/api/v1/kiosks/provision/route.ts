@@ -13,6 +13,13 @@ export async function POST(req: NextRequest) {
     }
     const orgId = auth.user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const { model, location, fingerprint } = body;
 

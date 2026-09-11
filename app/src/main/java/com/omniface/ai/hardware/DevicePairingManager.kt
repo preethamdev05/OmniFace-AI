@@ -18,7 +18,7 @@ data class PairedDeviceInfo(
     val isPaired: Boolean,
     val deviceId: String,
     val deviceName: String,
-    val organizationId: String,
+    val organizationId: String?,
     val deviceToken: String?,
     val pairedAt: Long
 )
@@ -72,8 +72,7 @@ object DevicePairingManager {
             ?: plainPrefs.getString(KEY_DEVICE_NAME, "Android Attendance Kiosk")
             ?: "Android Attendance Kiosk"
         val orgId = securePrefs.getString(KEY_ORG_ID, null)
-            ?: plainPrefs.getString(KEY_ORG_ID, "default-org")
-            ?: "default-org"
+            ?: plainPrefs.getString(KEY_ORG_ID, null)
         val deviceToken = securePrefs.getString(KEY_DEVICE_TOKEN, null)
             ?: plainPrefs.getString(KEY_DEVICE_TOKEN, null)
         val pairedAt = if (securePrefs.contains(KEY_PAIRED_AT)) {
@@ -164,7 +163,10 @@ object DevicePairingManager {
                 val token = jsonResponse.optString("deviceToken", "")
                 val deviceId = jsonResponse.optString("deviceId", currentDeviceId)
                 val assignedName = jsonResponse.optString("deviceName", deviceName)
-                val orgId = jsonResponse.optString("organizationId", "default-org")
+                val orgId = jsonResponse.optString("organizationId", "").trim()
+                if (orgId.isEmpty()) {
+                    return@withContext PairingResult.Failure("Backend pairing response did not contain a valid organizationId.")
+                }
                 val now = System.currentTimeMillis()
 
                 val securePrefs = getSecurePrefs(context)

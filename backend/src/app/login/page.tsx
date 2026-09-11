@@ -65,7 +65,11 @@ function LoginForm() {
 
     if (res.ok && data.success) {
       showToast(`Access granted. Welcome to OmniFace, ${data.user.fullName}!`, 'success');
-      window.location.href = redirectTarget;
+      if (!data.user.orgId) {
+        window.location.href = '/onboarding';
+      } else {
+        window.location.href = redirectTarget;
+      }
       return true;
     } else if (data.code === 'EMAIL_NOT_VERIFIED') {
       setUnverifiedEmail(user.email || '');
@@ -142,20 +146,6 @@ function LoginForm() {
     } catch (err: any) {
       let msg = err?.message || 'Authentication failed.';
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        // Fallback to legacy local password endpoint for development demo accounts
-        try {
-          const fallbackRes = await fetch('/api/v1/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, rememberMe }),
-          });
-          const fallbackData = await fallbackRes.json();
-          if (fallbackRes.ok && fallbackData.success) {
-            showToast('Development administrator logged in successfully.', 'success');
-            window.location.href = redirectTarget;
-            return;
-          }
-        } catch {}
         msg = 'Invalid email or password. Check credentials or sign up.';
       } else if (err.code === 'auth/email-already-in-use') {
         msg = 'An account already exists with this email. Please sign in instead.';
@@ -205,13 +195,6 @@ function LoginForm() {
     } finally {
       setCheckingVerification(false);
     }
-  };
-
-  const autofillDemo = () => {
-    setEmail('admin@omniface.ai');
-    setPassword('OmniFace@2026!');
-    setErrorMsg(null);
-    showToast('Auto-filled enterprise admin credentials', 'info');
   };
 
   return (
@@ -747,25 +730,6 @@ function LoginForm() {
                 {loading ? 'Authenticating...' : authMode === 'signin' ? 'Sign In to Dashboard' : 'Create Organization Fleet'}
               </button>
             </form>
-
-            {/* Quick Demo Access Trigger */}
-            <div style={{ marginTop: '22px', textAlign: 'center' }}>
-              <button
-                type="button"
-                onClick={autofillDemo}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '8px',
-                  padding: '6px 12px',
-                  color: '#94A3B8',
-                  fontSize: '11.5px',
-                  cursor: 'pointer',
-                }}
-              >
-                ⚡ Autofill Demo Admin Credentials
-              </button>
-            </div>
           </>
         )}
       </div>

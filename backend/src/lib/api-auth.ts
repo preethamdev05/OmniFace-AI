@@ -18,7 +18,7 @@ export async function authenticateSession(req: NextRequest): Promise<SessionPayl
   return verifySessionToken(rawToken);
 }
 
-import { resolveOrgEntitlements, getTierEntitlements, Entitlements } from './entitlements';
+import { resolveOrgEntitlements, getTierEntitlements, Entitlements, SubscriptionTier } from './entitlements';
 
 export type AuthenticatedUser = SessionPayload & { entitlements: Entitlements };
 
@@ -61,7 +61,7 @@ export async function requireSession(
 
   const entitlements = user.tier === 'FREE'
     ? getTierEntitlements('FREE')
-    : await resolveOrgEntitlements(user.orgId);
+    : await resolveOrgEntitlements(user.orgId, (user.tier as SubscriptionTier) || 'FREE');
   return { user: { ...user, entitlements } };
 }
 
@@ -99,14 +99,6 @@ export async function authenticateDevice(req: NextRequest): Promise<Authenticate
   }
 
   if (!isDbConfigured()) {
-    // If DB is offline in non-production, accept paired mock token
-    if (deviceToken.startsWith('omni_hw_')) {
-      return {
-        deviceId: req.headers.get('X-Device-ID') || 'OMNIFACE-KIOSK-DEV',
-        organizationId: '00000000-0000-0000-0000-000000000001',
-        deviceRecord: { deviceIdentifier: 'OMNIFACE-KIOSK-DEV', status: 'ONLINE', isPaired: 1 },
-      };
-    }
     return null;
   }
 

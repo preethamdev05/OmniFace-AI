@@ -8,9 +8,14 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.omniface.ai.OmniFaceApplication
 import com.omniface.ai.data.local.entity.AttendanceRecordEntity
+import com.omniface.ai.data.local.entity.FaceTemplateEntity
+import com.omniface.ai.data.local.entity.PersonEntity
 import com.omniface.ai.hardware.FleetTopologyManager
 import com.omniface.ai.hardware.KioskNode
 import com.omniface.ai.security.AndroidSecurityUtils
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,6 +104,7 @@ object CloudFleetSyncEngine {
                 recordCount = 0,
                 peerNodeCount = peerCount
             )
+            pullRosterFromCloud(context)
             return@withContext true
         }
 
@@ -127,6 +133,7 @@ object CloudFleetSyncEngine {
                 peerNodeCount = peerCount
             )
             Log.i(TAG, "✅ Synchronized ${unsynced.size} records to fleet backend.")
+            pullRosterFromCloud(context)
             true
         } else {
             // Queue via Android WorkManager for guaranteed background delivery
@@ -144,6 +151,169 @@ object CloudFleetSyncEngine {
         }
     }
 
+    /**
+     * Pulls the latest authorized roster and 512-D face templates from cloud backend.
+     * Enrolls incremental updates into sovereign local Room SQLite storage.
+     *
+     * @return count of templates successfully synced and cached
+     */
+    suspend fun pullRosterFromCloud(context: Context): Int = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+        val securePrefs = try {
+            AndroidSecurityUtils.getEncryptedPrefs(context, "OMNIFACE_SECURE_DEVICE_PREFS")
+        } catch (_: Throwable) {
+            null
+        }
+        val deviceToken = securePrefs?.getString("DEVICE_TOKEN", null) ?: prefs.getString("DEVICE_TOKEN", null)
+
+        if (deviceToken.isNullOrBlank()) {
+            Log.d(TAG, "Device not paired or missing device token; skipping cloud roster pull.")
+            return@withContext 0
+        }
+
+        val syncEndpoint = prefs.getString("SYNC_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/attendance/sync")
+            ?: "https://omniface.vercel.app/api/v1/attendance/sync"
+        val pullEndpoint = syncEndpoint.replace("/attendance/sync", "/sync/pull")
+        val deviceId = prefs.getString("DEVICE_ID", "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
+
+        val isLocalDev = pullEndpoint.contains("127.0.0.1") || pullEndpoint.contains("localhost") || pullEndpoint.contains("10.0.2.2") || pullEndpoint.contains("192.168.")
+        if (!pullEndpoint.startsWith("https://") && !isLocalDev) {
+            Log.w(TAG, "Cleartext sync pull disallowed for remote hosts: $pullEndpoint")
+            return@withContext 0
+        }
+
+        try {
+            val url = URL(pullEndpoint)
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 10000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("X-Device-ID", deviceId)
+                setRequestProperty("X-Device-Token", deviceToken)
+                setRequestProperty("Authorization", "Bearer $deviceToken")
+            }
+
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                Log.w(TAG, "Failed to pull roster from cloud: HTTP $code")
+                return@withContext 0
+            }
+
+            val responseBody = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val root = JSONObject(responseBody)
+            if (!root.optBoolean("success", false)) {
+                Log.w(TAG, "Cloud roster pull returned unsuccessful: ${root.optString("error")}")
+                return@withContext 0
+            }
+
+            val studentsJson = root.optJSONArray("students") ?: JSONArray()
+            val templatesJson = root.optJSONArray("faceTemplates") ?: JSONArray()
+
+            val personsToInsert = mutableListOf<PersonEntity>()
+            for (i in 0 until studentsJson.length()) {
+                val sObj = studentsJson.getJSONObject(i)
+                val roll = sObj.optString("roll")
+                val name = sObj.optString("name")
+                val role = sObj.optString("role", "STUDENT")
+                val dept = sObj.optString("department", "General")
+                val sem = sObj.optString("semester", "I")
+                if (roll.isNotBlank() && name.isNotBlank()) {
+                    personsToInsert.add(
+                        PersonEntity(
+                            rollNumber = roll,
+                            fullName = name,
+                            department = dept,
+                            semester = sem,
+                            role = role
+                        )
+                    )
+                }
+            }
+
+            val templatesToInsert = mutableListOf<FaceTemplateEntity>()
+            for (i in 0 until templatesJson.length()) {
+                val tObj = templatesJson.getJSONObject(i)
+                val id = tObj.optString("id", UUID.randomUUID().toString())
+                val roll = tObj.optString("studentRoll")
+                val angleType = tObj.optString("angleType", "FRONTAL")
+                val quality = tObj.optDouble("qualityScore", 100.0).toFloat()
+
+                val rawEmb = tObj.opt("embedding")
+                val embCsv = when (rawEmb) {
+                    null -> ""
+                    is JSONArray -> {
+                        val sb = StringBuilder()
+                        for (j in 0 until rawEmb.length()) {
+                            if (j > 0) sb.append(",")
+                            sb.append(rawEmb.getDouble(j).toString())
+                        }
+                        sb.toString()
+                    }
+                    is String -> rawEmb.removeSurrounding("[", "]").trim()
+                    else -> ""
+                }
+
+                if (roll.isNotBlank() && embCsv.isNotBlank()) {
+                    val encryptedCsv = try {
+                        AndroidSecurityUtils.encrypt(embCsv)
+                    } catch (_: Throwable) {
+                        embCsv
+                    }
+                    templatesToInsert.add(
+                        FaceTemplateEntity(
+                            id = id,
+                            studentRoll = roll,
+                            angleType = angleType,
+                            embeddingEncryptedCsv = encryptedCsv,
+                            isEncrypted = true,
+                            qualityScore = quality
+                        )
+                    )
+                }
+            }
+
+            val db = OmniFaceApplication.instance.database
+            if (personsToInsert.isNotEmpty()) {
+                db.personDao().insertPersons(personsToInsert)
+            }
+            if (templatesToInsert.isNotEmpty()) {
+                db.personDao().insertTemplates(templatesToInsert)
+            }
+
+            // Process tombstones (purged/deleted members)
+            val tombstonesJson = root.optJSONArray("tombstones")
+            if (tombstonesJson != null) {
+                for (j in 0 until tombstonesJson.length()) {
+                    val tombstoneRoll = tombstonesJson.optString(j)
+                    if (tombstoneRoll.isNotBlank()) {
+                        db.personDao().deletePersonByRoll(tombstoneRoll)
+                        db.personDao().deleteTemplatesForPerson(tombstoneRoll)
+                        Log.i(TAG, "Processed tombstone for purged member: $tombstoneRoll")
+                    }
+                }
+            }
+
+            // Refresh in-memory caches and prewarm pipeline
+            val allPersons = db.personDao().getAllPersons()
+            val allTemplates = db.personDao().getAllTemplates()
+            OmniFaceApplication.cachedStudentMap = allPersons.associate { it.rollNumber to it.fullName }
+            OmniFaceApplication.cachedTemplates = allTemplates
+
+            try {
+                com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(context).preloadTemplates(allTemplates)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Pipeline template pre-warming note: ${t.message}")
+            }
+
+            Log.i(TAG, "Successfully pulled ${personsToInsert.size} members and ${templatesToInsert.size} face templates from cloud.")
+            templatesToInsert.size
+        } catch (e: Exception) {
+            Log.e(TAG, "Roster pull failed with exception: ${e.message}", e)
+            0
+        }
+    }
+
     private fun dispatchBatch(
         context: Context,
         endpoint: String,
@@ -158,8 +328,18 @@ object CloudFleetSyncEngine {
         }
 
         val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
-        val deviceToken = prefs.getString("DEVICE_TOKEN", null)
-        val orgId = prefs.getString("ORGANIZATION_ID", "default-org") ?: "default-org"
+        val securePrefs = try {
+            AndroidSecurityUtils.getEncryptedPrefs(context, "OMNIFACE_SECURE_DEVICE_PREFS")
+        } catch (_: Throwable) {
+            null
+        }
+        val deviceToken = securePrefs?.getString("DEVICE_TOKEN", null) ?: prefs.getString("DEVICE_TOKEN", null)
+        val orgId = securePrefs?.getString("ORGANIZATION_ID", null) ?: prefs.getString("ORGANIZATION_ID", null)
+
+        if (orgId.isNullOrBlank()) {
+            Log.w(TAG, "Sync aborted: Device is not paired to an authoritative organization.")
+            return false
+        }
 
         val payloadString = AttendanceSyncWorker.buildPayloadString(deviceId, records, orgId)
         val timestamp = System.currentTimeMillis()
@@ -231,7 +411,12 @@ object CloudFleetSyncEngine {
                 return false
             }
 
-            val deviceToken = prefs.getString("DEVICE_TOKEN", null)
+            val securePrefs = try {
+                AndroidSecurityUtils.getEncryptedPrefs(context, "OMNIFACE_SECURE_DEVICE_PREFS")
+            } catch (_: Throwable) {
+                null
+            }
+            val deviceToken = securePrefs?.getString("DEVICE_TOKEN", null) ?: prefs.getString("DEVICE_TOKEN", null)
             val pendingCount = _unsyncedCount.value
             val payload = FleetTopologyManager.createHeartbeatPayload(context, pendingCount)
             payload.put("deviceId", deviceId)

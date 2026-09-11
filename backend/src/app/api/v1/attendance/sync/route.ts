@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { attendanceEvents, devices, subscriptions, organizations } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { eq, and, inArray } from 'drizzle-orm';
 import { requireDevice } from '@/lib/api-auth';
 
@@ -60,7 +59,6 @@ export async function POST(req: NextRequest) {
       const database = getDb();
       if (database) {
         try {
-          await ensureDefaultOrganization(database);
           const orgRows = await database
             .select({ status: organizations.status })
             .from(organizations)
@@ -150,7 +148,6 @@ export async function POST(req: NextRequest) {
       const database = getDb();
       if (database) {
         try {
-          await ensureDefaultOrganization(database);
           // High-Performance Batch Deduplication & Ingestion (Phase 6 Optimization)
           const rolls = Array.from(new Set(verifiedRecords.map((r) => r.studentRoll)));
           const dates = Array.from(new Set(verifiedRecords.map((r) => r.sessionDate)));

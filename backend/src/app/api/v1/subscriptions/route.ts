@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { isDbConfigured, getDb } from '@/db';
 import { subscriptions, organizations, faceTemplates, students, invoices } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { eq, desc } from 'drizzle-orm';
 import { requireSession, authenticateDevice, authenticateSession } from '@/lib/api-auth';
 import { verifyGooglePlayPurchase } from '@/lib/google-play-billing';
 
 const VerifySubscriptionSchema = z.object({
-  tier: z.enum(['FREE', 'PREMIUM', 'PRO', 'PROFESSIONAL', 'INSTITUTION', 'BUSINESS']),
+  tier: z.enum(['FREE', 'PREMIUM', 'PRO', 'INSTITUTION']),
   provider: z.enum(['GOOGLE_PLAY', 'WEBSITE_CUSTOM', 'RAZORPAY', 'OFFLINE_LICENSE']).default('GOOGLE_PLAY'),
   purchaseToken: z.string().optional(),
   razorpayPaymentId: z.string().optional(),
@@ -23,9 +22,15 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse;
     }
     const orgId = auth.user.orgId;
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'User does not belong to an organization. Please complete onboarding.' },
+        { status: 400 }
+      );
+    }
 
     // Plans: Free (25), Premium (250, ₹199), Pro (500, ₹349), Institution (500+, Custom)
-    let activeTier = 'PRO';
+    let activeTier = 'FREE';
     let validUntilDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     let graceUntilDate = new Date(validUntilDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 14-day grace period
     let provider = 'GOOGLE_PLAY';
@@ -37,8 +42,6 @@ export async function GET(req: NextRequest) {
       const database = getDb();
       if (database) {
         try {
-          await ensureDefaultOrganization(database);
-
           // Get current student enrollment count
           const studentRows = await database
             .select({ id: students.id })
@@ -245,10 +248,6 @@ export async function POST(req: NextRequest) {
 
     let { tier, provider, purchaseToken, razorpayPaymentId, razorpaySubscriptionId } = result.data;
 
-    // Normalize
-    if (tier === 'PROFESSIONAL') tier = 'PRO';
-    if (tier === 'BUSINESS') tier = 'INSTITUTION';
-
     // Institution plan requires sales agreement or OWNER activation
     if (tier === 'INSTITUTION' && !isOwner) {
       return NextResponse.json(
@@ -324,8 +323,6 @@ export async function POST(req: NextRequest) {
       const database = getDb();
       if (database) {
         try {
-          await ensureDefaultOrganization(database);
-
           // 1. Insert subscription record
           await database.insert(subscriptions).values({
             organizationId: orgId,

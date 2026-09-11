@@ -232,24 +232,11 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     ) {
         val client = billingClient
 
-        // Fallback for Debug builds without Google Play Services
+        // Connect if client is not ready
         if (client == null || !client.isReady) {
-            if (BuildConfig.DEBUG) {
-                if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
-                    Log.i(TAG, "Debug build sandbox fallback: activating Pro locally.")
-                    activateSandboxPro()
-                    onLaunched?.invoke(true, "Sandbox Pro Activated (Debug Mode)")
-                } else {
-                    Log.i(TAG, "Debug build sandbox fallback: activating Premium locally.")
-                    activateSandboxPremium()
-                    onLaunched?.invoke(true, "Sandbox Premium Activated (Debug Mode)")
-                }
-                return
-            } else {
-                startConnection()
-                onLaunched?.invoke(false, "Google Play Store is connecting. Please retry in a moment.")
-                return
-            }
+            startConnection()
+            onLaunched?.invoke(false, "Google Play Store is connecting. Please retry in a moment.")
+            return
         }
 
         val details = if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
@@ -270,19 +257,7 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                 if (resolvedDetails != null) {
                     executeBillingFlow(activity, resolvedDetails, onLaunched)
                 } else {
-                    if (BuildConfig.DEBUG) {
-                        if (targetProductId == PRODUCT_ID_PRO_MONTHLY) {
-                            Log.i(TAG, "Pro product details not configured on Play Console. Using debug sandbox.")
-                            activateSandboxPro()
-                            onLaunched?.invoke(true, "Sandbox Pro Activated (Console Pending)")
-                        } else {
-                            Log.i(TAG, "Premium product details not configured on Play Console. Using debug sandbox.")
-                            activateSandboxPremium()
-                            onLaunched?.invoke(true, "Sandbox Premium Activated (Console Pending)")
-                        }
-                    } else {
-                        onLaunched?.invoke(false, "Unable to load subscription details from Google Play.")
-                    }
+                    onLaunched?.invoke(false, "Unable to load subscription details from Google Play. Please check network connection.")
                 }
             }
             return
@@ -439,12 +414,20 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     fun syncSubscriptionWithBackend(tier: SubscriptionTier, purchaseToken: String?) {
         billingScope.launch {
             try {
-                val prefs = applicationContext?.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
-                val endpoint = prefs?.getString("SUBSCRIPTION_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/subscriptions")
+                val context = applicationContext ?: return@launch
+                val pairedInfo = com.omniface.ai.hardware.DevicePairingManager.getPairedDeviceInfo(context)
+                val orgId = if (pairedInfo.isPaired) pairedInfo.organizationId else null
+                val deviceId = pairedInfo.deviceId
+                val deviceToken = pairedInfo.deviceToken
+
+                if (orgId == null || deviceToken == null) {
+                    Log.i(TAG, "Device is not paired to an organization. In-app subscription recorded locally.")
+                    return@launch
+                }
+
+                val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+                val endpoint = prefs.getString("SUBSCRIPTION_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/subscriptions")
                     ?: "https://omniface.vercel.app/api/v1/subscriptions"
-                val orgId = prefs?.getString("ORG_ID", "00000000-0000-0000-0000-000000000001")
-                    ?: "00000000-0000-0000-0000-000000000001"
-                val deviceId = prefs?.getString("DEVICE_ID", "OMNIFACE-TERMINAL-01") ?: "OMNIFACE-TERMINAL-01"
 
                 val payload = JSONObject().apply {
                     put("orgId", orgId)
@@ -462,6 +445,9 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                     setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Device-Token", deviceToken)
+                    setRequestProperty("X-Device-ID", deviceId)
+                    setRequestProperty("Authorization", "Bearer $deviceToken")
                 }
 
                 OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
@@ -488,11 +474,19 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
     fun pullSubscriptionFromBackend(onResolved: ((SubscriptionTier) -> Unit)? = null) {
         billingScope.launch {
             try {
-                val prefs = applicationContext?.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
-                val endpoint = prefs?.getString("SUBSCRIPTION_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/subscriptions")
+                val context = applicationContext ?: return@launch
+                val pairedInfo = com.omniface.ai.hardware.DevicePairingManager.getPairedDeviceInfo(context)
+                val orgId = if (pairedInfo.isPaired) pairedInfo.organizationId else null
+                val deviceToken = pairedInfo.deviceToken
+
+                if (orgId == null || deviceToken == null) {
+                    Log.d(TAG, "Device is unassigned/unpaired. Defaulting to local tier evaluation.")
+                    return@launch
+                }
+
+                val prefs = context.getSharedPreferences("OMNIFACE_PREFS", Context.MODE_PRIVATE)
+                val endpoint = prefs.getString("SUBSCRIPTION_REST_ENDPOINT", "https://omniface.vercel.app/api/v1/subscriptions")
                     ?: "https://omniface.vercel.app/api/v1/subscriptions"
-                val orgId = prefs?.getString("ORG_ID", "00000000-0000-0000-0000-000000000001")
-                    ?: "00000000-0000-0000-0000-000000000001"
 
                 val url = URL("$endpoint?orgId=$orgId")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -500,6 +494,9 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
                     connectTimeout = 8000
                     readTimeout = 8000
                     setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Device-Token", deviceToken)
+                    setRequestProperty("X-Device-ID", pairedInfo.deviceId)
+                    setRequestProperty("Authorization", "Bearer $deviceToken")
                 }
 
                 val code = conn.responseCode
@@ -658,31 +655,5 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
         }
     }
 
-    /**
-     * Activates 30-day Premium for development & sandbox environments.
-     */
-    fun activateSandboxPremium() {
-        val expiryTime = System.currentTimeMillis() + SUBSCRIPTION_DURATION_MS
-        val mockToken = "gp_sub_sandbox_${System.currentTimeMillis()}"
-        SubscriptionTierManager.setSubscription(
-            tier = SubscriptionTier.PREMIUM,
-            expiryTimestampMs = expiryTime,
-            purchaseToken = mockToken
-        )
-        _billingEvents.tryEmit(BillingEvent.PurchaseSuccess(mockToken, "SANDBOX-ORDER-123"))
-    }
-
-    /**
-     * Activates 30-day Pro for development & sandbox environments.
-     */
-    fun activateSandboxPro() {
-        val expiryTime = System.currentTimeMillis() + SUBSCRIPTION_DURATION_MS
-        val mockToken = "gp_sub_pro_sandbox_${System.currentTimeMillis()}"
-        SubscriptionTierManager.setSubscription(
-            tier = SubscriptionTier.PRO,
-            expiryTimestampMs = expiryTime,
-            purchaseToken = mockToken
-        )
-        _billingEvents.tryEmit(BillingEvent.PurchaseSuccess(mockToken, "SANDBOX-PRO-ORDER-123"))
-    }
 }
+

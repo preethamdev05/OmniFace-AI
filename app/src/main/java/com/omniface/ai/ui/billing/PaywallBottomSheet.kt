@@ -210,16 +210,13 @@ fun PaywallBottomSheet(
                     onClick = {
                         val activity = context as? Activity
                         if (activity != null) {
-                            PlayBillingManager.launchBillingFlow(activity) { launched, msg ->
+                            PlayBillingManager.launchBillingFlow(activity, PlayBillingManager.PRODUCT_ID_PREMIUM_MONTHLY) { launched, msg ->
                                 if (!launched) {
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         } else {
-                            PlayBillingManager.activateSandboxPremium()
-                            Toast.makeText(context, "🎉 Welcome to OmniFace Premium! All features unlocked.", Toast.LENGTH_LONG).show()
-                            onUpgradeSuccess?.invoke()
-                            onDismiss()
+                            Toast.makeText(context, "Activity context required to launch Google Play Billing.", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier
@@ -237,16 +234,13 @@ fun PaywallBottomSheet(
                     onClick = {
                         val activity = context as? Activity
                         if (activity != null) {
-                            PlayBillingManager.launchBillingFlow(activity) { launched, msg ->
+                            PlayBillingManager.launchBillingFlow(activity, PlayBillingManager.PRODUCT_ID_PRO_MONTHLY) { launched, msg ->
                                 if (!launched) {
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         } else {
-                            SubscriptionTierManager.setSubscription(SubscriptionTier.PRO, System.currentTimeMillis() + java.util.concurrent.TimeUnit.DAYS.toMillis(30))
-                            Toast.makeText(context, "🎉 Welcome to OmniFace Pro! All features unlocked.", Toast.LENGTH_LONG).show()
-                            onUpgradeSuccess?.invoke()
-                            onDismiss()
+                            Toast.makeText(context, "Activity context required to launch Google Play Billing.", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier

@@ -16,6 +16,13 @@ export async function GET(req: NextRequest) {
     const { user } = auth;
     const orgId = user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const rawFormat = (searchParams.get('format') || 'csv').toLowerCase();
     const format = (['csv', 'xlsx', 'pdf'].includes(rawFormat) ? rawFormat : 'csv') as ExportFormat;
@@ -65,38 +72,6 @@ export async function GET(req: NextRequest) {
           console.warn('DB reports export query warning:', dbErr);
         }
       }
-    }
-
-    // Fallback mock events for offline / CI sandbox testing
-    if (eventsData.length === 0) {
-      eventsData = [
-        {
-          id: 'ev-demo-01',
-          eventId: 'EVT-20260910-001',
-          studentRoll: 'CS2026-001',
-          studentName: 'Aarav Sharma',
-          sessionDate: '2026-09-10',
-          timestamp: Date.now(),
-          status: 'PRESENT',
-          confidencePct: 98,
-          securityTier: 'HIGH',
-          deviceId: 'kiosk-main-gate',
-          sha256Hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        },
-        {
-          id: 'ev-demo-02',
-          eventId: 'EVT-20260910-002',
-          studentRoll: 'CS2026-002',
-          studentName: 'Diya Patel',
-          sessionDate: '2026-09-10',
-          timestamp: Date.now() - 120000,
-          status: 'LATE',
-          confidencePct: 94,
-          securityTier: 'HIGH',
-          deviceId: 'kiosk-north-turnstile',
-          sha256Hash: 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb',
-        },
-      ];
     }
 
     const safeMonth = month.replace(/[^a-zA-Z0-9_-]/g, '_');

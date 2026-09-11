@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
-import { staffInvitations, users, organizationMembers, auditLogs } from '@/db/schema';
-import { ensureDefaultOrganization } from '@/db/helpers';
+import { staffInvitations, users, organizationMembers, auditLogs, organizations } from '@/db/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import { signSessionToken, UserRole } from '@/lib/auth';
 
@@ -21,46 +20,16 @@ export async function POST(req: NextRequest) {
     const tokenHash = crypto.createHash('sha256').update(inviteToken.trim()).digest('hex');
 
     if (!isDbConfigured()) {
-      const sandboxUserId = '00000000-0000-0000-0000-000000000099';
-      const sessionToken = signSessionToken({
-        userId: sandboxUserId,
-        email: 'staff.sandbox@omniface.internal',
-        fullName: fullName?.trim() || 'Staff Sandbox User',
-        role: 'TEACHER',
-        orgId: '00000000-0000-0000-0000-000000000001',
-        orgName: 'OmniFace Campus',
-        tier: 'INSTITUTION',
-      });
-      const response = NextResponse.json({
-        success: true,
-        message: 'Invitation accepted successfully. Your membership is now active (sandbox mode).',
-        sessionToken,
-        user: {
-          id: sandboxUserId,
-          email: 'staff.sandbox@omniface.internal',
-          role: 'TEACHER',
-          orgId: '00000000-0000-0000-0000-000000000001',
-          sessionToken,
-        },
-      });
-      response.cookies.set({
-        name: 'omniface_session',
-        value: sessionToken,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60,
-      });
-      return response;
+      return NextResponse.json(
+        { success: false, error: 'Database is not configured' },
+        { status: 503 }
+      );
     }
 
     const database = getDb();
     if (!database) {
       return NextResponse.json({ success: false, error: 'Database connection failed' }, { status: 500 });
     }
-
-    await ensureDefaultOrganization(database);
 
     // Locate valid, unexpired pending invitation
     const invites = await database
@@ -149,6 +118,19 @@ export async function POST(req: NextRequest) {
       reason: `Staff member ${invite.email} accepted invitation for role ${invite.role}`,
     });
 
+    // Resolve authoritative organization name and tier from PostgreSQL
+    const orgRecord = await database
+      .select({
+        name: organizations.name,
+        tier: organizations.tier,
+      })
+      .from(organizations)
+      .where(eq(organizations.id, invite.organizationId))
+      .limit(1);
+
+    const targetOrgName = orgRecord[0]?.name || 'OmniFace Campus';
+    const targetOrgTier = (orgRecord[0]?.tier || 'FREE') as any;
+
     // Generate authenticated session token
     const sessionToken = signSessionToken({
       userId: targetUserId,
@@ -156,8 +138,8 @@ export async function POST(req: NextRequest) {
       fullName: fullName?.trim() || invite.fullName || invite.email.split('@')[0],
       role: invite.role as UserRole,
       orgId: invite.organizationId,
-      orgName: 'OmniFace Campus',
-      tier: 'INSTITUTION',
+      orgName: targetOrgName,
+      tier: targetOrgTier,
     });
 
     const response = NextResponse.json({

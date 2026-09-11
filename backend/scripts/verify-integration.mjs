@@ -233,32 +233,25 @@ async function runTests() {
     });
     assert('Unauthenticated POST /api/v1/departments returns 401 Unauthorized', createDeptUnauth.status === 401);
 
-    // Database migrate without migration secret
-    const migrateUnauth = await fetchUrl('/api/v1/db/migrate', {
+    // Database migrate route decommissioned from public HTTP surface
+    const migrateReq = await fetchUrl('/api/v1/db/migrate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
-    assert('POST /api/v1/db/migrate without X-Migration-Secret returns 403 Forbidden', migrateUnauth.status === 403);
-
-    // Run database migration with authorized secret
-    const migrateAuth = await fetchUrl('/api/v1/db/migrate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Migration-Secret': MIGRATION_SECRET,
-      },
-      body: JSON.stringify({}),
-    });
-    assert(
-      'Authorized POST /api/v1/db/migrate executes successfully (HTTP 200 or 400 without DB)',
-      migrateAuth.status === 200 || (migrateAuth.status === 400 && migrateAuth.body.includes('DATABASE_URL is not configured')),
-      `(status: ${migrateAuth.status}, body: ${migrateAuth.body})`
-    );
+    assert('POST /api/v1/db/migrate returns 404 (public route eliminated for security)', migrateReq.status === 404);
 
     // Audit logs without session
     const auditLogsUnauth = await fetchUrl('/api/v1/audit-logs');
     assert('Unauthenticated GET /api/v1/audit-logs returns 401 Unauthorized', auditLogsUnauth.status === 401);
+
+    // Users bulk import without session
+    const importUnauth = await fetchUrl('/api/v1/users/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: [] }),
+    });
+    assert('Unauthenticated POST /api/v1/users/import returns 401 Unauthorized', importUnauth.status === 401);
 
     // --- 5. AUTHENTICATED MULTI-TENANT API OPERATIONS ---
     console.log('\n--- 5. Authenticated Multi-Tenant API Operations ---');
@@ -288,6 +281,24 @@ async function runTests() {
     assert('Authenticated POST /api/v1/devices/generate-code returns 200 OK', genCodeRes.status === 200);
     const genCodeData = JSON.parse(genCodeRes.body);
     assert('Generated pairing code is a 6-digit string', typeof genCodeData?.pairingCode === 'string' && genCodeData.pairingCode.length === 6);
+
+    // POST /api/v1/users/import (dryRun mode)
+    const importDryRunRes = await fetchUrl('/api/v1/users/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({
+        dryRun: true,
+        rows: [
+          { rollNumber: 'CS-PREVIEW-01', fullName: 'Alice Preview', role: 'STUDENT', department: 'Computer Science' },
+          { rollNumber: 'CS-PREVIEW-02', fullName: 'Bob Preview', role: 'STUDENT', department: 'Computer Science' },
+        ],
+      }),
+    });
+    assert('Authenticated POST /api/v1/users/import (dryRun) returns 200 or 503', importDryRunRes.status === 200 || importDryRunRes.status === 503);
+    if (importDryRunRes.status === 200) {
+      const importData = JSON.parse(importDryRunRes.body);
+      assert('dryRun returns validation summary with validRows', importData?.dryRun === true && importData?.validRows === 2);
+    }
 
     // --- 6. REAL SETTINGS PERSISTENCE TESTS ---
     console.log('\n--- 6. Real Settings Persistence ---');
@@ -326,30 +337,34 @@ async function runTests() {
         role: 'TEACHER',
       }),
     });
-    assert('POST /api/v1/staff/invite returns 201 Created', inviteRes.status === 201, `(status: ${inviteRes.status}, body: ${inviteRes.body})`);
+    assert('POST /api/v1/staff/invite returns 201 Created or 503 (fail-closed without DB)', inviteRes.status === 201 || inviteRes.status === 503, `(status: ${inviteRes.status}, body: ${inviteRes.body})`);
     let inviteData = {};
     try { inviteData = JSON.parse(inviteRes.body); } catch {}
     const rawInviteToken = inviteData?.invitation?.inviteToken || inviteData?.inviteToken || inviteData?.token;
-    assert('Invitation returns valid invitation link and raw token', typeof rawInviteToken === 'string' && rawInviteToken.length >= 32, `(body: ${inviteRes.body})`);
+    if (inviteRes.status === 201) {
+      assert('Invitation returns valid invitation link and raw token', typeof rawInviteToken === 'string' && rawInviteToken.length >= 32, `(body: ${inviteRes.body})`);
 
-    const acceptRes = await fetchUrl('/api/v1/staff/accept-invite', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inviteToken: rawInviteToken || 'fake_tok',
-        fullName: 'Prof. Test Evaluator',
-        password: 'SecurePassword123!',
-      }),
-    });
-    assert('POST /api/v1/staff/accept-invite returns 200 OK', acceptRes.status === 200, `(status: ${acceptRes.status}, body: ${acceptRes.body})`);
-    let acceptData = {};
-    try { acceptData = JSON.parse(acceptRes.body); } catch {}
-    const hasSession = Boolean(
-      acceptData?.user?.sessionToken ||
-      acceptData?.sessionToken ||
-      (acceptRes.headers['set-cookie'] && (Array.isArray(acceptRes.headers['set-cookie']) ? acceptRes.headers['set-cookie'].some(c => c.includes('omniface_session')) : acceptRes.headers['set-cookie'].includes('omniface_session')))
-    );
-    assert('Accepted staff member receives valid session token', hasSession, `(body: ${acceptRes.body})`);
+      const acceptRes = await fetchUrl('/api/v1/staff/accept-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inviteToken: rawInviteToken || 'fake_tok',
+          fullName: 'Prof. Test Evaluator',
+          password: 'SecurePassword123!',
+        }),
+      });
+      assert('POST /api/v1/staff/accept-invite returns 200 OK', acceptRes.status === 200, `(status: ${acceptRes.status}, body: ${acceptRes.body})`);
+      let acceptData = {};
+      try { acceptData = JSON.parse(acceptRes.body); } catch {}
+      const hasSession = Boolean(
+        acceptData?.user?.sessionToken ||
+        acceptData?.sessionToken ||
+        (acceptRes.headers['set-cookie'] && (Array.isArray(acceptRes.headers['set-cookie']) ? acceptRes.headers['set-cookie'].some(c => c.includes('omniface_session')) : acceptRes.headers['set-cookie'].includes('omniface_session')))
+      );
+      assert('Accepted staff member receives valid session token', hasSession, `(body: ${acceptRes.body})`);
+    } else {
+      assert('Staff invite appropriately failed closed with 503 when DB is offline', inviteRes.status === 503);
+    }
 
     // --- 8. REAL ATTENDANCE EVENT QUERY TESTS ---
     console.log('\n--- 8. Real Attendance Event Query API ---');
@@ -497,8 +512,8 @@ async function runTests() {
       }),
     });
     assert(
-      'POST /api/v1/onboarding returns 201 Created or 200',
-      onboardRes.status === 201 || onboardRes.status === 200,
+      'POST /api/v1/onboarding returns 201 Created, 200, or 503 (fail closed without DB)',
+      onboardRes.status === 201 || onboardRes.status === 200 || onboardRes.status === 503,
       `(status: ${onboardRes.status}, body: ${onboardRes.body})`
     );
 

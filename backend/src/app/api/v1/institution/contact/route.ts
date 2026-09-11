@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Audit log if in session
-        if (session) {
+        if (session && session.orgId) {
           await database.insert(auditLogs).values({
             organizationId: session.orgId,
             userId: session.userId,

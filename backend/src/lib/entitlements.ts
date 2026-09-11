@@ -97,19 +97,21 @@ export function getTierEntitlements(
  * Resolves current entitlements for an organization from PostgreSQL.
  * Queries active subscriptions and organization overrides.
  */
-export async function resolveOrgEntitlements(orgId: string): Promise<Entitlements> {
+export async function resolveOrgEntitlements(
+  orgId?: string | null,
+  fallbackTier: SubscriptionTier = 'FREE'
+): Promise<Entitlements> {
   if (!orgId) {
-    return getTierEntitlements('FREE');
+    return getTierEntitlements(fallbackTier);
   }
 
   if (!isDbConfigured()) {
-    // Sandbox default: allow full capabilities for integration verification
-    return getTierEntitlements('PRO');
+    return getTierEntitlements(fallbackTier);
   }
 
   const database = getDb();
   if (!database) {
-    return getTierEntitlements('FREE');
+    return getTierEntitlements(fallbackTier);
   }
 
   try {

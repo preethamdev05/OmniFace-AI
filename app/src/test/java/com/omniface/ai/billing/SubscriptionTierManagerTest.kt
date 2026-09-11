@@ -27,9 +27,9 @@ class SubscriptionTierManagerTest {
         assertEquals(199, tier.priceInrMonthly)
         assertTrue(tier.allowsReportExports)
         assertTrue(tier.allowsCloudSync)
-        assertTrue(tier.allowsMultiDevice)
+        assertFalse(tier.allowsMultiDevice)
         assertFalse(tier.displaysAds)
-        assertFalse(tier.hasWebDashboard)
+        assertTrue(tier.hasWebDashboard)
     }
 
     @Test
@@ -42,7 +42,7 @@ class SubscriptionTierManagerTest {
         assertTrue(tier.allowsCloudSync)
         assertTrue(tier.allowsMultiDevice)
         assertFalse(tier.displaysAds)
-        assertFalse(tier.hasWebDashboard)
+        assertTrue(tier.hasWebDashboard)
     }
 
     @Test
@@ -59,15 +59,14 @@ class SubscriptionTierManagerTest {
 
         val features = tier.getFeaturesList()
         assertTrue(features.contains("500+ users"))
-        assertTrue(features.contains("Unlimited devices"))
-        assertTrue(features.contains("Multi-admin"))
-        assertTrue(features.contains("Departments"))
-        assertTrue(features.contains("Classes"))
-        assertTrue(features.contains("Staff roles"))
+        assertTrue(features.contains("Multiple devices"))
+        assertTrue(features.contains("Full web dashboard"))
+        assertTrue(features.contains("Multiple administrators"))
+        assertTrue(features.contains("Departments & sections"))
+        assertTrue(features.contains("Staff roles & RBAC"))
         assertTrue(features.contains("Audit logs"))
-        assertTrue(features.contains("Advanced reporting"))
-        assertTrue(features.contains("Custom onboarding"))
-        assertTrue(features.contains("Custom pricing"))
+        assertTrue(features.contains("Enterprise API"))
+        assertTrue(features.contains("Custom onboarding & pricing"))
     }
 
     @Test

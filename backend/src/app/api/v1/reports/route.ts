@@ -12,6 +12,13 @@ export async function GET(req: NextRequest) {
     }
     const orgId = auth.user.orgId;
 
+    if (!orgId) {
+      return NextResponse.json(
+        { success: false, error: 'No organization affiliated with session' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const month = searchParams.get('month') || new Date().toISOString().slice(0, 7); // YYYY-MM
     const deptFilter = searchParams.get('department') || 'ALL';

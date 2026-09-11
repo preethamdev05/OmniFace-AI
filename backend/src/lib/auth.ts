@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { isDbConfigured, getDb } from '@/db';
 import { users, organizationMembers, organizations } from '@/db/schema';
-import { ensureDefaultOrganization, DEFAULT_ORG_ID } from '@/db/helpers';
 import { eq, and } from 'drizzle-orm';
 
 export type UserRole = 'OWNER' | 'ADMIN' | 'TEACHER' | 'VIEWER';
@@ -12,8 +11,8 @@ export interface AuthenticatedUser {
   email: string;
   fullName: string;
   role: UserRole;
-  orgId: string;
-  orgName: string;
+  orgId: string | null;
+  orgName: string | null;
   tier: string;
 }
 
@@ -22,8 +21,8 @@ export interface SessionPayload {
   email: string;
   fullName: string;
   role: UserRole;
-  orgId: string;
-  orgName: string;
+  orgId: string | null;
+  orgName: string | null;
   tier: string;
   exp: number; // Unix timestamp in seconds
 }
@@ -262,19 +261,16 @@ export async function resolveUserFromFirebase(firebaseUser: {
   name?: string;
   picture?: string;
 }): Promise<AuthenticatedUser> {
-  const defaultOrgName = 'National Institute of Technology';
-  const defaultTier = 'PRO';
-
   if (!isDbConfigured()) {
     return {
       id: `usr_${firebaseUser.uid.slice(0, 8)}`,
       firebaseUid: firebaseUser.uid,
       email: firebaseUser.email,
       fullName: firebaseUser.name || 'OmniFace Administrator',
-      role: 'ADMIN',
-      orgId: DEFAULT_ORG_ID,
-      orgName: defaultOrgName,
-      tier: defaultTier,
+      role: 'VIEWER',
+      orgId: null,
+      orgName: null,
+      tier: 'FREE',
     };
   }
 
@@ -285,16 +281,14 @@ export async function resolveUserFromFirebase(firebaseUser: {
       firebaseUid: firebaseUser.uid,
       email: firebaseUser.email,
       fullName: firebaseUser.name || 'OmniFace Administrator',
-      role: 'ADMIN',
-      orgId: DEFAULT_ORG_ID,
-      orgName: defaultOrgName,
-      tier: defaultTier,
+      role: 'VIEWER',
+      orgId: null,
+      orgName: null,
+      tier: 'FREE',
     };
   }
 
   try {
-    await ensureDefaultOrganization(database);
-
     // 1. Check if user already exists by email or firebaseUid
     const existingUsers = await database
       .select()
@@ -304,7 +298,7 @@ export async function resolveUserFromFirebase(firebaseUser: {
 
     let userId: string;
     let userRole: UserRole = 'ADMIN';
-    let userOrgId: string = DEFAULT_ORG_ID;
+    let userOrgId: string | null = null;
 
     if (existingUsers.length > 0) {
       const u = existingUsers[0];
@@ -320,7 +314,7 @@ export async function resolveUserFromFirebase(firebaseUser: {
           .where(eq(users.id, userId));
       }
     } else {
-      // Provision new user
+      // Provision new unassigned user
       const inserted = await database
         .insert(users)
         .values({
@@ -328,20 +322,13 @@ export async function resolveUserFromFirebase(firebaseUser: {
           email: firebaseUser.email,
           fullName: firebaseUser.name || firebaseUser.email.split('@')[0],
           avatarUrl: firebaseUser.picture,
-          orgId: DEFAULT_ORG_ID,
+          orgId: null,
           role: 'ADMIN',
         })
         .returning({ id: users.id });
 
       userId = inserted[0]?.id || crypto.randomUUID();
-
-      // Create membership record
-      await database.insert(organizationMembers).values({
-        organizationId: DEFAULT_ORG_ID,
-        userId,
-        role: 'ADMIN',
-        status: 'ACTIVE',
-      });
+      userOrgId = null;
     }
 
     // Check membership record
@@ -361,12 +348,23 @@ export async function resolveUserFromFirebase(firebaseUser: {
       }
     }
 
-    // Get org details
-    const org = await database
-      .select({ name: organizations.name, tier: organizations.tier })
-      .from(organizations)
-      .where(eq(organizations.id, userOrgId))
-      .limit(1);
+    // Get org details if assigned
+    let orgName: string | null = null;
+    let tier = 'FREE';
+    if (userOrgId) {
+      const org = await database
+        .select({ name: organizations.name, tier: organizations.tier })
+        .from(organizations)
+        .where(eq(organizations.id, userOrgId))
+        .limit(1);
+
+      if (org.length > 0) {
+        orgName = org[0].name;
+        tier = org[0].tier || 'FREE';
+      } else {
+        userOrgId = null;
+      }
+    }
 
     return {
       id: userId,
@@ -375,8 +373,8 @@ export async function resolveUserFromFirebase(firebaseUser: {
       fullName: firebaseUser.name || 'OmniFace Administrator',
       role: userRole,
       orgId: userOrgId,
-      orgName: org[0]?.name || defaultOrgName,
-      tier: org[0]?.tier || defaultTier,
+      orgName,
+      tier,
     };
   } catch (err) {
     console.error('Database user resolution error:', err);
@@ -385,10 +383,10 @@ export async function resolveUserFromFirebase(firebaseUser: {
       firebaseUid: firebaseUser.uid,
       email: firebaseUser.email,
       fullName: firebaseUser.name || 'OmniFace Administrator',
-      role: 'ADMIN',
-      orgId: DEFAULT_ORG_ID,
-      orgName: defaultOrgName,
-      tier: defaultTier,
+      role: 'VIEWER',
+      orgId: null,
+      orgName: null,
+      tier: 'FREE',
     };
   }
 }

@@ -29,12 +29,10 @@ export async function GET(req: NextRequest) {
     }
 
     if (!isDbConfigured()) {
-      return NextResponse.json({
-        success: true,
-        onboardingCompleted: true,
-        orgId: user.orgId,
-        orgName: user.orgName || 'Sandbox Campus',
-      });
+      return NextResponse.json(
+        { success: false, error: 'Database service is unavailable' },
+        { status: 503 }
+      );
     }
 
     const database = getDb();
@@ -99,15 +97,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isDbConfigured()) {
-      const mockOrgId = '00000000-0000-0000-0000-000000000001';
       return NextResponse.json(
-        {
-          success: true,
-          message: 'Organization onboarded successfully (sandbox mode).',
-          orgId: mockOrgId,
-          organization: { id: mockOrgId, name: orgName },
-        },
-        { status: 201 }
+        { success: false, error: 'Database service is unavailable. Cannot onboard organization without persistent storage.' },
+        { status: 503 }
       );
     }
 

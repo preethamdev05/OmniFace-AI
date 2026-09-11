@@ -70,10 +70,10 @@ export async function sendFcmMulticast(
 
   const app = getFirebaseAdmin();
   if (!app) {
-    // Sandbox / offline fallback: log message and return mock success
+    console.warn('[FCM] Firebase Admin SDK is unconfigured. Dispatch skipped; 0 notifications sent.');
     return {
-      successCount: tokens.length,
-      failureCount: 0,
+      successCount: 0,
+      failureCount: tokens.length,
       invalidTokens: [],
     };
   }
