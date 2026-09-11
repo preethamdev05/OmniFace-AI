@@ -26,12 +26,13 @@ class AdMobIntegrationTest {
     @Before
     fun setUp() {
         SubscriptionTierManager.resetToFree()
+        AdMobManager.resetBannerAdUnitId()
     }
 
     @After
     fun tearDown() {
         SubscriptionTierManager.resetToFree()
-        AdMobManager.bannerAdUnitId = AdMobManager.PROD_BANNER_AD_UNIT_ID
+        AdMobManager.resetBannerAdUnitId()
     }
 
     @Test
@@ -171,13 +172,13 @@ class AdMobIntegrationTest {
     }
 
     @Test
-    fun testAdMobBannerUnitIdSwappingFallback() {
-        // Initial state is production banner ad unit ID
-        assertEquals(AdMobManager.PROD_BANNER_AD_UNIT_ID, AdMobManager.bannerAdUnitId)
-
-        // Simulate switching to test banner unit for QA/testing
-        AdMobManager.bannerAdUnitId = AdMobManager.TEST_BANNER_AD_UNIT_ID
+    fun testAdMobBannerUnitIdConfigurationAndFallback() {
+        // Initial state in debug environment is Google official test unit
         assertEquals(AdMobManager.TEST_BANNER_AD_UNIT_ID, AdMobManager.bannerAdUnitId)
+
+        // Can be explicitly configured to production banner unit ID
+        AdMobManager.bannerAdUnitId = AdMobManager.PROD_BANNER_AD_UNIT_ID
+        assertEquals(AdMobManager.PROD_BANNER_AD_UNIT_ID, AdMobManager.bannerAdUnitId)
 
         // Simulate error codes: 3 = ERROR_CODE_NO_FILL, 0 = ERROR_CODE_INTERNAL_ERROR
         val errorCodeNoFill = 3

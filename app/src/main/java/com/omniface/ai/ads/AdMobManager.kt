@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.RequestConfiguration
+import com.omniface.ai.BuildConfig
 import com.omniface.ai.billing.SubscriptionTierManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,11 @@ object AdMobManager {
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     @Volatile
-    var bannerAdUnitId: String = PROD_BANNER_AD_UNIT_ID
+    var bannerAdUnitId: String = if (BuildConfig.DEBUG) TEST_BANNER_AD_UNIT_ID else PROD_BANNER_AD_UNIT_ID
+
+    fun resetBannerAdUnitId() {
+        bannerAdUnitId = if (BuildConfig.DEBUG) TEST_BANNER_AD_UNIT_ID else PROD_BANNER_AD_UNIT_ID
+    }
 
     fun initialize(context: Context) {
         if (_isInitialized.value || isInitializing.getAndSet(true)) {
