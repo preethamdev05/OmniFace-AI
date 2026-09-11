@@ -11,6 +11,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
+  const [tierInfo, setTierInfo] = useState<{ tier: string; badge: string; description: string }>({
+    tier: 'PRO',
+    badge: 'PRO ₹349',
+    description: 'Up to 500 Rosters & 3 Devices',
+  });
+  const [orgName, setOrgName] = useState<string>('OmniFace Campus');
+
+  useEffect(() => {
+    async function loadOrgAndPlan() {
+      try {
+        const subRes = await fetch('/api/v1/subscriptions');
+        if (subRes.ok) {
+          const data = await subRes.json();
+          const t = data.tier || 'FREE';
+          if (t === 'FREE') {
+            setTierInfo({ tier: 'FREE', badge: 'FREE ₹0', description: 'Up to 25 Rosters (Single Kiosk)' });
+          } else if (t === 'PREMIUM') {
+            setTierInfo({ tier: 'PREMIUM', badge: 'PREMIUM ₹199', description: 'Up to 250 Rosters (Cloud Sync)' });
+          } else if (t === 'PRO') {
+            setTierInfo({ tier: 'PRO', badge: 'PRO ₹349', description: 'Up to 500 Rosters & 3 Devices' });
+          } else if (t === 'INSTITUTION') {
+            setTierInfo({ tier: 'INSTITUTION', badge: 'INSTITUTION', description: '500+ Fleet & Multi-Admin' });
+          }
+          if (data.organization?.name) {
+            setOrgName(data.organization.name);
+          }
+        }
+      } catch {
+        // Retain resilient state
+      }
+    }
+    loadOrgAndPlan();
+  }, []);
+
   // Close mobile drawer when route changes
   useEffect(() => {
     setSidebarOpen(false);
@@ -81,9 +115,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', background: 'var(--surface-raised)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Plan Tier</span>
-            <span className="badge badge-primary">BUSINESS ₹999</span>
+            <Link href="/subscription" style={{ textDecoration: 'none' }}>
+              <span className="badge badge-primary">{tierInfo.badge}</span>
+            </Link>
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Unlimited Rosters & Classes</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{tierInfo.description}</div>
         </div>
       </aside>
 
@@ -107,7 +143,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             <span className="campus-title" style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              National Institute of Technology
+              {orgName}
             </span>
             <span className="campus-divider" style={{ color: 'var(--text-dim)' }}>/</span>
             <span className="campus-subtitle" style={{ color: 'var(--text-muted)', fontSize: '13px', whiteSpace: 'nowrap' }}>
