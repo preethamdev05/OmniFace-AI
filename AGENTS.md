@@ -324,5 +324,11 @@ The workspace is equipped with the complete Google Labs Stitch AI UI/UX Toolchai
    - **Subagent Context Sandboxing**: Spawn isolated subagents for heavy test runs, long builds, or complex debugging to preserve parent conversation context.
    - **Context-Mode Tools**: Use `context-mode` for BM25 search over external non-code artifacts.
 
+---
 
+## 🚀 Session End Git Push Policy (Mandatory)
 
+At the conclusion of every engineering task or conversational session involving code or documentation changes:
+1. Stage all verified changes: `git add .`
+2. Commit with a conventional semantic commit message: `git commit -m "<type>(<scope>): <description>"`
+3. **Always Push to Remote**: Execute `git push origin main` before completing the turn so the GitHub remote (`origin/main`) remains 100% in sync with the local workspace.
