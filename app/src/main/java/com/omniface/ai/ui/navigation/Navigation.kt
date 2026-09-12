@@ -86,7 +86,7 @@ fun CupertinoTabBar(
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
@@ -98,122 +98,139 @@ fun CupertinoTabBar(
                 )
                 .clip(dockShape)
                 .background(dockBackground)
-                .border(
-                    0.8.dp,
-                    if (isDark) Brush.verticalGradient(listOf(Color(0x38818CF8), Color(0x10818CF8)))
-                    else Brush.verticalGradient(listOf(Color(0x206366F1), Color(0x10000000))),
-                    dockShape
-                )
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .border(0.75.dp, omniLiquidSpecularBorder(isDark), dockShape)
         ) {
-            IndustrialBottomNavTabs.forEach { screen ->
-                key(screen.route) {
-                    val isSelected = currentRoute == screen.route
-                    val contentColor by animateColorAsState(
-                        targetValue = if (isSelected) {
-                            if (isDark) Color.White else Color(0xFF6366F1)
-                        } else omniTextMuted(isDark),
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                        label = "tabColor"
-                    )
-
-                    val interactionSource = remember(screen.route) { MutableInteractionSource() }
-                    val isPressed by interactionSource.collectIsPressedAsState()
-
-                    val tabScale by animateFloatAsState(
-                        targetValue = if (isPressed) 0.92f else if (isSelected) 1.02f else 1.0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        ),
-                        label = "tabScale"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onNavigate(screen)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .scale(tabScale)
-                                .padding(vertical = 2.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 46.dp, height = 28.dp)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier
-                                                .shadow(
-                                                    elevation = 6.dp,
-                                                    shape = RoundedCornerShape(14.dp),
-                                                    ambientColor = Color(0x4D6366F1),
-                                                    spotColor = Color(0x668B5CF6)
-                                                )
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .background(OmniButtonBrush)
-                                        } else {
-                                            Modifier.clip(RoundedCornerShape(14.dp))
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                        Icon(
-                            imageVector = screen.icon,
-                            contentDescription = screen.title,
-                            tint = if (isSelected) Color.White else omniTextMuted(isDark),
-                            modifier = Modifier.size(18.dp)
+            // Subtle top-edge specular hairline sheen
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.0f to if (isDark) Color(0x26FFFFFF) else Color(0x66FFFFFF),
+                            0.16f to Color.Transparent
                         )
-                        if (screen == Screen.Ledger && unsyncedCount > 0) {
-                            Box(
+                    )
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IndustrialBottomNavTabs.forEach { screen ->
+                    key(screen.route) {
+                        val isSelected = currentRoute == screen.route
+                        val contentColor by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                if (isDark) Color.White else Color(0xFF6366F1)
+                            } else omniTextMuted(isDark),
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "tabColor"
+                        )
+
+                        val interactionSource = remember(screen.route) { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+
+                        val tabScale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.92f else if (isSelected) 1.02f else 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            label = "tabScale"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onNavigate(screen)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = 4.dp, y = (-2).dp)
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(OmniAmber)
-                                    .border(1.dp, if (isDark) Color(0xFF131823) else Color.White, CircleShape)
-                            )
+                                    .scale(tabScale)
+                                    .padding(vertical = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 48.dp, height = 30.dp)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier
+                                                    .shadow(
+                                                        elevation = 6.dp,
+                                                        shape = RoundedCornerShape(15.dp),
+                                                        ambientColor = Color(0x4D6366F1),
+                                                        spotColor = Color(0x668B5CF6)
+                                                    )
+                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .background(OmniButtonBrush)
+                                                    .border(
+                                                        0.75.dp,
+                                                        if (isDark) Color(0x4DFFFFFF) else Color(0x40FFFFFF),
+                                                        RoundedCornerShape(15.dp)
+                                                    )
+                                            } else {
+                                                Modifier.clip(RoundedCornerShape(15.dp))
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = screen.icon,
+                                        contentDescription = screen.title,
+                                        tint = if (isSelected) Color.White else omniTextMuted(isDark),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    if (screen == Screen.Ledger && unsyncedCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 4.dp, y = (-2).dp)
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(OmniAmber)
+                                                .border(1.dp, if (isDark) Color(0xFF131823) else Color.White, CircleShape)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                val localizedTitle = when (screen) {
+                                    Screen.Dashboard -> LocalizationManager.get(StringKey.TAB_OVERVIEW)
+                                    Screen.Scanner -> LocalizationManager.get(StringKey.TAB_SCANNER)
+                                    Screen.Enrollment -> LocalizationManager.getDirectoryTabTitle(orgType)
+                                    Screen.Ledger -> LocalizationManager.get(StringKey.TAB_LEDGER)
+                                    Screen.Settings -> LocalizationManager.get(StringKey.TAB_SETTINGS)
+                                }
+                                Text(
+                                    text = localizedTitle,
+                                    color = contentColor,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    letterSpacing = (-0.1).sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    val localizedTitle = when (screen) {
-                        Screen.Dashboard -> LocalizationManager.get(StringKey.TAB_OVERVIEW)
-                        Screen.Scanner -> LocalizationManager.get(StringKey.TAB_SCANNER)
-                        Screen.Enrollment -> LocalizationManager.getDirectoryTabTitle(orgType)
-                        Screen.Ledger -> LocalizationManager.get(StringKey.TAB_LEDGER)
-                        Screen.Settings -> LocalizationManager.get(StringKey.TAB_SETTINGS)
-                    }
-                    Text(
-                        text = localizedTitle,
-                        color = contentColor,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        letterSpacing = (-0.1).sp,
-                        maxLines = 1,
-                        softWrap = false
-                    )
                 }
             }
         }
     }
-}
-}
 }

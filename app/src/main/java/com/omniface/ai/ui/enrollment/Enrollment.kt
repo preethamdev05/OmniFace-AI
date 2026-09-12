@@ -1357,42 +1357,13 @@ private fun RegistrationFormView(
                 }
 
                 // Action Button: Continue to Face Enrollment
-                Button(
-                    onClick = { viewModel.startBiometricStudio(context) },
+                CupertinoButton(
+                    text = if (state.isModelAvailable) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else "AI Pack Required to Enroll",
+                    icon = if (state.isModelAvailable) Icons.Default.Face else Icons.Default.CloudDownload,
                     enabled = state.isModelAvailable,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = Color.White,
-                        disabledContainerColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
-                        disabledContentColor = omniTextMuted(isDark)
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .shadow(
-                            elevation = if (state.isModelAvailable) 10.dp else 0.dp,
-                            shape = RoundedCornerShape(16.dp),
-                            spotColor = Color(0x996366F1),
-                            ambientColor = Color(0x666366F1)
-                        )
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (state.isModelAvailable) OmniButtonBrush else Brush.linearGradient(listOf(Color(0xFF6B7280), Color(0xFF4B5563)))),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (state.isModelAvailable) Icons.Default.Face else Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (state.isModelAvailable) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else "AI Pack Required to Enroll",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        letterSpacing = 0.3.sp
-                    )
-                }
+                    brush = if (state.isModelAvailable) OmniButtonBrush else null,
+                    onClick = { viewModel.startBiometricStudio(context) }
+                )
             }
         }
 

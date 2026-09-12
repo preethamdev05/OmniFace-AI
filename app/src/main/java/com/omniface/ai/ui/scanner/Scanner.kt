@@ -45,6 +45,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -57,6 +58,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1693,14 +1695,19 @@ fun ScannerScreen(
                         )
                     }
 
-                    // Circle Tune/Filter Button
+                    // Circle Tune/Filter Button (Apple Liquid Glass Chip)
                     Box(
                         modifier = Modifier
                             .size(42.dp)
-                            .shadow(if (isDark) 4.dp else 2.dp, CircleShape)
+                            .shadow(if (isDark) 6.dp else 3.dp, CircleShape, spotColor = OmniViolet.copy(alpha = 0.2f))
                             .clip(CircleShape)
-                            .background(if (isDark) Color(0xFF141926) else Color.White)
-                            .border(0.75.dp, if (isDark) Color(0x33FFFFFF) else Color(0x1A000000), CircleShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    if (isDark) listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                                    else listOf(Color(0xFFFFFFFF), Color(0xFFF1F5F9))
+                                )
+                            )
+                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
                             .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.toggleModelManagerDialog()
@@ -1711,7 +1718,7 @@ fun ScannerScreen(
                             imageVector = Icons.Default.Tune,
                             contentDescription = "Tune Models",
                             tint = omniTextPrimary(isDark),
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -1873,17 +1880,13 @@ fun ScannerScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = onNavigateToEnroll,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = OmniViolet,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text("+ Begin", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                        }
+                        CupertinoButton(
+                            modifier = Modifier.width(90.dp),
+                            text = "+ Begin",
+                            brush = OmniButtonBrush,
+                            height = 36.dp,
+                            onClick = onNavigateToEnroll
+                        )
                     }
                 }
             }
@@ -2077,63 +2080,25 @@ fun ScannerScreen(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            Button(
+                            CupertinoButton(
+                                text = when {
+                                    state.isEngineLoading -> if (!state.isModelAvailable) "Downloading Model from CDN..." else "Initializing Silicon NPU..."
+                                    !state.isModelAvailable -> "Download Neural Model (380 MB • Cloud CDN)"
+                                    else -> "Initialize & Start Scanner"
+                                },
+                                icon = when {
+                                    state.isEngineLoading -> null
+                                    !state.isModelAvailable -> Icons.Default.CloudDownload
+                                    else -> Icons.Default.PlayArrow
+                                },
+                                brush = if (!state.isModelAvailable) Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9))) else OmniButtonBrush,
+                                height = 48.dp,
+                                enabled = !state.isEngineLoading,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     viewModel.loadEngineExplicitly(context)
-                                },
-                                enabled = !state.isEngineLoading,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(44.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (!state.isModelAvailable) Color(0xFF0284C7) else (if (isDark) Color(0xFF0A84FF) else Color(0xFF0071E3))
-                                )
-                            ) {
-                                if (state.isEngineLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (!state.isModelAvailable) "Downloading Model from CDN..." else "Initializing Qualcomm Silicon NPU...",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    )
-                                } else if (!state.isModelAvailable) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudDownload,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Download Neural Model (380 MB • Cloud CDN)",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Initialize & Start Scanner",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -2225,21 +2190,30 @@ fun ScannerScreen(
                 }
             }
 
-            // 2. Focused Square Camera Face Window (Expanded 320dp Squircle)
+            // 2. Focused Square Camera Face Window (Apple Concentric Doppelrand Lens Bezel)
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(340.dp)
                         .shadow(
-                            elevation = if (isDark) 16.dp else 10.dp,
+                            elevation = if (isDark) 20.dp else 12.dp,
                             shape = RoundedCornerShape(32.dp),
-                            ambientColor = if (isDark) Color(0x66000000) else Color(0x1A000000),
-                            spotColor = if (isDark) Color(0x4D000000) else Color(0x14000000)
+                            ambientColor = if (isDark) Color(0x80000000) else Color(0x22000000),
+                            spotColor = stateColor.copy(alpha = if (isDark) 0.35f else 0.20f)
                         )
                         .clip(RoundedCornerShape(32.dp))
+                        .background(if (isDark) Color(0xFF070A14) else Color(0xFF1E293B))
+                        .border(
+                            width = 1.25.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(stateColor.copy(alpha = 0.9f), stateColor.copy(alpha = 0.35f))
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        )
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(29.dp))
                         .background(Color.Black)
-                        .border(2.dp, stateColor.copy(alpha = 0.85f), RoundedCornerShape(32.dp))
                 ) {
                     // Camera View
                     key(state.lensFacing) {
@@ -2415,6 +2389,68 @@ fun ScannerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
+                    // Stitch Liquid Obsidian Viewfinder Top Telemetry Markers
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left: FOV & 3D Depth
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0x990B0F19))
+                                .border(0.5.dp, Color(0x4006B6D4), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF06B6D4))
+                            )
+                            Text(
+                                text = "FOV: 84° • 3D DEPTH",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        // Right: Live Silicon NPU
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0x990B0F19))
+                                .border(0.5.dp, Color(0x4010B981), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Text(
+                                text = "NPU: 45 TOPS",
+                                color = Color(0xFF10B981),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+
                     // Stitch Dynamic Island Biometric Live Telemetry Capsule (Bottom Overlay)
                     val firstFace = state.visualGeometryData.firstOrNull()
                     val hasFace = firstFace != null
@@ -2585,13 +2621,13 @@ fun ScannerScreen(
                 }
             }
 
-            // 6. Prominent Manual Scan Action Button (Glowing OmniButtonBrush)
+            // 6. Prominent Manual Scan Action Button (Apple Liquid Glass Centerpiece)
             item {
                 val isPaused = state.isScanningPaused
                 val isReady = (!state.isModelAvailable || state.engineLoadingProgress.isReady || state.isEngineLoaded) && state.isCameraBound
                 val pulseTransition = rememberInfiniteTransition(label = "pulse")
                 val pulseAlpha by pulseTransition.animateFloat(
-                    initialValue = 0.85f,
+                    initialValue = 0.88f,
                     targetValue = 1.0f,
                     animationSpec = infiniteRepeatable(
                         animation = tween(900, easing = FastOutSlowInEasing),
@@ -2599,6 +2635,23 @@ fun ScannerScreen(
                     ),
                     label = "pulseAlpha"
                 )
+
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+                val buttonScale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.965f else 1.0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "scanButtonScale"
+                )
+
+                val buttonBrush = when {
+                    !state.isModelAvailable -> Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9)))
+                    isPaused -> OmniButtonBrush
+                    else -> Brush.horizontalGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+                }
 
                 Box(
                     modifier = Modifier
@@ -2608,26 +2661,31 @@ fun ScannerScreen(
                 ) {
                     Box(
                         modifier = Modifier
+                            .scale(buttonScale)
                             .fillMaxWidth()
-                            .height(54.dp)
+                            .height(56.dp)
                             .shadow(
-                                elevation = if (isPaused || !state.isModelAvailable) 12.dp else 6.dp,
-                                shape = RoundedCornerShape(24.dp),
+                                elevation = if (isPaused || !state.isModelAvailable) 14.dp else 6.dp,
+                                shape = RoundedCornerShape(20.dp),
                                 ambientColor = if (isPaused) Color(0x666366F1) else Color(0x66EF4444),
                                 spotColor = if (isPaused) Color(0x996366F1) else Color(0x99EF4444)
                             )
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(
-                                when {
-                                    !state.isModelAvailable -> Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9)))
-                                    isPaused -> OmniButtonBrush
-                                    else -> Brush.horizontalGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
-                                }
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(buttonBrush)
+                            .border(
+                                width = 0.75.dp,
+                                brush = Brush.verticalGradient(
+                                    listOf(Color.White.copy(alpha = 0.5f), Color.White.copy(alpha = 0.08f))
+                                ),
+                                shape = RoundedCornerShape(20.dp)
                             )
                             .graphicsLayer {
                                 alpha = if ((isPaused || !state.isModelAvailable) && isReady) pulseAlpha else 1.0f
                             }
-                            .clickable {
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null
+                            ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (!state.isModelAvailable) {
                                     viewModel.loadEngineExplicitly(context)
@@ -2637,22 +2695,45 @@ fun ScannerScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
+                        // Inner top specular highlight sheen
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(22.dp)
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.White.copy(alpha = 0.22f), Color.Transparent)
+                                    )
+                                )
+                        )
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                         ) {
-                            Icon(
-                                imageVector = when {
-                                    !state.isModelAvailable -> Icons.Default.CloudDownload
-                                    isPaused -> Icons.Default.PlayArrow
-                                    else -> Icons.Default.Pause
-                                },
-                                contentDescription = if (!state.isModelAvailable) "Download AI Pack" else if (isPaused) "Start Scan" else "Pause Scan",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            // Button-in-Button circular icon wrapper
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .border(0.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = when {
+                                        !state.isModelAvailable -> Icons.Default.CloudDownload
+                                        isPaused -> Icons.Default.PlayArrow
+                                        else -> Icons.Default.Pause
+                                    },
+                                    contentDescription = if (!state.isModelAvailable) "Download AI Pack" else if (isPaused) "Start Scan" else "Pause Scan",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = when {
                                     !state.isModelAvailable -> "DOWNLOAD AI PACK TO SCAN"
@@ -2662,9 +2743,9 @@ fun ScannerScreen(
                                     else -> "PAUSE SCANNING"
                                 },
                                 color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                letterSpacing = 0.5.sp
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.5.sp,
+                                letterSpacing = 0.4.sp
                             )
                         }
                     }
@@ -2758,128 +2839,123 @@ fun ScannerScreen(
                             }
                         }
 
-                        // Contextual Action Button
+                        // Contextual Action Button (Apple Liquid Glass)
                         if (!state.isModelAvailable) {
-                            Button(
-                                onClick = { viewModel.loadEngineExplicitly(context) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Icon(Icons.Default.CloudDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Download Pack", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
+                            CupertinoButton(
+                                modifier = Modifier.width(140.dp),
+                                text = "Download Pack",
+                                icon = Icons.Default.CloudDownload,
+                                brush = Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9))),
+                                height = 36.dp,
+                                onClick = { viewModel.loadEngineExplicitly(context) }
+                            )
                         } else {
                             when (state.scanState) {
                                 ScannerScanState.EMPTY_DATABASE -> {
-                                Button(
-                                    onClick = onNavigateToEnroll,
-                                    colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                ) {
-                                    Text("+ ${LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT).take(6)}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    CupertinoButton(
+                                        modifier = Modifier.width(110.dp),
+                                        text = "+ Enroll",
+                                        brush = OmniButtonBrush,
+                                        height = 36.dp,
+                                        onClick = onNavigateToEnroll
+                                    )
                                 }
-                            }
-                            ScannerScanState.DUPLICATE_ATTENDANCE -> {
-                                Button(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.openStudentInfo(state.matchedRoll)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFFF59E0B).copy(alpha = 0.25f),
-                                        contentColor = Color(0xFFF59E0B)
-                                    ),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Profile", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                ScannerScanState.DUPLICATE_ATTENDANCE -> {
+                                    CupertinoButton(
+                                        modifier = Modifier.width(105.dp),
+                                        text = "Profile",
+                                        icon = Icons.Default.Info,
+                                        brush = Brush.horizontalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B))),
+                                        height = 36.dp,
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.openStudentInfo(state.matchedRoll)
+                                        }
+                                    )
                                 }
-                            }
-                            ScannerScanState.RECOGNIZED -> {
-                                Button(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.markManualAttendance()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759)),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                ) {
-                                    Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                ScannerScanState.RECOGNIZED -> {
+                                    CupertinoButton(
+                                        modifier = Modifier.width(115.dp),
+                                        text = LocalizationManager.get(StringKey.CONFIRM_ACTION),
+                                        icon = Icons.Default.Check,
+                                        brush = Brush.horizontalGradient(listOf(Color(0xFF059669), Color(0xFF10B981))),
+                                        height = 36.dp,
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.markManualAttendance()
+                                        }
+                                    )
                                 }
-                            }
-                            ScannerScanState.ATTENDANCE_RECORDED -> {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0x3334C759))
-                                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                                ScannerScanState.ATTENDANCE_RECORDED -> {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Text(
-                                            text = LocalizationManager.get(StringKey.VERIFIED_BADGE),
-                                            color = Color(0xFF34C759),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    if (state.matchedRoll.isNotBlank()) {
-                                        IconButton(
-                                            onClick = { viewModel.openStudentInfo(state.matchedRoll) },
-                                            modifier = Modifier.size(32.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0x3334C759))
+                                                .border(0.5.dp, Color(0xFF34C759).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 9.dp, vertical = 5.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Info,
-                                                contentDescription = "Profile",
-                                                tint = omniCyan(isDark),
-                                                modifier = Modifier.size(18.dp)
+                                            Text(
+                                                text = LocalizationManager.get(StringKey.VERIFIED_BADGE),
+                                                color = Color(0xFF34C759),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
                                             )
+                                        }
+                                        if (state.matchedRoll.isNotBlank()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (isDark) Color(0x331E293B) else Color(0x1A0284C7))
+                                                    .border(0.5.dp, omniLiquidSpecularBorder(isDark), CircleShape)
+                                                    .clickable { viewModel.openStudentInfo(state.matchedRoll) },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Info,
+                                                    contentDescription = "Profile",
+                                                    tint = omniCyan(isDark),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            ScannerScanState.UNKNOWN_IDENTITY -> {
-                                Button(
-                                    onClick = onNavigateToEnroll,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9500)),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
+                                ScannerScanState.UNKNOWN_IDENTITY -> {
+                                    CupertinoButton(
+                                        modifier = Modifier.width(105.dp),
                                         text = "+ Enroll",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Black,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        brush = Brush.horizontalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B))),
+                                        height = 36.dp,
+                                        onClick = onNavigateToEnroll
                                     )
                                 }
-                            }
-                            else -> {
-                                IconButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.retryScan()
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = LocalizationManager.get(StringKey.RETRY_ACTION),
-                                        tint = omniCyan(isDark),
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                else -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isDark) Color(0x331E293B) else Color(0x1A0284C7))
+                                            .border(0.5.dp, omniLiquidSpecularBorder(isDark), CircleShape)
+                                            .clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                viewModel.retryScan()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = LocalizationManager.get(StringKey.RETRY_ACTION),
+                                            tint = omniCyan(isDark),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
-                        }
                         }
                     }
 
@@ -3229,11 +3305,11 @@ private fun ModelManagerDialog(
             TextButton(
                 onClick = { com.omniface.ai.ml.NeuralModelConfigManager.resetToDefaults() }
             ) {
-                Text("Reset Defaults", color = Color(0xFFEF4444), fontSize = 11.sp)
+                Text("Reset Defaults", color = Color(0xFFEF4444), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
             }
         },
-        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
-        shape = RoundedCornerShape(20.dp)
+        containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(24.dp)
     )
 }
 
@@ -3354,11 +3430,11 @@ private fun HardwareSwitcherDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = omniCyan(isDark), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("Close", color = omniCyan(isDark), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         },
-        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
-        shape = RoundedCornerShape(20.dp)
+        containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(24.dp)
     )
 }
 
@@ -3417,7 +3493,11 @@ private fun ManualOverrideDialog(
             }
         },
         confirmButton = {
-            Button(
+            CupertinoButton(
+                modifier = Modifier.width(110.dp),
+                text = LocalizationManager.get(StringKey.CONFIRM_ACTION),
+                brush = OmniButtonBrush,
+                height = 38.dp,
                 onClick = {
                     // Unified PBKDF2 + constant-time verification via KioskLockController
                     val lockoutActive = com.omniface.ai.hardware.KioskLockController.isLockedOut()
@@ -3432,20 +3512,16 @@ private fun ManualOverrideDialog(
                     } else {
                         onConfirm(roll.trim(), name.trim())
                     }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
+                }
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(LocalizationManager.get(StringKey.CANCEL_ACTION), color = omniTextMuted(isDark), fontSize = 12.sp)
+                Text(LocalizationManager.get(StringKey.CANCEL_ACTION), color = omniTextMuted(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
             }
         },
-        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
-        shape = RoundedCornerShape(18.dp)
+        containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(24.dp)
     )
 }
 
@@ -3693,16 +3769,16 @@ private fun ThermalGovernorDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = stateColor),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Close", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
+            CupertinoButton(
+                modifier = Modifier.width(90.dp),
+                text = "Close",
+                brush = Brush.horizontalGradient(listOf(stateColor, stateColor.copy(alpha = 0.85f))),
+                height = 38.dp,
+                onClick = onDismiss
+            )
         },
-        containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
-        shape = RoundedCornerShape(18.dp)
+        containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+        shape = RoundedCornerShape(24.dp)
     )
 }
 

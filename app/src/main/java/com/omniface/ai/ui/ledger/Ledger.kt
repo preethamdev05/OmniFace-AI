@@ -27,6 +27,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -300,24 +302,35 @@ fun LedgerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "ATTENDANCE",
-                        color = OmniViolet,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(OmniViolet)
+                        )
+                        Text(
+                            text = "CRYPTOGRAPHIC LEDGER",
+                            color = OmniViolet,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Attendance",
                         color = omniTextPrimary(isDark),
-                        fontSize = 24.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
                     )
                     Text(
-                        text = "Cryptographic Audit Ledger",
+                        text = "Immutable SHA-256 Aegis Hash Chain",
                         color = omniTextMuted(isDark),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Normal
@@ -325,14 +338,16 @@ fun LedgerScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IOSGlassPill(
-                        text = "🛡 Aegis",
+                    CupertinoActionPill(
+                        text = "Aegis",
+                        icon = Icons.Default.Shield,
                         accentColor = OmniViolet,
                         onClick = { viewModel.checkLedgerIntegrity() }
                     )
 
-                    IOSGlassPill(
-                        text = "📥 Export",
+                    CupertinoActionPill(
+                        text = "Export",
+                        icon = Icons.Default.FileDownload,
                         accentColor = omniCyan(isDark),
                         onClick = { viewModel.exportAuditCsv(context, state.displayedRecords) }
                     )
@@ -374,27 +389,40 @@ fun LedgerScreen(
                     val isSelected = state.activeFilter == key
                     Box(
                         modifier = Modifier
+                            .shadow(
+                                elevation = if (isSelected) 6.dp else 0.dp,
+                                shape = RoundedCornerShape(999.dp),
+                                ambientColor = if (isSelected) OmniViolet.copy(alpha = 0.35f) else Color.Transparent,
+                                spotColor = if (isSelected) OmniViolet.copy(alpha = 0.25f) else Color.Transparent
+                            )
                             .clip(RoundedCornerShape(999.dp))
                             .then(
                                 if (isSelected) {
                                     Modifier.background(OmniButtonBrush)
                                 } else {
-                                    Modifier.background(if (isDark) Color(0x1F1E293B) else Color(0xFFE2E8F0))
+                                    Modifier.background(if (isDark) Color(0x331E293B) else Color(0xFFF1F5F9))
                                 }
                             )
                             .border(
-                                0.75.dp,
-                                if (isSelected) OmniViolet.copy(alpha = 0.5f) else Color.Transparent,
-                                RoundedCornerShape(999.dp)
+                                width = 0.75.dp,
+                                brush = if (isSelected) {
+                                    Brush.verticalGradient(
+                                        listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.05f))
+                                    )
+                                } else {
+                                    omniLiquidSpecularBorder(isDark)
+                                },
+                                shape = RoundedCornerShape(999.dp)
                             )
                             .clickable { viewModel.onFilterSelected(key) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .padding(horizontal = 15.dp, vertical = 8.dp)
                     ) {
                         Text(
                             text = label,
                             color = if (isSelected) Color.White else omniTextSecondary(isDark),
-                            fontSize = 11.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            letterSpacing = (-0.2).sp
                         )
                     }
                 }
@@ -426,7 +454,7 @@ fun LedgerScreen(
                 contentType = { "attendance_record" }
             ) { record ->
                 val timeStr = timeFormat.format(Date(record.timestamp))
-                FrostedGlassCard(
+                IOSCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -438,20 +466,26 @@ fun LedgerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f)
                         ) {
-                            // Initial Avatar
+                            // Doppelrand Squircle Avatar with Initial
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(OmniViolet.copy(alpha = 0.18f))
-                                    .border(1.dp, OmniViolet.copy(alpha = 0.35f), CircleShape),
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(13.dp))
+                                    .background(OmniViolet.copy(alpha = 0.15f))
+                                    .border(
+                                        0.75.dp,
+                                        Brush.verticalGradient(
+                                            listOf(OmniViolet.copy(alpha = 0.5f), OmniViolet.copy(alpha = 0.15f))
+                                        ),
+                                        RoundedCornerShape(13.dp)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = record.studentName.take(1).uppercase(),
                                     color = OmniViolet,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold
                                 )
                             }
 
@@ -461,24 +495,32 @@ fun LedgerScreen(
                                 Text(
                                     text = record.studentName,
                                     color = omniTextPrimary(isDark),
-                                    fontSize = 14.sp,
+                                    fontSize = 14.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                     Text(
                                         text = record.studentRoll,
                                         color = omniCyan(isDark),
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontWeight = FontWeight.Bold,
                                         maxLines = 1
                                     )
                                     Text(
-                                        text = " • ${record.sessionDate} $timeStr",
+                                        text = "•",
+                                        color = omniTextMuted(isDark).copy(alpha = 0.6f),
+                                        fontSize = 10.sp
+                                    )
+                                    Text(
+                                        text = "${record.sessionDate} $timeStr",
                                         color = omniTextMuted(isDark),
-                                        fontSize = 10.sp,
+                                        fontSize = 10.5.sp,
                                         maxLines = 1,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                     )
@@ -486,37 +528,58 @@ fun LedgerScreen(
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // One-Click Parent Alert Dispatcher
-                            IconButton(
-                                onClick = { viewModel.dispatchParentAlert(context, record) },
-                                modifier = Modifier.size(32.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // One-Click Parent Alert Dispatcher (Frosted Glass Chip)
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isDark) Color(0x331E293B) else Color(0x1A0284C7))
+                                    .border(0.5.dp, omniLiquidSpecularBorder(isDark), CircleShape)
+                                    .clickable { viewModel.dispatchParentAlert(context, record) },
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Send,
                                     contentDescription = "Notify Parent",
                                     tint = omniCyan(isDark),
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-
                             }
-
-                            Spacer(modifier = Modifier.width(4.dp))
 
                             // Aegis Proof Chip
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(999.dp))
                                     .background(if (record.isSynced) omniEmerald(isDark).copy(alpha = 0.15f) else Color(0x1F1E293B))
+                                    .border(
+                                        0.5.dp,
+                                        if (record.isSynced) omniEmerald(isDark).copy(alpha = 0.4f) else Color(0x2BFFFFFF),
+                                        RoundedCornerShape(999.dp)
+                                    )
                                     .clickable { viewModel.selectRecordForProof(record) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .padding(horizontal = 9.dp, vertical = 5.dp)
                             ) {
-                                Text(
-                                    text = if (record.isSynced) "☁ Proof" else "🔒 Local",
-                                    color = if (record.isSynced) omniEmerald(isDark) else omniTextSecondary(isDark),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (record.isSynced) omniEmerald(isDark) else Color(0xFFF59E0B))
+                                    )
+                                    Text(
+                                        text = if (record.isSynced) "Proof" else "Local",
+                                        color = if (record.isSynced) omniEmerald(isDark) else omniTextSecondary(isDark),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
@@ -533,65 +596,113 @@ fun LedgerScreen(
             onDismissRequest = { viewModel.selectRecordForProof(null) },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Verified, contentDescription = null, tint = omniEmerald(isDark))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF),
-                        color = omniTextPrimary(isDark),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(omniEmerald(isDark).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = omniEmerald(isDark),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "AEGIS IMMUTABLE PROOF",
+                            color = omniEmerald(isDark),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF),
+                            color = omniTextPrimary(isDark),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = LocalizationManager.get(StringKey.CRYPTOGRAPHIC_PROOF),
+                        text = "Cryptographic SHA-256 hash block anchored in local Aegis ledger:",
                         color = omniTextSecondary(isDark),
                         fontSize = 12.sp
                     )
 
+                    // Monospace Hash Block Box with Glass Inset
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9))
-                            .padding(10.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0xFF0B101E) else Color(0xFFF1F5F9))
+                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
                     ) {
                         Text(
                             text = record.sha256Hash,
                             color = omniCyan(isDark),
                             fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 15.sp
                         )
                     }
 
-                    Text(
-                        text = "Student: ${record.studentName} (${record.studentRoll})\nTimestamp: ${record.sessionDate} $timeStr\nConfidence: ${record.confidencePct}%\nTier: ${record.securityTier}",
-                        color = omniTextSecondary(isDark),
-                        fontSize = 11.sp
-                    )
+                    // Metadata Summary Table
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0x331E293B) else Color(0x0D000000))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Identity:", fontSize = 11.sp, color = omniTextMuted(isDark))
+                            Text("${record.studentName} (${record.studentRoll})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = omniTextPrimary(isDark))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Timestamp:", fontSize = 11.sp, color = omniTextMuted(isDark))
+                            Text("${record.sessionDate} $timeStr", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = omniTextPrimary(isDark))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Confidence:", fontSize = 11.sp, color = omniTextMuted(isDark))
+                            Text("${record.confidencePct}% (Tier: ${record.securityTier})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = omniEmerald(isDark))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Sync State:", fontSize = 11.sp, color = omniTextMuted(isDark))
+                            Text(if (record.isSynced) "Verified Cloud Sync" else "Hardware Keystore Local", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = omniCyan(isDark))
+                        }
+                    }
                 }
             },
             confirmButton = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CupertinoButton(
+                        text = "Notify Parent",
+                        icon = Icons.Default.Send,
+                        brush = OmniButtonBrush,
+                        height = 42.dp,
                         onClick = {
                             viewModel.dispatchParentAlert(context, record)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Notify Parent", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
+                        }
+                    )
                     TextButton(onClick = { viewModel.selectRecordForProof(null) }) {
-                        Text("Close", color = omniTextMuted(isDark), fontWeight = FontWeight.Bold)
+                        Text("Close", color = omniTextMuted(isDark), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             },
+            containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+            shape = RoundedCornerShape(24.dp)
         )
     }
 
@@ -602,18 +713,26 @@ fun LedgerScreen(
             onDismissRequest = { viewModel.dismissIntegrityDialog() },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isValid) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = if (isValid) omniEmerald(isDark) else Color(0xFFEF4444),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (isValid) omniEmerald(isDark).copy(alpha = 0.15f) else Color(0x22EF4444)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isValid) Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = if (isValid) omniEmerald(isDark) else Color(0xFFEF4444),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (isValid) "Aegis Ledger Valid" else "Integrity Warning",
                         color = omniTextPrimary(isDark),
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             },
@@ -626,12 +745,15 @@ fun LedgerScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.dismissIntegrityDialog() }) {
-                    Text("OK", color = omniCyan(isDark), fontWeight = FontWeight.Bold)
-                }
+                CupertinoButton(
+                    text = "Acknowledge",
+                    brush = OmniButtonBrush,
+                    height = 40.dp,
+                    onClick = { viewModel.dismissIntegrityDialog() }
+                )
             },
-            containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFFFFFFF),
-            shape = RoundedCornerShape(16.dp)
+            containerColor = if (isDark) Color(0xFF141A29) else Color(0xFFFFFFFF),
+            shape = RoundedCornerShape(24.dp)
         )
     }
 

@@ -603,11 +603,12 @@ fun SettingsScreen(
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = state.npuHardwareInfo.socModel,
+                                                text = state.npuHardwareInfo.socModel.removePrefix("Qualcomm "),
                                                 color = omniTextPrimary(isDark),
-                                                fontSize = 15.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
+                                                maxLines = 2,
+                                                lineHeight = 17.sp,
                                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Text(
@@ -627,7 +628,9 @@ fun SettingsScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         IOSGlassPill(
-                                            text = state.hardwareTier.take(16),
+                                            text = if (state.hardwareTier.contains("Hexagon", ignoreCase = true)) "Hexagon NPU"
+                                                   else if (state.hardwareTier.contains("NNAPI", ignoreCase = true)) "NNAPI INT8"
+                                                   else state.hardwareTier.take(12),
                                             accentColor = omniCyan(isDark)
                                         )
                                         IconButton(

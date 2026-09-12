@@ -371,7 +371,7 @@ fun DashboardScreen(
                         Text(
                             text = "OmniFace AI",
                             color = omniTextPrimary(isDark),
-                            fontSize = 20.sp,
+                            fontSize = 22.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = (-0.5).sp
                         )
@@ -385,7 +385,8 @@ fun DashboardScreen(
                 }
 
                 IOSGlassPill(
-                    text = "● LIVE",
+                    text = "LIVE",
+                    showPulsingDot = true,
                     accentColor = OmniEmerald
                 )
             }
@@ -402,7 +403,7 @@ fun DashboardScreen(
             )
         }
 
-        // Qualcomm Hexagon Hero Card
+        // Qualcomm Hexagon / Neural Engine Hero Card
         item {
             IOSCard(
                 modifier = Modifier.fillMaxWidth()
@@ -420,14 +421,15 @@ fun DashboardScreen(
                             Box(
                                 modifier = Modifier
                                     .size(46.dp)
-                                    .shadow(6.dp, RoundedCornerShape(12.dp), ambientColor = Color(0x4D6366F1), spotColor = Color(0x4D6366F1))
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(OmniButtonBrush),
+                                    .shadow(6.dp, RoundedCornerShape(13.dp), ambientColor = Color(0x4D6366F1), spotColor = Color(0x4D6366F1))
+                                    .clip(RoundedCornerShape(13.dp))
+                                    .background(OmniButtonBrush)
+                                    .border(0.75.dp, if (isDark) Color(0x4DFFFFFF) else Color(0x40FFFFFF), RoundedCornerShape(13.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Visibility,
-                                    contentDescription = "OmniFace Neural",
+                                    imageVector = Icons.Default.Memory,
+                                    contentDescription = "OmniFace Neural Engine",
                                     tint = Color.White,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -435,30 +437,26 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "OmniFace Neural",
+                                    text = "OmniFace Neural Engine",
                                     color = omniTextPrimary(isDark),
                                     fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = (-0.3).sp
                                 )
                                 Text(
-                                    text = "Smart Kiosk Vision",
+                                    text = "Snapdragon 8 Gen 3 • Hexagon NPU",
                                     color = omniTextMuted(isDark),
-                                    fontSize = 11.sp
+                                    fontSize = 11.5.sp
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(OmniViolet.copy(alpha = 0.18f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "★ OmniFace Neural Engine",
-                                        color = OmniViolet,
-                                        fontSize = 9.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    IOSGlassPill(
+                                        text = "45 TOPS",
+                                        accentColor = OmniViolet
+                                    )
+                                    IOSGlassPill(
+                                        text = "INT8 / FP16",
+                                        accentColor = OmniSky
                                     )
                                 }
                             }
@@ -466,7 +464,7 @@ fun DashboardScreen(
 
                         IOSGlassPill(
                             text = "${if (state.benchmarkLatencyMs > 0) state.benchmarkLatencyMs else 6}ms",
-                            accentColor = OmniSky
+                            accentColor = OmniEmerald
                         )
                     }
 
@@ -494,27 +492,13 @@ fun DashboardScreen(
                             )
                         }
 
-                        TextButton(
+                        CupertinoActionPill(
+                            text = if (state.isEngineLoaded) "Unload" else "Load Core",
+                            icon = Icons.Default.PowerSettingsNew,
                             onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 if (state.isEngineLoaded) viewModel.unloadEngine() else viewModel.loadEngine(context)
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PowerSettingsNew,
-                                contentDescription = null,
-                                tint = omniTextMuted(isDark),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (state.isEngineLoaded) "Unload Engine" else "Load Engine",
-                                fontSize = 12.sp,
-                                color = omniTextMuted(isDark),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+                            }
+                        )
                     }
                 }
             }
@@ -823,68 +807,36 @@ fun DashboardScreen(
                     Spacer(modifier = Modifier.height(22.dp))
 
                     // Option 1: Launch Scanner
-                    Button(
+                    CupertinoButton(
+                        text = "Launch Real-Time Scanner",
+                        icon = Icons.Default.CameraAlt,
                         onClick = {
                             viewModel.dismissActionModal()
                             onNavigate(Screen.Scanner)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isDark) Color(0xFF0A84FF) else Color(0xFF0071E3)
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Launch Real-Time Scanner",
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
+                        }
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Option 2: Register Face
-                    OutlinedButton(
+                    CupertinoButton(
+                        text = "Register ${LocalizationManager.getEntitySingular(orgType)} Biometrics",
+                        icon = Icons.Default.PersonAdd,
+                        isSecondary = true,
                         onClick = {
                             viewModel.dismissActionModal()
                             onNavigate(Screen.Enrollment)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, if (isDark) Color(0x40FFFFFF) else Color(0x30000000))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = null,
-                            tint = omniTextPrimary(isDark),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Register Student Biometrics",
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = omniTextPrimary(isDark)
-                        )
-                    }
+                        }
+                    )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Option 3: Dismiss / Stay
                     TextButton(
-                        onClick = { viewModel.dismissActionModal() },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.dismissActionModal()
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(

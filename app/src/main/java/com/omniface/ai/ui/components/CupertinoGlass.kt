@@ -198,18 +198,18 @@ fun Modifier.liquidGlassBackdrop(
  * Simulates top-left 135° ambient light source highlight with bottom-right hairline refraction shadow.
  */
 private val DarkLiquidSpecularBorder = Brush.linearGradient(
-    0.0f to Color(0x4DFFFFFF),
-    0.25f to Color(0x24FFFFFF),
-    0.60f to Color(0x0AFFFFFF),
-    1.0f to Color(0x05000000),
+    0.0f to Color(0x66FFFFFF),
+    0.20f to Color(0x2EFFFFFF),
+    0.55f to Color(0x0CFFFFFF),
+    1.0f to Color(0x06000000),
     start = Offset(0f, 0f),
     end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
 )
 
 private val LightLiquidSpecularBorder = Brush.linearGradient(
-    0.0f to Color(0x99FFFFFF),
-    0.40f to Color(0x26000000),
-    1.0f to Color(0x0F000000),
+    0.0f to Color(0xB3FFFFFF),
+    0.35f to Color(0x33000000),
+    1.0f to Color(0x12000000),
     start = Offset(0f, 0f),
     end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
 )
@@ -219,17 +219,17 @@ fun omniLiquidSpecularBorder(isDark: Boolean): Brush =
 
 private val DarkLiquidSurfaceBrush = Brush.verticalGradient(
     listOf(
-        Color(0x401E293B),
-        Color(0x281E293B),
-        Color(0x4D0B0F19)
+        Color(0x44222E42),
+        Color(0x2D151D2C),
+        Color(0x520A0E18)
     )
 )
 
 private val LightLiquidSurfaceBrush = Brush.verticalGradient(
     listOf(
-        Color(0xF0FFFFFF),
-        Color(0xE6FFFFFF),
-        Color(0xC8F1F5F9)
+        Color(0xF8FFFFFF),
+        Color(0xEDFFFFFF),
+        Color(0xDDF1F5F9)
     )
 )
 
@@ -237,7 +237,7 @@ fun omniLiquidSurfaceBrush(isDark: Boolean): Brush =
     if (isDark) DarkLiquidSurfaceBrush else LightLiquidSurfaceBrush
 
 /**
- * Standardized Apple iOS Grouped Surface Card (20dp major, 16dp compact).
+ * Standardized Apple iOS Grouped Surface Card (20dp major, 16dp compact) with Doppelrand specular sheen.
  */
 @Composable
 fun IOSCard(
@@ -250,17 +250,25 @@ fun IOSCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val isDark = LocalThemeIsDark.current
+    val haptic = LocalHapticFeedback.current
     val effectiveBg = backgroundBrush ?: omniLiquidSurfaceBrush(isDark)
     val effectiveBorder = borderBrush ?: omniLiquidSpecularBorder(isDark)
-    val shadowElevation = elevation ?: (if (isDark) 4.dp else 6.dp)
+    val shadowElevation = elevation ?: (if (isDark) 5.dp else 6.dp)
     val cardShape = RoundedCornerShape(cornerRadius)
+
+    val topSpecularSheen = remember(isDark) {
+        Brush.verticalGradient(
+            0.0f to if (isDark) Color(0x22FFFFFF) else Color(0x55FFFFFF),
+            0.12f to Color.Transparent
+        )
+    }
 
     val cardModifier = if (onClick != null) {
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
 
         val scale by animateFloatAsState(
-            targetValue = if (isPressed) 0.985f else 1.0f,
+            targetValue = if (isPressed) 0.982f else 1.0f,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
                 stiffness = Spring.StiffnessLow
@@ -282,7 +290,10 @@ fun IOSCard(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null
-            ) { onClick() }
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
     } else {
         modifier
             .shadow(
@@ -297,10 +308,18 @@ fun IOSCard(
     }
 
     CompositionLocalProvider(LocalContentColor provides omniTextPrimary(isDark)) {
-        Column(
-            modifier = cardModifier.padding(18.dp),
-            content = content
-        )
+        Box(modifier = cardModifier) {
+            // Subtle top-edge specular hairline highlight (Apple Doppelrand effect)
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(topSpecularSheen)
+            )
+            Column(
+                modifier = Modifier.padding(18.dp),
+                content = content
+            )
+        }
     }
 }
 
@@ -440,14 +459,25 @@ fun CupertinoSearchField(
             )
             if (query.isNotEmpty()) {
                 Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Clear",
-                    tint = omniTextMuted(isDark),
+                val haptic = LocalHapticFeedback.current
+                Box(
                     modifier = Modifier
-                        .size(18.dp)
-                        .clickable { onQueryChange("") }
-                )
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(if (isDark) Color(0x33FFFFFF) else Color(0x1F000000))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onQueryChange("")
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "Clear",
+                        tint = if (isDark) Color(0xCCFFFFFF) else Color(0x99000000),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
         }
     }
@@ -627,9 +657,10 @@ fun SettingRow(
             if (icon != null) {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(iconTint.copy(alpha = if (isDark) 0.20f else 0.12f)),
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconTint.copy(alpha = if (isDark) 0.20f else 0.12f))
+                        .border(0.5.dp, iconTint.copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -645,8 +676,9 @@ fun SettingRow(
                 Text(
                     text = title,
                     color = omniTextPrimary(isDark),
-                    fontSize = 14.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.2).sp,
                     maxLines = 3,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
@@ -671,14 +703,14 @@ fun SettingRow(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
                 tint = omniTextMuted(isDark),
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(17.dp)
             )
         }
     }
 }
 
 /**
- * Standardized Apple iOS Segmented Control (12dp corner radius)
+ * Standardized Apple iOS Segmented Control (14dp corner radius) with sliding glass pill indicator.
  */
 @Composable
 fun CupertinoSegmentedControl(
@@ -695,8 +727,8 @@ fun CupertinoSegmentedControl(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isDark) Color(0xFF141926) else Color(0xFFE5E7EB))
-            .border(0.75.dp, if (isDark) Color(0x1FFFFFFF) else Color(0x14000000), RoundedCornerShape(14.dp))
+            .background(if (isDark) Color(0x660F1424) else Color(0xFFE5E7EB))
+            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(14.dp))
             .padding(4.dp)
     ) {
         Row(
@@ -720,7 +752,11 @@ fun CupertinoSegmentedControl(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .shadow(if (isSelected) 4.dp else 0.dp, RoundedCornerShape(10.dp), spotColor = if (isSelected && activeBrush != null) Color(0x666366F1) else Color.Transparent)
+                        .shadow(
+                            if (isSelected) 4.dp else 0.dp,
+                            RoundedCornerShape(10.dp),
+                            spotColor = if (isSelected && activeBrush != null) Color(0x666366F1) else Color(0x1F000000)
+                        )
                         .clip(RoundedCornerShape(10.dp))
                         .then(
                             if (isSelected && activeBrush != null) {
@@ -728,6 +764,11 @@ fun CupertinoSegmentedControl(
                             } else {
                                 Modifier.background(animBgColor)
                             }
+                        )
+                        .border(
+                            if (isSelected) 0.5.dp else 0.dp,
+                            if (isSelected) (if (isDark) Color(0x33FFFFFF) else Color(0x26000000)) else Color.Transparent,
+                            RoundedCornerShape(10.dp)
                         )
                         .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -739,12 +780,14 @@ fun CupertinoSegmentedControl(
                     Text(
                         text = title,
                         color = if (isSelected) {
-                            Color.White
+                            if (activeBrush != null) Color.White
+                            else if (isDark) Color.White else Color(0xFF1C1C1E)
                         } else {
                             if (isDark) Color(0x99EBEBF5) else Color(0x993C3C43)
                         },
                         fontSize = 12.5.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        letterSpacing = (-0.1).sp,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -756,7 +799,7 @@ fun CupertinoSegmentedControl(
 }
 
 /**
- * Standardized Apple iOS Metric Tile (16dp corner radius)
+ * Standardized Apple iOS Metric Tile (18dp corner radius) with ambient glowing backdrop and SF Pro metrics.
  */
 @Composable
 fun CupertinoMetricTile(
@@ -775,75 +818,96 @@ fun CupertinoMetricTile(
         cornerRadius = 18.dp,
         onClick = onClick
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = title.uppercase(),
-                color = omniTextMuted(isDark),
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.6.sp,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Subtle ambient radial glow behind icon
             Box(
                 modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.12f))
-                    .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.35f else 0.20f), RoundedCornerShape(9.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(16.dp)
+                    .matchParentSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = if (isDark) 0.16f else 0.09f),
+                                Color.Transparent
+                            ),
+                            center = Offset(240f, 0f),
+                            radius = 280f
+                        )
+                    )
+            )
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title.uppercase(),
+                        color = omniTextMuted(isDark),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(accentColor.copy(alpha = if (isDark) 0.20f else 0.12f))
+                            .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = value,
+                    color = omniTextPrimary(isDark),
+                    fontSize = if (value.length > 8) 20.sp else 25.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.6).sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = subtitle,
+                        color = accentColor,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.1).sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
             }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-            text = value,
-            color = omniTextPrimary(isDark),
-            fontSize = if (value.length > 8) 19.sp else 24.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = (-0.5).sp,
-            maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-        )
-
-        Spacer(modifier = Modifier.height(3.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .clip(CircleShape)
-                    .background(accentColor)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = subtitle,
-                color = accentColor,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
         }
     }
 }
 
 /**
- * Standardized Apple iOS Action Button (14dp rounded, 50dp height)
+ * Standardized Apple iOS Action Button (16dp rounded, 50dp height) with Button-in-Button pattern.
  */
 @Composable
 fun CupertinoButton(
@@ -854,6 +918,7 @@ fun CupertinoButton(
     contentColor: Color? = null,
     isSecondary: Boolean = false,
     enabled: Boolean = true,
+    height: Dp = 50.dp,
     onClick: () -> Unit
 ) {
     val isDark = LocalThemeIsDark.current
@@ -887,22 +952,29 @@ fun CupertinoButton(
         label = "btnScale"
     )
 
+    val shadowElevation = if (!isSecondary && enabled) (if (isDark) 6.dp else 8.dp) else (if (isDark) 2.dp else 3.dp)
+    val ambientGlow = if (!isSecondary && enabled) {
+        if (isDark) Color(0x406366F1) else Color(0x290071E3)
+    } else {
+        if (isDark) Color(0x55000000) else Color(0x1A000000)
+    }
+
     Box(
         modifier = modifier
             .scale(scale)
-            .height(50.dp)
+            .height(height)
             .shadow(
-                elevation = if (!isSecondary && enabled) (if (isDark) 6.dp else 8.dp) else (if (isDark) 2.dp else 3.dp),
-                shape = RoundedCornerShape(15.dp),
-                ambientColor = if (isDark) Color(0x66000000) else Color(0x330071E3),
-                spotColor = if (isDark) Color(0x4D000000) else Color(0x260071E3)
+                elevation = shadowElevation,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = ambientGlow,
+                spotColor = ambientGlow
             )
-            .clip(RoundedCornerShape(15.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(if (enabled) effectiveBrush else Brush.verticalGradient(listOf(Color(0xFF64748B), Color(0xFF475569))))
             .border(
                 width = 0.75.dp,
                 brush = if (enabled) omniLiquidSpecularBorder(isDark) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent)),
-                shape = RoundedCornerShape(15.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -914,19 +986,55 @@ fun CupertinoButton(
             },
         contentAlignment = Alignment.Center
     ) {
+        // Inner top specular hairline sheen
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to if (isDark) Color(0x26FFFFFF) else Color(0x55FFFFFF),
+                        0.18f to Color.Transparent
+                    )
+                )
+        )
+
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
+            // Apple Button-in-Button Icon Container
             if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (enabled) effectiveContentColor else TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(7.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(
+                            if (isSecondary) {
+                                if (isDark) Color(0x26FFFFFF) else Color(0x14000000)
+                            } else {
+                                Color(0x2EFFFFFF)
+                            }
+                        )
+                        .border(
+                            0.5.dp,
+                            if (isSecondary) {
+                                if (isDark) Color(0x33FFFFFF) else Color(0x1F000000)
+                            } else {
+                                Color(0x47FFFFFF)
+                            },
+                            RoundedCornerShape(9.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (enabled) effectiveContentColor else TextMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(9.dp))
             }
             Text(
                 text = text,
@@ -976,17 +1084,15 @@ fun CupertinoActionPill(
     text: String,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    accentColor: Color? = null,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
     val isDark = LocalThemeIsDark.current
     val haptic = LocalHapticFeedback.current
-    val bgColor = if (isDestructive) {
-        Color(0xFFFF453A).copy(alpha = if (isDark) 0.22f else 0.12f)
-    } else {
-        omniCyan(isDark).copy(alpha = if (isDark) 0.22f else 0.12f)
-    }
-    val contentColor = if (isDestructive) Color(0xFFFF453A) else omniCyan(isDark)
+    val primaryColor = accentColor ?: if (isDestructive) Color(0xFFFF453A) else omniCyan(isDark)
+    val bgColor = primaryColor.copy(alpha = if (isDark) 0.22f else 0.12f)
+    val contentColor = primaryColor
 
     Box(
         modifier = modifier
