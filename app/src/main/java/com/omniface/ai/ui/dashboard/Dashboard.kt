@@ -355,8 +355,8 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     BiometricEnergyOrb(
-                        size = 44.dp,
-                        showRings = false
+                        size = 48.dp,
+                        showRings = true
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -556,23 +556,25 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    CupertinoMetricTile(
-                        modifier = Modifier.weight(1f),
+                    CupertinoMetricDisc(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigate(Screen.Ledger) },
                         title = "Present Today",
                         value = "$animatedTodayCount",
                         subtitle = "Verified Today",
                         icon = Icons.Default.CheckCircle,
-                        accentColor = OmniEmerald,
-                        onClick = { onNavigate(Screen.Ledger) }
+                        accentColor = OmniEmerald
                     )
-                    CupertinoMetricTile(
-                        modifier = Modifier.weight(1f),
+                    CupertinoMetricDisc(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigate(Screen.Enrollment) },
                         title = "Total Enrolled",
                         value = "$animatedEnrolledCount",
                         subtitle = "${LocalizationManager.getEntityPlural(orgType)} Roster",
                         icon = Icons.Default.People,
-                        accentColor = OmniViolet,
-                        onClick = { onNavigate(Screen.Enrollment) }
+                        accentColor = OmniViolet
                     )
                 }
 
@@ -580,26 +582,28 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    CupertinoMetricTile(
-                        modifier = Modifier.weight(1f),
+                    CupertinoMetricDisc(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.syncNow(context)
+                            },
                         title = "Cloud Fleet Sync",
                         value = if (state.unsyncedCount > 0) "${state.unsyncedCount} Local" else "100% Synced",
                         subtitle = if (state.unsyncedCount > 0) "Pending sync" else "Drive & Fleet Active",
                         icon = Icons.Default.CloudDone,
-                        accentColor = OmniCyan,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.syncNow(context)
-                        }
+                        accentColor = OmniCyan
                     )
-                    CupertinoMetricTile(
-                        modifier = Modifier.weight(1f),
+                    CupertinoMetricDisc(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigate(Screen.Settings) },
                         title = "Silicon NPU",
                         value = "${if (state.benchmarkLatencyMs > 0) state.benchmarkLatencyMs else 6}ms",
                         subtitle = "Hexagon 45 TOPS",
                         icon = Icons.Default.Bolt,
-                        accentColor = OmniAmber,
-                        onClick = { onNavigate(Screen.Settings) }
+                        accentColor = OmniAmber
                     )
                 }
             }

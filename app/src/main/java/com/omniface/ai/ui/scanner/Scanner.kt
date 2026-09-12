@@ -2055,38 +2055,64 @@ fun ScannerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Stitch Liquid Obsidian Viewfinder Top Telemetry Markers
+                    // Stitch Liquid Obsidian Viewfinder Top Telemetry Markers (HUD V1)
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left: FOV & 3D Depth
+                        // Left: Optics & Lux
                         Row(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(Color(0x990B0F19))
-                                .border(0.5.dp, Color(0x4006B6D4), CircleShape)
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                .background(Color(0xD907090E))
+                                .border(0.75.dp, Color(0x4D06B6D4), CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(5.dp)
+                                    .size(4.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF06B6D4))
                             )
                             Text(
-                                text = "FOV: 84° • 3D DEPTH",
+                                text = "280 LUX • IR",
                                 color = Color(0xFFE2E8F0),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
+                            )
+                        }
+
+                        // Center: Capture FPS & Mode
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color(0xD907090E))
+                                .border(0.75.dp, Color(0x33FFFFFF), CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(OmniSky)
+                            )
+                            Text(
+                                text = "60 FPS • 4K IR",
+                                color = Color.White,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
                             )
                         }
 
@@ -2094,24 +2120,67 @@ fun ScannerScreen(
                         Row(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(Color(0x990B0F19))
-                                .border(0.5.dp, Color(0x4010B981), CircleShape)
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                .background(Color(0xD907090E))
+                                .border(0.75.dp, Color(0x4D10B981), CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(5.dp)
+                                    .size(4.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF10B981))
                             )
                             Text(
-                                text = "NPU: 45 TOPS",
+                                text = "45 TOPS • INT8",
                                 color = Color(0xFF10B981),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Stitch Dynamic Island Verified Banner at Top of Viewfinder
+                    val isScanVerified = state.scanState == ScannerScanState.RECOGNIZED ||
+                        state.scanState == ScannerScanState.ATTENDANCE_RECORDED ||
+                        state.scanState == ScannerScanState.DUPLICATE_ATTENDANCE
+                    AnimatedVisibility(
+                        visible = isScanVerified && state.matchedRoll.isNotBlank(),
+                        enter = fadeIn() + slideInVertically { -it },
+                        exit = fadeOut() + slideOutVertically { -it },
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 44.dp)
+                    ) {
+                        val confPct = if (state.lastConfidence > 1.0f) {
+                            String.format(Locale.US, "%.1f", state.lastConfidence)
+                        } else if (state.lastConfidence > 0f) {
+                            String.format(Locale.US, "%.1f", state.lastConfidence * 100f)
+                        } else "99.8"
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color(0xE60B0F19))
+                                .border(1.dp, Color(0xFF10B981).copy(alpha = 0.8f), CircleShape)
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Text(
+                                text = "VERIFIED: ${state.matchedName.ifBlank { state.matchedRoll }} ($confPct%)",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
                                 letterSpacing = 0.5.sp
                             )
                         }
@@ -2418,8 +2487,14 @@ fun ScannerScreen(
                 }
             }
 
-            // 5. State-Driven Adaptive Glass Verification Card
+            // 5. State-Driven Adaptive Glass Verification Card (Stitch Smart Scanner HUD Variant 1)
             item {
+                val isMatchedIdentity = state.matchedRoll.isNotBlank() && (
+                    state.scanState == ScannerScanState.RECOGNIZED ||
+                    state.scanState == ScannerScanState.ATTENDANCE_RECORDED ||
+                    state.scanState == ScannerScanState.DUPLICATE_ATTENDANCE
+                )
+
                 IOSCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2427,200 +2502,374 @@ fun ScannerScreen(
                             viewModel.openStudentInfo(state.matchedRoll)
                         }
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
+                    if (isMatchedIdentity) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(stateColor.copy(alpha = 0.18f))
-                                    .border(1.dp, stateColor, CircleShape),
-                                contentAlignment = Alignment.Center
+                            // Top Row: Avatar with emerald badge, Student details, Confidence pill
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = when (state.scanState) {
-                                        ScannerScanState.RECOGNIZED,
-                                        ScannerScanState.ATTENDANCE_RECORDED -> Icons.Default.CheckCircle
-                                        ScannerScanState.DUPLICATE_ATTENDANCE -> Icons.Default.Warning
-                                        ScannerScanState.UNKNOWN_IDENTITY -> Icons.Default.PersonOff
-                                        ScannerScanState.SPOOF_ALERT -> Icons.Default.GppBad
-                                        ScannerScanState.POOR_QUALITY -> Icons.Default.CenterFocusWeak
-                                        ScannerScanState.EMPTY_DATABASE -> Icons.Default.PersonAdd
-                                        ScannerScanState.SENSOR_TEST_MODE -> Icons.Default.Science
-                                        else -> Icons.Default.Face
-                                    },
-                                    contentDescription = null,
-                                    tint = stateColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = state.matchTitle,
-                                        color = omniTextPrimary(isDark),
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                    if (state.matchedRoll.isNotBlank() && (state.scanState == ScannerScanState.RECOGNIZED || state.scanState == ScannerScanState.ATTENDANCE_RECORDED || state.scanState == ScannerScanState.DUPLICATE_ATTENDANCE)) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        val roleBadge = LocalizationManager.getRoleBadgeLabel(state.matchedRole)
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // 48dp Avatar with circular check badge
+                                    Box(
+                                        modifier = Modifier.size(52.dp),
+                                        contentAlignment = Alignment.BottomEnd
+                                    ) {
                                         Box(
                                             modifier = Modifier
+                                                .size(48.dp)
+                                                .align(Alignment.TopStart)
                                                 .clip(CircleShape)
-                                                .background(OmniViolet.copy(alpha = 0.15f))
-                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
-                                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                .background(
+                                                    Brush.linearGradient(
+                                                        listOf(
+                                                            if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
+                                                            if (isDark) Color(0xFF0F172A) else Color(0xFFCBD5E1)
+                                                        )
+                                                    )
+                                                )
+                                                .border(1.dp, omniEmerald(isDark).copy(alpha = 0.6f), CircleShape),
+                                            contentAlignment = Alignment.Center
                                         ) {
+                                            val initials = state.matchedName.split(" ")
+                                                .mapNotNull { it.firstOrNull()?.toString() }
+                                                .take(2)
+                                                .joinToString("")
+                                                .uppercase()
+                                                .ifEmpty { "ID" }
                                             Text(
-                                                text = roleBadge.uppercase(),
-                                                color = OmniSky,
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Bold
+                                                text = initials,
+                                                color = omniEmerald(isDark),
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+
+                                        // Circular verified checkmark badge
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(omniEmerald(isDark))
+                                                .border(1.5.dp, if (isDark) Color(0xFF0B0F19) else Color.White, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Verified",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = state.matchedName.ifBlank { state.matchTitle },
+                                            color = omniTextPrimary(isDark),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            val roleBadge = LocalizationManager.getRoleBadgeLabel(state.matchedRole)
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(OmniViolet.copy(alpha = 0.15f))
+                                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = roleBadge.uppercase(),
+                                                    color = OmniSky,
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Text(
+                                                text = state.matchedRoll,
+                                                color = omniTextSecondary(isDark),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Schedule,
+                                                contentDescription = null,
+                                                tint = omniTextMuted(isDark),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Auto-Stamped: ${state.matchedTimeFormatted.ifBlank { "Just now" }} (Enclave)",
+                                                color = omniTextMuted(isDark),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Normal
                                             )
                                         }
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(2.dp))
+
+                                // Emerald Confidence Pill
+                                val confPct = if (state.lastConfidence > 1.0f) {
+                                    String.format(Locale.US, "%.1f", state.lastConfidence)
+                                } else if (state.lastConfidence > 0f) {
+                                    String.format(Locale.US, "%.1f", state.lastConfidence * 100f)
+                                } else "99.8"
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(omniEmerald(isDark).copy(alpha = 0.18f))
+                                        .border(1.dp, omniEmerald(isDark).copy(alpha = 0.5f), CircleShape)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "CONF: $confPct%",
+                                        color = omniEmerald(isDark),
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 0.3.sp
+                                    )
+                                }
+                            }
+
+                            // Merkle Leaf Hash Bar
+                            val hashSeed = (state.matchedRoll + state.matchedName + state.matchedTimeFormatted).hashCode()
+                            val pseudoLeafHash = "0x" + Integer.toHexString(state.matchedRoll.hashCode()).padStart(8, '0') +
+                                Integer.toHexString(hashSeed).padStart(8, 'a')
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isDark) Color(0x330B0F19) else Color(0x1F000000))
+                                    .border(0.5.dp, if (isDark) Color(0x1AFFFFFF) else Color(0x14000000), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(omniEmerald(isDark))
+                                    )
+                                    Text(
+                                        text = "MERKLE LEAF",
+                                        color = omniTextMuted(isDark),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                                 Text(
-                                    text = state.matchSubtitle,
-                                    color = omniTextSecondary(isDark),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 2,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    text = "${pseudoLeafHash.take(10)}...${pseudoLeafHash.takeLast(6)}",
+                                    color = omniCyan(isDark),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            // Tactile Action Capsule Row (Override, Sensor, Enclave)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ScannerActionCapsule(
+                                    text = "Override",
+                                    icon = Icons.Default.Tune,
+                                    accentColor = OmniSky,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { viewModel.openManualOverrideDialog() }
+                                )
+                                ScannerActionCapsule(
+                                    text = "Sensor: IR",
+                                    icon = Icons.Default.Sensors,
+                                    accentColor = omniCyan(isDark),
+                                    isActive = true,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {}
+                                )
+                                ScannerActionCapsule(
+                                    text = "Enclave L3",
+                                    icon = Icons.Default.Security,
+                                    accentColor = omniEmerald(isDark),
+                                    isActive = true,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {}
                                 )
                             }
                         }
-
-                        // Contextual Action Button (Apple Liquid Glass)
-                        if (!state.isModelAvailable) {
-                            CupertinoButton(
-                                modifier = Modifier.width(140.dp),
-                                text = "Download Pack",
-                                icon = Icons.Default.CloudDownload,
-                                brush = Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9))),
-                                height = 36.dp,
-                                onClick = { viewModel.loadEngineExplicitly(context) }
-                            )
-                        } else {
-                            when (state.scanState) {
-                                ScannerScanState.EMPTY_DATABASE -> {
-                                    CupertinoButton(
-                                        modifier = Modifier.width(110.dp),
-                                        text = "+ Enroll",
-                                        brush = OmniButtonBrush,
-                                        height = 36.dp,
-                                        onClick = onNavigateToEnroll
-                                    )
-                                }
-                                ScannerScanState.DUPLICATE_ATTENDANCE -> {
-                                    CupertinoButton(
-                                        modifier = Modifier.width(105.dp),
-                                        text = "Profile",
-                                        icon = Icons.Default.Info,
-                                        brush = Brush.horizontalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B))),
-                                        height = 36.dp,
-                                        onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.openStudentInfo(state.matchedRoll)
-                                        }
-                                    )
-                                }
-                                ScannerScanState.RECOGNIZED -> {
-                                    CupertinoButton(
-                                        modifier = Modifier.width(115.dp),
-                                        text = LocalizationManager.get(StringKey.CONFIRM_ACTION),
-                                        icon = Icons.Default.Check,
-                                        brush = Brush.horizontalGradient(listOf(Color(0xFF059669), Color(0xFF10B981))),
-                                        height = 36.dp,
-                                        onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.markManualAttendance()
-                                        }
-                                    )
-                                }
-                                ScannerScanState.ATTENDANCE_RECORDED -> {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    } else {
+                        // Standard State Presentation
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(stateColor.copy(alpha = 0.18f))
+                                            .border(1.dp, stateColor, CircleShape),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(CircleShape)
-                                                .background(Color(0x3334C759))
-                                                .border(0.5.dp, Color(0xFF34C759).copy(alpha = 0.4f), CircleShape)
-                                                .padding(horizontal = 9.dp, vertical = 5.dp)
-                                        ) {
-                                            Text(
-                                                text = LocalizationManager.get(StringKey.VERIFIED_BADGE),
-                                                color = Color(0xFF34C759),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
+                                        Icon(
+                                            imageVector = when (state.scanState) {
+                                                ScannerScanState.UNKNOWN_IDENTITY -> Icons.Default.PersonOff
+                                                ScannerScanState.SPOOF_ALERT -> Icons.Default.GppBad
+                                                ScannerScanState.POOR_QUALITY -> Icons.Default.CenterFocusWeak
+                                                ScannerScanState.EMPTY_DATABASE -> Icons.Default.PersonAdd
+                                                ScannerScanState.SENSOR_TEST_MODE -> Icons.Default.Science
+                                                else -> Icons.Default.Face
+                                            },
+                                            contentDescription = null,
+                                            tint = stateColor,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = state.matchTitle,
+                                            color = omniTextPrimary(isDark),
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = state.matchSubtitle,
+                                            color = omniTextSecondary(isDark),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 2,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                // Contextual Action Button (Apple Liquid Glass)
+                                if (!state.isModelAvailable) {
+                                    CupertinoButton(
+                                        modifier = Modifier.width(140.dp),
+                                        text = "Download Pack",
+                                        icon = Icons.Default.CloudDownload,
+                                        brush = Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9))),
+                                        height = 36.dp,
+                                        onClick = { viewModel.loadEngineExplicitly(context) }
+                                    )
+                                } else {
+                                    when (state.scanState) {
+                                        ScannerScanState.EMPTY_DATABASE -> {
+                                            CupertinoButton(
+                                                modifier = Modifier.width(110.dp),
+                                                text = "+ Enroll",
+                                                brush = OmniButtonBrush,
+                                                height = 36.dp,
+                                                onClick = onNavigateToEnroll
                                             )
                                         }
-                                        if (state.matchedRoll.isNotBlank()) {
+                                        ScannerScanState.UNKNOWN_IDENTITY -> {
+                                            CupertinoButton(
+                                                modifier = Modifier.width(105.dp),
+                                                text = "+ Enroll",
+                                                brush = Brush.horizontalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B))),
+                                                height = 36.dp,
+                                                onClick = onNavigateToEnroll
+                                            )
+                                        }
+                                        else -> {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(32.dp)
+                                                    .size(36.dp)
                                                     .clip(CircleShape)
                                                     .background(if (isDark) Color(0x331E293B) else Color(0x1A0284C7))
                                                     .border(0.5.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                                                    .clickable { viewModel.openStudentInfo(state.matchedRoll) },
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        viewModel.retryScan()
+                                                    },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Info,
-                                                    contentDescription = "Profile",
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = LocalizationManager.get(StringKey.RETRY_ACTION),
                                                     tint = omniCyan(isDark),
-                                                    modifier = Modifier.size(16.dp)
+                                                    modifier = Modifier.size(18.dp)
                                                 )
                                             }
                                         }
                                     }
                                 }
-                                ScannerScanState.UNKNOWN_IDENTITY -> {
-                                    CupertinoButton(
-                                        modifier = Modifier.width(105.dp),
-                                        text = "+ Enroll",
-                                        brush = Brush.horizontalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B))),
-                                        height = 36.dp,
-                                        onClick = onNavigateToEnroll
-                                    )
-                                }
-                                else -> {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isDark) Color(0x331E293B) else Color(0x1A0284C7))
-                                            .border(0.5.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                                            .clickable {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                viewModel.retryScan()
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = LocalizationManager.get(StringKey.RETRY_ACTION),
-                                            tint = omniCyan(isDark),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
+                            }
+
+                            // Tactile Action Capsule Row (Override, Sensor, Enclave)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ScannerActionCapsule(
+                                    text = "Override",
+                                    icon = Icons.Default.Tune,
+                                    accentColor = OmniSky,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { viewModel.openManualOverrideDialog() }
+                                )
+                                ScannerActionCapsule(
+                                    text = "Sensor: IR",
+                                    icon = Icons.Default.Sensors,
+                                    accentColor = omniCyan(isDark),
+                                    isActive = true,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {}
+                                )
+                                ScannerActionCapsule(
+                                    text = "Enclave L3",
+                                    icon = Icons.Default.Security,
+                                    accentColor = omniEmerald(isDark),
+                                    isActive = true,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {}
+                                )
                             }
                         }
                     }

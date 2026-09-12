@@ -23,12 +23,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import com.omniface.ai.ml.ConfidenceZone
 import com.omniface.ai.ml.EyeGazeResult
@@ -157,6 +160,26 @@ fun FaceDiagnosticsOverlay(
         label = "pulseScale"
     )
 
+    val reticleRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "reticleRotation"
+    )
+
+    val laserScanProgress by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "laserScanProgress"
+    )
+
     if (overlayAlpha <= 0.005f && !hasFaces) return
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -177,8 +200,16 @@ fun FaceDiagnosticsOverlay(
                 }
             }
 
-            // 1. Core Bounding Box with Smooth Face ID Corner Brackets & Clean Highlight
-            drawFaceBoundingBox(rect, faceHaloColor, overlayAlpha, pulseScale)
+            // 1. Core Cybernetic Biometric Reticle & Squircle Corner Frame (Zero square boxes)
+            drawFaceBoundingBox(
+                rect = rect,
+                color = faceHaloColor,
+                alpha = overlayAlpha,
+                scaleFactor = pulseScale,
+                rotation = reticleRotation,
+                scanProgress = laserScanProgress,
+                isVerified = face.confidenceZone == ConfidenceZone.ACCEPT || face.studentName.isNotBlank()
+            )
 
             // 2. 3D Morphable Model (FaceMap 3DMM) Depth Contours (Only when 3D mesh is not active to prevent duplicate rings)
             if (show3DMMTopography && face.faceMap3DMM != null && face.meshResult == null) {
@@ -226,59 +257,118 @@ fun FaceDiagnosticsOverlay(
     }
 }
 
-/** Draws rounded Face ID reticle brackets with liquid specular glow and center crosshair with smooth alpha fade. */
+/** Draws cybernetic Apple VisionOS dual-concentric reticle and squircle frame (Zero square boxes). */
 private fun DrawScope.drawFaceBoundingBox(
     rect: androidx.compose.ui.geometry.Rect,
     color: Color,
     alpha: Float,
-    scaleFactor: Float = 1.0f
+    scaleFactor: Float = 1.0f,
+    rotation: Float = 0f,
+    scanProgress: Float = 0f,
+    isVerified: Boolean = false
 ) {
-    val cornerLen = (rect.width * 0.20f).coerceIn(20f, 48f)
-    val strokeW = 4.0f
-
     val cx = rect.center.x
     val cy = rect.center.y
-    val scaledW = rect.width * scaleFactor
-    val scaledH = rect.height * scaleFactor
-    val sLeft = cx - scaledW / 2f
-    val sTop = cy - scaledH / 2f
-    val sRight = cx + scaledW / 2f
-    val sBottom = cy + scaledH / 2f
+    val faceRadius = (rect.width.coerceAtLeast(rect.height) / 2f) * scaleFactor
+    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(rect.width * 0.26f, rect.width * 0.26f)
 
-    // Soft glass background tint
-    drawRect(
-        color = color.copy(alpha = 0.08f * alpha),
-        topLeft = Offset(sLeft, sTop),
-        size = Size(scaledW, scaledH)
+    // 1. Soft radial glass luminescence inside the face target area
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                color.copy(alpha = 0.12f * alpha),
+                color.copy(alpha = 0.04f * alpha),
+                Color.Transparent
+            ),
+            center = Offset(cx, cy),
+            radius = faceRadius * 1.35f
+        ),
+        radius = faceRadius * 1.35f,
+        center = Offset(cx, cy)
     )
 
-    // Soft surrounding bounding box hairline
-    val glowColor = color.copy(alpha = 0.35f * alpha)
-    drawRect(glowColor, Offset(sLeft, sTop), Size(scaledW, scaledH), style = Stroke(width = 1.4f))
+    // 2. Outer Dual-Concentric Rotating Dashed Reticle Ring
+    val outerRadius = faceRadius * 1.16f
+    rotate(degrees = if (isVerified) 0f else rotation, pivot = Offset(cx, cy)) {
+        val arcStroke = Stroke(
+            width = if (isVerified) 2.5f else 1.8f,
+            pathEffect = PathEffect.dashPathEffect(
+                intervals = floatArrayOf(outerRadius * 0.40f, outerRadius * 0.12f),
+                phase = 0f
+            ),
+            cap = StrokeCap.Round
+        )
+        drawCircle(
+            color = color.copy(alpha = if (isVerified) 0.9f * alpha else 0.65f * alpha),
+            radius = outerRadius,
+            center = Offset(cx, cy),
+            style = arcStroke
+        )
+    }
 
-    val cornerColor = color.copy(alpha = alpha)
+    // 3. Inner Concentric Target Ring
+    val innerRadius = faceRadius * 0.94f
+    rotate(degrees = if (isVerified) 0f else -rotation * 0.7f, pivot = Offset(cx, cy)) {
+        val innerStroke = Stroke(
+            width = 1.0f,
+            pathEffect = PathEffect.dashPathEffect(
+                intervals = floatArrayOf(innerRadius * 0.20f, innerRadius * 0.15f),
+                phase = 0f
+            ),
+            cap = StrokeCap.Round
+        )
+        drawCircle(
+            color = color.copy(alpha = 0.35f * alpha),
+            radius = innerRadius,
+            center = Offset(cx, cy),
+            style = innerStroke
+        )
+    }
 
-    // Top-Left L-bracket
-    drawLine(cornerColor, Offset(sLeft, sTop + cornerLen), Offset(sLeft, sTop), strokeW, StrokeCap.Round)
-    drawLine(cornerColor, Offset(sLeft, sTop), Offset(sLeft + cornerLen, sTop), strokeW, StrokeCap.Round)
+    // 4. Fluid Squircle Corner Brackets (Curved Apple Face ID brackets with 26% radius)
+    val scaledW = rect.width * scaleFactor * 1.06f
+    val scaledH = rect.height * scaleFactor * 1.06f
+    val sLeft = cx - scaledW / 2f
+    val sTop = cy - scaledH / 2f
 
-    // Top-Right L-bracket
-    drawLine(cornerColor, Offset(sRight - cornerLen, sTop), Offset(sRight, sTop), strokeW, StrokeCap.Round)
-    drawLine(cornerColor, Offset(sRight, sTop), Offset(sRight, sTop + cornerLen), strokeW, StrokeCap.Round)
+    // Soft squircle background hairline (no hard sharp corners)
+    drawRoundRect(
+        color = color.copy(alpha = 0.22f * alpha),
+        topLeft = Offset(sLeft, sTop),
+        size = Size(scaledW, scaledH),
+        cornerRadius = cornerRadius,
+        style = Stroke(width = 1.2f)
+    )
 
-    // Bottom-Left L-bracket
-    drawLine(cornerColor, Offset(sLeft, sBottom - cornerLen), Offset(sLeft, sBottom), strokeW, StrokeCap.Round)
-    drawLine(cornerColor, Offset(sLeft, sBottom), Offset(sLeft + cornerLen, sBottom), strokeW, StrokeCap.Round)
+    // 5. Active Cybernetic Laser Scanning Bar (sweeps gently across the face during search)
+    if (!isVerified && alpha > 0.3f) {
+        val laserY = cy + scanProgress * (rect.height * 0.38f)
+        val laserHalfW = rect.width * 0.48f
+        drawLine(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    color.copy(alpha = 0.60f * alpha),
+                    Color.White.copy(alpha = 0.85f * alpha),
+                    color.copy(alpha = 0.60f * alpha),
+                    Color.Transparent
+                ),
+                startX = cx - laserHalfW,
+                endX = cx + laserHalfW
+            ),
+            start = Offset(cx - laserHalfW, laserY),
+            end = Offset(cx + laserHalfW, laserY),
+            strokeWidth = 2.2f,
+            cap = StrokeCap.Round
+        )
+    }
 
-    // Bottom-Right L-bracket
-    drawLine(cornerColor, Offset(sRight - cornerLen, sBottom), Offset(sRight, sBottom), strokeW, StrokeCap.Round)
-    drawLine(cornerColor, Offset(sRight, sBottom), Offset(sRight, sBottom - cornerLen), strokeW, StrokeCap.Round)
-
-    // Center Crosshair Target Guide
-    val crossLen = 8f
-    val crossColor = color.copy(alpha = 0.6f * alpha)
-    drawLine(crossColor, Offset(cx - crossLen, cy), Offset(cx + crossLen, cy), strokeWidth = 1.5f, cap = StrokeCap.Round)
-    drawLine(crossColor, Offset(cx, cy - crossLen), Offset(cx, cy + crossLen), strokeWidth = 1.5f, cap = StrokeCap.Round)
+    // 6. Center Precision Crosshair Fiducial (Soft circular core dot)
+    drawCircle(
+        color = color.copy(alpha = 0.8f * alpha),
+        radius = 2.5f,
+        center = Offset(cx, cy)
+    )
 }
 
 /** Draws floating Apple glassmorphic identity and confidence capsule on Canvas with smooth alpha fade. */

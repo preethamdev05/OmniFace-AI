@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1098,6 +1099,192 @@ fun CupertinoActionPill(
                 color = contentColor,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * Stitch Apple Liquid Glass 2-Column Bento KPI Metric Tile.
+ * Features a 38dp circular glass status disc, 135-degree specular outline,
+ * ambient radial glow, bold tabular metric, and status subtitle.
+ */
+@Composable
+fun CupertinoMetricDisc(
+    title: String,
+    value: String,
+    subtitle: String,
+    icon: ImageVector,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val isDark = LocalThemeIsDark.current
+    val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && onClick != null) 0.97f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "metricDiscScale"
+    )
+
+    IOSCard(
+        modifier = modifier
+            .scale(scale)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onClick()
+                    }
+                } else Modifier
+            ),
+        cornerRadius = 20.dp
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            // Ambient radial glow behind the disc
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .align(Alignment.TopEnd)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = if (isDark) 0.20f else 0.12f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title.uppercase(),
+                        color = omniTextMuted(isDark),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.2.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.10f))
+                            .border(1.dp, accentColor.copy(alpha = if (isDark) 0.45f else 0.30f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = value,
+                    color = omniTextPrimary(isDark),
+                    fontSize = if (value.length > 8) 20.sp else 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.8).sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = subtitle,
+                        color = omniTextMuted(isDark),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Stitch Smart Scanner Tactile Action Capsule for bottom controls (Override, Sensor, Enclave).
+ */
+@Composable
+fun ScannerActionCapsule(
+    text: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    accentColor: Color = CyanCore,
+    isActive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val isDark = LocalThemeIsDark.current
+    val haptic = LocalHapticFeedback.current
+    val shape = RoundedCornerShape(999.dp)
+    val borderBrush: Brush = if (isActive) SolidColor(accentColor.copy(alpha = 0.6f)) else omniLiquidSpecularBorder(isDark)
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(if (isActive) accentColor.copy(alpha = 0.22f) else if (isDark) Color(0x331E293B) else Color(0x1F000000))
+            .border(
+                0.75.dp,
+                borderBrush,
+                shape
+            )
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isActive) accentColor else omniTextPrimary(isDark),
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = text.uppercase(),
+                color = if (isActive) accentColor else omniTextPrimary(isDark),
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.3.sp,
                 maxLines = 1
             )
         }
