@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1648,6 +1649,8 @@ fun ScannerScreen(
         label = "breathingPulse"
     )
 
+    var showNeuralDiagnostics by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1661,7 +1664,7 @@ fun ScannerScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. Header (Title, Subtitle & Live Filter/Tune Button)
+            // 1. Apple Minimalist Top Header (Camera-First Layout)
             item {
                 Row(
                     modifier = Modifier
@@ -1671,440 +1674,111 @@ fun ScannerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "SCANNER",
-                            color = OmniViolet,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (state.isScanningPaused) Color(0xFFFF9500) else OmniEmerald)
+                            )
+                            Text(
+                                text = if (state.scannerMode == ScannerMode.AUTO_KIOSK) "AUTO KIOSK SCANNER" else "MANUAL TAP SCANNER",
+                                color = OmniViolet,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Scanner",
+                            text = "Smart Scanner",
                             color = omniTextPrimary(isDark),
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = (-0.5).sp,
                             maxLines = 1
                         )
-                        Text(
-                            text = "Smart Kiosk Face Identification",
-                            color = omniTextMuted(isDark),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
                     }
 
-                    // Circle Tune/Filter Button (Apple Liquid Glass Chip)
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .shadow(if (isDark) 6.dp else 3.dp, CircleShape, spotColor = OmniViolet.copy(alpha = 0.2f))
-                            .clip(CircleShape)
-                            .background(
-                                Brush.verticalGradient(
-                                    if (isDark) listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                                    else listOf(Color(0xFFFFFFFF), Color(0xFFF1F5F9))
-                                )
-                            )
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.toggleModelManagerDialog()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "Tune Models",
-                            tint = omniTextPrimary(isDark),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
-            }
-
-            // 2. 5-Button Control Dock
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp)
-                ) {
+                    // Top Bar Action Controls: Flip Camera, Multi-Face, Tune Settings
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .shadow(
-                                elevation = if (isDark) 10.dp else 8.dp,
-                                shape = RoundedCornerShape(24.dp),
-                                ambientColor = if (isDark) Color(0x66000000) else Color(0x1F000000),
-                                spotColor = if (isDark) Color(0x336366F1) else Color(0x146366F1)
-                            )
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(if (isDark) Color(0xFF0F1527) else Color.White)
-                            .border(0.75.dp, omniLiquidSpecularBorder(isDark), RoundedCornerShape(24.dp))
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CupertinoDockIconButton(
-                            icon = if (state.isMultiFaceMode) Icons.Default.Groups else Icons.Default.Person,
-                            label = if (state.isMultiFaceMode) "Multi" else LocalizationManager.get(StringKey.MODE_SINGLE),
-                            isActive = state.isMultiFaceMode,
-                            activeColor = omniCyan(isDark),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.toggleMultiFaceMode()
-                            }
-                        )
-
-                        CupertinoDockIconButton(
-                            icon = Icons.Default.FlipCameraAndroid,
-                            label = if (state.lensFacing == CameraSelector.LENS_FACING_FRONT) LocalizationManager.get(StringKey.LENS_FRONT) else LocalizationManager.get(StringKey.LENS_REAR),
-                            isActive = state.lensFacing == CameraSelector.LENS_FACING_FRONT,
-                            activeColor = Color(0xFF38BDF8),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.toggleLensFacing()
-                            }
-                        )
-
-                        CupertinoDockIconButton(
-                            icon = if (state.isScanningPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                            label = if (state.isScanningPaused) "Paused" else LocalizationManager.get(StringKey.STATUS_ACTIVE),
-                            isActive = !state.isScanningPaused,
-                            activeColor = OmniViolet,
-                            isCenterAccent = true,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.togglePauseScan()
-                            }
-                        )
-
-                        CupertinoDockIconButton(
-                            icon = if (state.scannerMode == ScannerMode.AUTO_KIOSK) Icons.Default.Sensors else Icons.Default.TouchApp,
-                            label = if (state.scannerMode == ScannerMode.AUTO_KIOSK) "Kiosk" else "Handheld",
-                            isActive = state.scannerMode == ScannerMode.AUTO_KIOSK,
-                            activeColor = omniEmerald(isDark),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.toggleScannerMode()
-                            }
-                        )
-
-                        CupertinoDockIconButton(
-                            icon = Icons.Default.EditNote,
-                            label = LocalizationManager.get(StringKey.MANUAL_TRIGGER),
-                            isActive = false,
-                            activeColor = omniEmerald(isDark),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.openManualOverrideDialog()
-                            }
-                        )
-                    }
-                }
-            }
-
-            // 3. Security Accuracy Tier Pill Selector
-            item {
-                CupertinoSegmentedControl(
-                    items = listOf(
-                        LocalizationManager.get(StringKey.TIER_STANDARD),
-                        LocalizationManager.get(StringKey.TIER_HIGH),
-                        LocalizationManager.get(StringKey.TIER_STRICT)
-                    ),
-                    selectedIndex = when (state.activeTier) {
-                        SecurityTier.STANDARD -> 0
-                        SecurityTier.HIGH -> 1
-                        SecurityTier.STRICT -> 2
-                    },
-                    activeBrush = OmniButtonBrush,
-                    onItemSelected = { idx ->
-                        val tier = when (idx) {
-                            0 -> SecurityTier.STANDARD
-                            1 -> SecurityTier.HIGH
-                            else -> SecurityTier.STRICT
-                        }
-                        viewModel.setSecurityTier(tier)
-                    }
-                )
-            }
-
-            // 4. Notice Banner (Database Empty Warning)
-            if (state.isDatabaseEmpty || state.enrolledCount == 0) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .shadow(4.dp, RoundedCornerShape(16.dp))
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isDark) Color(0x22F59E0B) else Color(0x14F59E0B))
-                            .border(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Database Empty",
-                                    color = omniTextPrimary(isDark),
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "0 ${LocalizationManager.getEntityPlural(state.orgType).lowercase()} enrolled. Enroll in ${LocalizationManager.getDirectoryTabTitle(state.orgType)} to enable face verification.",
-                                    color = omniTextMuted(isDark),
-                                    fontSize = 10.5.sp,
-                                    lineHeight = 14.sp
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        CupertinoButton(
-                            modifier = Modifier.width(90.dp),
-                            text = "+ Begin",
-                            brush = OmniButtonBrush,
-                            height = 36.dp,
-                            onClick = onNavigateToEnroll
-                        )
-                    }
-                }
-            }
-
-            // 5. Unified On-Device Neural Suite Card
-            item {
-                val qc = state.qualcommTelemetry
-                IOSCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(omniEmerald(isDark))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "CUSTOM NEURAL SUITE",
-                                    color = omniTextMuted(isDark),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp,
-                                    maxLines = 1
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isDark) Color(0x330284C7) else Color(0x1A0284C7))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "Unified LiteRT",
-                                    color = omniCyan(isDark),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
-                                    .padding(8.dp)
-                            ) {
-                                Text("3DMM Depth", fontSize = 10.sp, color = omniTextMuted(isDark))
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (qc?.is3DMMActive == true) "%.3f Var".format(qc.depthVariance) else "Ready",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = omniTextPrimary(isDark)
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
-                                    .padding(8.dp)
-                            ) {
-                                Text("Eye Gaze", fontSize = 10.sp, color = omniTextMuted(isDark))
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (qc?.isEyeGazeActive == true) (if (qc.gazeAttentive) "✓ Attentive" else "Off-Axis") else "Ready",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (qc?.gazeAttentive == true) omniEmerald(isDark) else Color(0xFFFF9500)
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
-                                    .padding(8.dp)
-                            ) {
-                                Text("Attrib Net", fontSize = 10.sp, color = omniTextMuted(isDark))
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (qc?.isFaceAttribActive == true) "${(qc.smileScore * 100).toInt()}% Smile" else "Ready",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = omniTextPrimary(isDark)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Neural Engine Standby Banner (On-Demand Activation)
-            if (!state.isEngineLoaded) {
-                item {
-                    IOSCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(
-                                                Brush.linearGradient(
-                                                    listOf(Color(0xFFFF9500), Color(0xFFFFB340))
-                                                )
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Bolt,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "NEURAL ENGINE IN STANDBY",
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF9500),
-                                            letterSpacing = 0.5.sp
-                                        )
-                                        Text(
-                                            text = "Silicon Accelerator not yet loaded",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = omniTextPrimary(isDark)
-                                        )
-                                    }
-                                }
-
-                                 if (!state.isModelAvailable) {
-                                    IOSGlassPill(
-                                        text = "NOT DOWNLOADED",
-                                        accentColor = Color(0xFFFF9500)
-                                    )
-                                } else {
-                                    IOSGlassPill(
-                                        text = "STANDBY",
-                                        accentColor = Color(0xFFFF9500)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Text(
-                                text = if (!state.isModelAvailable) {
-                                    "Unified Multi-Task Model (380 MB) is not yet stored on device. Tap below to download from Cloud CDN."
-                                } else {
-                                    "Initialize Qualcomm Silicon NPU memory to begin real-time facial recognition and liveness analysis."
-                                },
-                                fontSize = 12.5.sp,
-                                color = omniTextSecondary(isDark),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            CupertinoButton(
-                                text = when {
-                                    state.isEngineLoading -> if (!state.isModelAvailable) "Downloading Model from CDN..." else "Initializing Silicon NPU..."
-                                    !state.isModelAvailable -> "Download Neural Model (380 MB • Cloud CDN)"
-                                    else -> "Initialize & Start Scanner"
-                                },
-                                icon = when {
-                                    state.isEngineLoading -> null
-                                    !state.isModelAvailable -> Icons.Default.CloudDownload
-                                    else -> Icons.Default.PlayArrow
-                                },
-                                brush = if (!state.isModelAvailable) Brush.horizontalGradient(listOf(Color(0xFF0284C7), Color(0xFF0EA5E9))) else OmniButtonBrush,
-                                height = 48.dp,
-                                enabled = !state.isEngineLoading,
-                                onClick = {
+                        // Flip Camera (Front / Rear)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .shadow(if (isDark) 4.dp else 2.dp, CircleShape, spotColor = OmniViolet.copy(alpha = 0.2f))
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9))
+                                .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
+                                .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.loadEngineExplicitly(context)
-                                }
+                                    viewModel.toggleLensFacing()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FlipCameraAndroid,
+                                contentDescription = "Flip Camera",
+                                tint = if (state.lensFacing == CameraSelector.LENS_FACING_FRONT) OmniSky else omniTextPrimary(isDark),
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Multi / Single Face Mode Toggle
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .shadow(if (isDark) 4.dp else 2.dp, CircleShape, spotColor = OmniViolet.copy(alpha = 0.2f))
+                                .clip(CircleShape)
+                                .background(if (state.isMultiFaceMode) OmniViolet.copy(alpha = 0.25f) else (if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9)))
+                                .border(0.75.dp, if (state.isMultiFaceMode) SolidColor(OmniViolet) else omniLiquidSpecularBorder(isDark), CircleShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.toggleMultiFaceMode()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (state.isMultiFaceMode) Icons.Default.Groups else Icons.Default.Person,
+                                contentDescription = "Face Mode",
+                                tint = if (state.isMultiFaceMode) OmniSky else omniTextPrimary(isDark),
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Tune / Neural Settings Button
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .shadow(if (isDark) 4.dp else 2.dp, CircleShape, spotColor = OmniViolet.copy(alpha = 0.2f))
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9))
+                                .border(0.75.dp, omniLiquidSpecularBorder(isDark), CircleShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.toggleModelManagerDialog()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Tune Models",
+                                tint = omniTextPrimary(isDark),
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
                 }
             }
 
-            // 1.3 Active Thermal Resolution Scaling Banner (when throttled)
+
+            // Active Thermal Resolution Scaling Banner (when throttled)
             if (state.thermalState != ThermalState.NOMINAL) {
                 item {
                     val isCrit = state.thermalState == ThermalState.CRITICAL
@@ -2149,7 +1823,7 @@ fun ScannerScreen(
                 }
             }
 
-            // 1.5 Cloud Model Background Download Banner
+            // Cloud Model Background Download Banner
             if (state.modelDownloadState is ModelDownloadState.Downloading) {
                 val download = state.modelDownloadState as ModelDownloadState.Downloading
                 item {
@@ -3022,6 +2696,197 @@ fun ScannerScreen(
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+            }
+
+            // Quick Control Pills: Mode & Manual Trigger
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        CupertinoButton(
+                            text = if (state.scannerMode == ScannerMode.AUTO_KIOSK) "Kiosk Mode" else "Handheld Mode",
+                            icon = if (state.scannerMode == ScannerMode.AUTO_KIOSK) Icons.Default.Sensors else Icons.Default.TouchApp,
+                            isSecondary = true,
+                            height = 44.dp,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.toggleScannerMode()
+                            }
+                        )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        CupertinoButton(
+                            text = LocalizationManager.get(StringKey.MANUAL_TRIGGER),
+                            icon = Icons.Default.EditNote,
+                            isSecondary = true,
+                            height = 44.dp,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.openManualOverrideDialog()
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Security Accuracy Tier Selector
+            item {
+                CupertinoSegmentedControl(
+                    items = listOf(
+                        LocalizationManager.get(StringKey.TIER_STANDARD),
+                        LocalizationManager.get(StringKey.TIER_HIGH),
+                        LocalizationManager.get(StringKey.TIER_STRICT)
+                    ),
+                    selectedIndex = when (state.activeTier) {
+                        SecurityTier.STANDARD -> 0
+                        SecurityTier.HIGH -> 1
+                        SecurityTier.STRICT -> 2
+                    },
+                    activeBrush = OmniButtonBrush,
+                    onItemSelected = { idx ->
+                        val tier = when (idx) {
+                            0 -> SecurityTier.STANDARD
+                            1 -> SecurityTier.HIGH
+                            else -> SecurityTier.STRICT
+                        }
+                        viewModel.setSecurityTier(tier)
+                    }
+                )
+            }
+
+            // Collapsible On-Device Neural Suite Card
+            item {
+                IOSCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showNeuralDiagnostics = !showNeuralDiagnostics }
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(omniEmerald(isDark))
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "NEURAL SUITE TELEMETRY",
+                                    color = omniTextMuted(isDark),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp,
+                                    maxLines = 1
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isDark) Color(0x330284C7) else Color(0x1A0284C7))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (showNeuralDiagnostics) "Hide" else "Inspect",
+                                        color = omniCyan(isDark),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = if (showNeuralDiagnostics) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = omniTextMuted(isDark),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        if (showNeuralDiagnostics) {
+                            val qc = state.qualcommTelemetry
+                            HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
+                                        .padding(8.dp)
+                                ) {
+                                    Text("3DMM Depth", fontSize = 10.sp, color = omniTextMuted(isDark))
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (qc?.is3DMMActive == true) "%.3f Var".format(qc.depthVariance) else "Ready",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = omniTextPrimary(isDark)
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
+                                        .padding(8.dp)
+                                ) {
+                                    Text("Eye Gaze", fontSize = 10.sp, color = omniTextMuted(isDark))
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (qc?.isEyeGazeActive == true) (if (qc.gazeAttentive) "✓ Attentive" else "Off-Axis") else "Ready",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (qc?.gazeAttentive == true) omniEmerald(isDark) else Color(0xFFFF9500)
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isDark) Color(0xFF141926) else Color(0x08000000))
+                                        .padding(8.dp)
+                                ) {
+                                    Text("Attrib Net", fontSize = 10.sp, color = omniTextMuted(isDark))
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (qc?.isFaceAttribActive == true) "${(qc.smileScore * 100).toInt()}% Smile" else "Ready",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = omniTextPrimary(isDark)
+                                    )
+                                }
+                            }
+
+                            if (!state.isEngineLoaded) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                CupertinoButton(
+                                    text = if (!state.isModelAvailable) "Download Neural Model (380 MB)" else "Initialize Silicon NPU Core",
+                                    icon = if (!state.isModelAvailable) Icons.Default.CloudDownload else Icons.Default.PlayArrow,
+                                    height = 42.dp,
+                                    onClick = { viewModel.loadEngineExplicitly(context) }
+                                )
+                            }
+                        }
                     }
                 }
             }

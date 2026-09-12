@@ -210,7 +210,12 @@ fun OmniFaceApp() {
 
                         composable(Screen.Ledger.route) {
                             LedgerScreen(
-                                viewModel = ledgerViewModel
+                                viewModel = ledgerViewModel,
+                                onNavigateToScanner = {
+                                    navController.navigate(Screen.Scanner.route) {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
                         }
 

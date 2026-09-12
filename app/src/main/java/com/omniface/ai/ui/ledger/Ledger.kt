@@ -269,7 +269,8 @@ class LedgerViewModel : ViewModel() {
 
 @Composable
 fun LedgerScreen(
-    viewModel: LedgerViewModel
+    viewModel: LedgerViewModel,
+    onNavigateToScanner: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
@@ -322,9 +323,9 @@ fun LedgerScreen(
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Attendance",
+                        text = "Attendance Ledger",
                         color = omniTextPrimary(isDark),
-                        fontSize = 26.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
@@ -339,7 +340,7 @@ fun LedgerScreen(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CupertinoActionPill(
-                        text = "Aegis",
+                        text = "Verify",
                         icon = Icons.Default.Shield,
                         accentColor = OmniViolet,
                         onClick = { viewModel.checkLedgerIntegrity() }
@@ -352,6 +353,45 @@ fun LedgerScreen(
                         onClick = { viewModel.exportAuditCsv(context, state.displayedRecords) }
                     )
                 }
+            }
+        }
+
+        // Summary Metric Strip
+        item {
+            val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+            val todayCount = remember(state.allRecords) { state.allRecords.count { it.sessionDate == today } }
+            val totalCount = state.allRecords.size
+            val syncedCount = remember(state.allRecords) { state.allRecords.count { it.isSynced } }
+            val syncPercent = if (totalCount > 0) (syncedCount * 100 / totalCount) else 100
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CupertinoMetricTile(
+                    title = "TODAY",
+                    value = "$todayCount",
+                    subtitle = "Present",
+                    icon = Icons.Default.Today,
+                    accentColor = omniEmerald(isDark),
+                    modifier = Modifier.weight(1f)
+                )
+                CupertinoMetricTile(
+                    title = "TOTAL",
+                    value = "$totalCount",
+                    subtitle = "Logs",
+                    icon = Icons.Default.ReceiptLong,
+                    accentColor = OmniViolet,
+                    modifier = Modifier.weight(1f)
+                )
+                CupertinoMetricTile(
+                    title = "SYNCED",
+                    value = "$syncPercent%",
+                    subtitle = "Fleet",
+                    icon = Icons.Default.CloudDone,
+                    accentColor = omniCyan(isDark),
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -434,16 +474,22 @@ fun LedgerScreen(
             item {
                 IOSCard(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         EmptyState(
                             icon = Icons.Default.ReceiptLong,
-                            title = "No Verification Records Yet",
-                            subtitle = "Cryptographic attendance logs will appear here upon person detection"
+                            title = if (state.searchQuery.isNotEmpty() || state.activeFilter != "ALL") "No Matching Records" else "No Attendance Records Yet",
+                            subtitle = if (state.searchQuery.isNotEmpty()) "Try clearing your search query or switching filters." else "Verified biometric scans will automatically appear in this cryptographic chain."
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        NeonSparklineWave(height = 36.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        CupertinoButton(
+                            text = "Start Attendance Scanner",
+                            icon = Icons.Default.CameraAlt,
+                            onClick = onNavigateToScanner
+                        )
                     }
                 }
             }

@@ -385,7 +385,7 @@ fun DashboardScreen(
                 }
 
                 IOSGlassPill(
-                    text = "LIVE",
+                    text = "⚡ Hexagon NPU",
                     showPulsingDot = true,
                     accentColor = OmniEmerald
                 )
@@ -403,108 +403,153 @@ fun DashboardScreen(
             )
         }
 
-        // Qualcomm Hexagon / Neural Engine Hero Card
+        // Today's Attendance Hero Card (Apple HIG Focus)
         item {
             IOSCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Header row: Section title and Live Session pill
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(46.dp)
-                                    .shadow(6.dp, RoundedCornerShape(13.dp), ambientColor = Color(0x4D6366F1), spotColor = Color(0x4D6366F1))
-                                    .clip(RoundedCornerShape(13.dp))
-                                    .background(OmniButtonBrush)
-                                    .border(0.75.dp, if (isDark) Color(0x4DFFFFFF) else Color(0x40FFFFFF), RoundedCornerShape(13.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Memory,
-                                    contentDescription = "OmniFace Neural Engine",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "OmniFace Neural Engine",
-                                    color = omniTextPrimary(isDark),
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = (-0.3).sp
-                                )
-                                Text(
-                                    text = "Snapdragon 8 Gen 3 • Hexagon NPU",
-                                    color = omniTextMuted(isDark),
-                                    fontSize = 11.5.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    IOSGlassPill(
-                                        text = "45 TOPS",
-                                        accentColor = OmniViolet
-                                    )
-                                    IOSGlassPill(
-                                        text = "INT8 / FP16",
-                                        accentColor = OmniSky
-                                    )
-                                }
-                            }
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(OmniViolet)
+                            )
+                            Text(
+                                text = "TODAY'S ATTENDANCE",
+                                color = omniTextMuted(isDark),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp
+                            )
                         }
 
                         IOSGlassPill(
-                            text = "${if (state.benchmarkLatencyMs > 0) state.benchmarkLatencyMs else 6}ms",
-                            accentColor = OmniEmerald
+                            text = if (state.todayScansCount > 0) "ACTIVE SESSION" else "READY TO SCAN",
+                            showPulsingDot = true,
+                            accentColor = if (state.todayScansCount > 0) OmniEmerald else OmniViolet
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = if (isDark) Color(0x1FFFFFFF) else Color(0x10000000))
-                    Spacer(modifier = Modifier.height(10.dp))
+                    // Large attendance count & percentage
+                    val completionPct = if (animatedEnrolledCount > 0) {
+                        ((animatedTodayCount.toFloat() / animatedEnrolledCount.toFloat()) * 100).toInt().coerceIn(0, 100)
+                    } else 0
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Bottom
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(OmniEmerald, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "$animatedTodayCount",
+                                    color = omniTextPrimary(isDark),
+                                    fontSize = 38.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-1).sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "/ $animatedEnrolledCount ${LocalizationManager.getEntityPlural(orgType)}",
+                                    color = omniTextMuted(isDark),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
                             Text(
-                                text = if (state.isEngineLoaded) "AI Engine Active" else "AI Engine Ready",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = OmniEmerald
+                                text = if (animatedTodayCount > 0) "$completionPct% checked in today" else "No check-ins yet today",
+                                color = if (completionPct >= 80) OmniEmerald else omniTextSecondary(isDark),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
 
-                        CupertinoActionPill(
-                            text = if (state.isEngineLoaded) "Unload" else "Load Core",
-                            icon = Icons.Default.PowerSettingsNew,
-                            onClick = {
-                                if (state.isEngineLoaded) viewModel.unloadEngine() else viewModel.loadEngine(context)
-                            }
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(OmniViolet.copy(alpha = if (isDark) 0.20f else 0.12f))
+                                .border(0.75.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "$completionPct%",
+                                color = if (isDark) OmniSky else OmniDeepPurple,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Apple Rounded Progress Bar
+                    val progressFloat = if (animatedEnrolledCount > 0) {
+                        (animatedTodayCount.toFloat() / animatedEnrolledCount.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+
+                    LinearProgressIndicator(
+                        progress = { progressFloat },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = OmniViolet,
+                        trackColor = if (isDark) Color(0x22FFFFFF) else Color(0x14000000)
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Prominent Primary Action: Start Attendance Scanner
+                    CupertinoButton(
+                        text = "Start Attendance Scanner",
+                        icon = Icons.Default.Videocam,
+                        height = 52.dp,
+                        onClick = { onNavigate(Screen.Scanner) }
+                    )
+
+                    // Secondary Quick Action Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            CupertinoButton(
+                                text = "+ Enroll Person",
+                                icon = Icons.Default.PersonAdd,
+                                isSecondary = true,
+                                height = 44.dp,
+                                onClick = { onNavigate(Screen.Enrollment) }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            CupertinoButton(
+                                text = "View Ledger",
+                                icon = Icons.Default.ReceiptLong,
+                                isSecondary = true,
+                                height = 44.dp,
+                                onClick = { onNavigate(Screen.Ledger) }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // 2x2 Metric Grid
+        // 2x2 Operational Metric Grid
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
@@ -513,21 +558,21 @@ fun DashboardScreen(
                 ) {
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Total Enrolled",
-                        value = "$animatedEnrolledCount",
-                        subtitle = "${LocalizationManager.getEntityPlural(orgType)} Enrolled",
-                        icon = Icons.Default.People,
-                        accentColor = OmniViolet,
-                        onClick = { onNavigate(Screen.Enrollment) }
+                        title = "Present Today",
+                        value = "$animatedTodayCount",
+                        subtitle = "Verified Today",
+                        icon = Icons.Default.CheckCircle,
+                        accentColor = OmniEmerald,
+                        onClick = { onNavigate(Screen.Ledger) }
                     )
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Liveness Verified",
-                        value = "98%",
-                        subtitle = "ISO/IEC 30107-3",
-                        icon = Icons.Default.VerifiedUser,
-                        accentColor = OmniEmerald,
-                        onClick = { onNavigate(Screen.Ledger) }
+                        title = "Total Enrolled",
+                        value = "$animatedEnrolledCount",
+                        subtitle = "${LocalizationManager.getEntityPlural(orgType)} Roster",
+                        icon = Icons.Default.People,
+                        accentColor = OmniViolet,
+                        onClick = { onNavigate(Screen.Enrollment) }
                     )
                 }
 
@@ -537,10 +582,10 @@ fun DashboardScreen(
                 ) {
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Recognition Avg",
-                        value = "99.4%",
-                        subtitle = "High Confidence",
-                        icon = Icons.Default.Face,
+                        title = "Cloud Fleet Sync",
+                        value = if (state.unsyncedCount > 0) "${state.unsyncedCount} Local" else "100% Synced",
+                        subtitle = if (state.unsyncedCount > 0) "Pending sync" else "Drive & Fleet Active",
+                        icon = Icons.Default.CloudDone,
                         accentColor = OmniCyan,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -549,83 +594,12 @@ fun DashboardScreen(
                     )
                     CupertinoMetricTile(
                         modifier = Modifier.weight(1f),
-                        title = "Inference Latency",
+                        title = "Silicon NPU",
                         value = "${if (state.benchmarkLatencyMs > 0) state.benchmarkLatencyMs else 6}ms",
-                        subtitle = "Hardware NPU",
+                        subtitle = "Hexagon 45 TOPS",
                         icon = Icons.Default.Bolt,
                         accentColor = OmniAmber,
                         onClick = { onNavigate(Screen.Settings) }
-                    )
-                }
-            }
-        }
-
-        // Live Detection Speed Card with Neon Wave
-        item {
-            IOSCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Live Detection Speed",
-                            color = omniTextPrimary(isDark),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        IOSGlassPill(
-                            text = "● NPU 45 TOPS",
-                            accentColor = OmniViolet
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    NeonSparklineWave(
-                        height = 100.dp,
-                        waveColor1 = OmniViolet,
-                        waveColor2 = OmniCyan,
-                        waveColor3 = OmniPurple
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Real-time on-device inference speed across rolling 60 frames",
-                            color = omniTextMuted(isDark),
-                            fontSize = 11.5.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            }
-        }
-
-        // Primary and Secondary Actions
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    CupertinoButton(
-                        text = LocalizationManager.get(StringKey.TAB_SCANNER),
-                        icon = Icons.Default.Videocam,
-                        onClick = { onNavigate(Screen.Scanner) }
-                    )
-                }
-                Box(modifier = Modifier.weight(1f)) {
-                    CupertinoButton(
-                        text = "Enroll Face",
-                        icon = Icons.Default.PersonAdd,
-                        isSecondary = true,
-                        onClick = { onNavigate(Screen.Enrollment) }
                     )
                 }
             }
@@ -740,6 +714,53 @@ fun DashboardScreen(
                                 thickness = 0.75.dp
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Live Detection Speed Card with Neon Wave
+        item {
+            IOSCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Live Detection Speed",
+                            color = omniTextPrimary(isDark),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IOSGlassPill(
+                            text = "● NPU 45 TOPS",
+                            accentColor = OmniViolet
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    NeonSparklineWave(
+                        height = 90.dp,
+                        waveColor1 = OmniViolet,
+                        waveColor2 = OmniCyan,
+                        waveColor3 = OmniPurple
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Real-time on-device inference speed across rolling 60 frames",
+                            color = omniTextMuted(isDark),
+                            fontSize = 11.5.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
             }

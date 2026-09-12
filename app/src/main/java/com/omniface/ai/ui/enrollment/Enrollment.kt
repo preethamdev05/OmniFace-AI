@@ -1049,6 +1049,8 @@ fun EnrollmentScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Directory, 1: New Registration
+
     // Intercept back gesture on active modals, sheets, and registration studios in prioritized order
     BackHandler(enabled = state.isDeleteConfirmOpen) {
         viewModel.closeDeleteConfirmDialog()
@@ -1062,6 +1064,9 @@ fun EnrollmentScreen(
     BackHandler(enabled = state.stage != EnrollmentStage.REGISTRATION_FORM) {
         viewModel.cancelBiometricStudio()
     }
+    BackHandler(enabled = selectedTab == 1 && state.stage == EnrollmentStage.REGISTRATION_FORM && state.selectedStudentForManage == null && !state.isEditProfileOpen && !state.isDeleteConfirmOpen) {
+        selectedTab = 0
+    }
 
     LaunchedEffect(Unit) {
         viewModel.initEngine(context)
@@ -1073,7 +1078,9 @@ fun EnrollmentScreen(
                 viewModel = viewModel,
                 state = state,
                 isDark = isDark,
-                context = context
+                context = context,
+                selectedTab = selectedTab,
+                onTabSelected = { selectedTab = it }
             )
         }
         EnrollmentStage.BIOMETRIC_STUDIO -> {
@@ -1084,7 +1091,9 @@ fun EnrollmentScreen(
                 viewModel = viewModel,
                 state = state,
                 isDark = isDark,
-                onNavigateToScanner = onNavigateToScanner
+                onNavigateToScanner = onNavigateToScanner,
+                onEnrollAnother = { selectedTab = 1 },
+                onViewDirectory = { selectedTab = 0 }
             )
         }
     }
@@ -1104,7 +1113,9 @@ private fun RegistrationFormView(
     viewModel: EnrollmentViewModel,
     state: EnrollmentUiState,
     isDark: Boolean,
-    context: Context
+    context: Context,
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -1156,62 +1167,53 @@ private fun RegistrationFormView(
             }
         }
 
-        // Registration Input Card
+        // Cupertino Segmented Control (Directory vs New Registration)
         item {
-            IOSCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ENROLL NEW ${LocalizationManager.getEntitySingular(state.orgType).uppercase()}",
-                        color = omniTextMuted(isDark),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.6.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+            CupertinoSegmentedControl(
+                items = listOf(
+                    "Directory (${state.enrolledStudentsList.size})",
+                    "+ Enroll ${LocalizationManager.getEntitySingular(state.orgType)}"
+                ),
+                selectedIndex = selectedTab,
+                onItemSelected = onTabSelected
+            )
+        }
+
+        if (selectedTab == 0) {
+            // Registered Directory List with Name Search & Profile Management
+            item {
+                IOSCard(modifier = Modifier.fillMaxWidth()) {
+                    SectionHeader(
+                        text = "ENROLLED ${LocalizationManager.getEntityPlural(state.orgType).uppercase()} (${state.enrolledStudentsList.size} / ${SubscriptionTierManager.getMaxStudentsDisplay()})",
+                        actionText = "+ Add New",
+                        onAction = { onTabSelected(1) }
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    IOSGlassPill(
-                        text = "✦ Enterprise 3D",
-                        icon = Icons.Default.Bolt,
-                        accentColor = OmniViolet
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Role Selector Chips
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "ROLE & DESIGNATION",
-                        color = omniTextMuted(isDark),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Role Filter Chips Row
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                     ) {
-                        val roles = LocalizationManager.getAllowedRoles(state.orgType)
-                        items(roles) { r ->
-                            val isSelected = state.role.equals(r, ignoreCase = true)
+                        val filters = listOf(
+                            "ALL" to "All People",
+                            "PRIMARY" to LocalizationManager.getEntityPlural(state.orgType),
+                            "STAFF" to "Staff & Faculty",
+                            "VISITOR" to "Visitors"
+                        )
+                        items(filters) { (key, label) ->
+                            val isSelected = state.selectedRoleFilter == key
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
                                     .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .clickable { viewModel.updateForm(role = r) }
+                                    .clickable { viewModel.onRoleFilterChanged(key) }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = LocalizationManager.getRoleBadgeLabel(r),
+                                    text = label,
                                     color = if (isSelected) Color.White else omniTextMuted(isDark),
                                     fontSize = 11.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
@@ -1219,317 +1221,369 @@ private fun RegistrationFormView(
                             }
                         }
                     }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
 
-                // Full Name
-                OutlinedTextField(
-                    value = state.fullName,
-                    onValueChange = { viewModel.updateForm(name = it) },
-                    label = { Text(LocalizationManager.get(StringKey.FULL_NAME), fontSize = 12.sp) },
-                    placeholder = { Text("e.g. John Doe", color = omniTextMuted(isDark), fontSize = 13.sp) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OmniViolet,
-                        unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
-                        focusedTextColor = omniTextPrimary(isDark),
-                        unfocusedTextColor = omniTextPrimary(isDark)
+                    // Search Box
+                    CupertinoSearchField(
+                        query = state.searchQuery,
+                        onQueryChange = { viewModel.onSearchQueryChanged(it) },
+                        placeholder = "Search by name, ${LocalizationManager.getIdLabel(state.orgType).lowercase()}, or department..."
                     )
-                )
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // ID / Roll Number
-                OutlinedTextField(
-                    value = state.rollNumber,
-                    onValueChange = { viewModel.updateForm(roll = it) },
-                    label = { Text(LocalizationManager.getIdLabel(state.orgType), fontSize = 12.sp) },
-                    placeholder = { Text(if (state.orgType.uppercase() == "CORPORATE") "e.g. EMP-1042" else "e.g. CS2024-042", color = omniTextMuted(isDark), fontSize = 13.sp) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OmniViolet,
-                        unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
-                        focusedTextColor = omniTextPrimary(isDark),
-                        unfocusedTextColor = omniTextPrimary(isDark)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = state.department,
-                        onValueChange = { viewModel.updateForm(dept = it) },
-                        label = { Text(LocalizationManager.get(StringKey.DEPARTMENT), fontSize = 12.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1.5f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = OmniViolet,
-                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
-                            focusedTextColor = omniTextPrimary(isDark),
-                            unfocusedTextColor = omniTextPrimary(isDark)
+                    if (state.searchQuery.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Found ${state.filteredEnrolledStudents.size} of ${state.enrolledStudentsList.size} registered profiles",
+                            color = omniCyan(isDark),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
-                    )
+                    }
 
-                    OutlinedTextField(
-                        value = state.semester,
-                        onValueChange = { viewModel.updateForm(sem = it) },
-                        label = { Text(LocalizationManager.getGroupLabel(state.orgType), fontSize = 12.sp) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = OmniViolet,
-                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
-                            focusedTextColor = omniTextPrimary(isDark),
-                            unfocusedTextColor = omniTextPrimary(isDark)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (state.enrolledStudentsList.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.PersonAdd,
+                            title = "No ${LocalizationManager.getEntityPlural(state.orgType).lowercase()} enrolled yet",
+                            subtitle = "Register your first ${LocalizationManager.getEntitySingular(state.orgType).lowercase()} or staff member to enable face identification"
                         )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Quick Department Suggestion Chips
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    val depts = listOf("AI & Biometrics", "Computer Science", "Info Science", "Electronics")
-                    items(depts) { dept ->
-                        val isSelected = state.department == dept
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(if (isSelected) OmniViolet.copy(alpha = 0.20f) else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(999.dp))
-                                .clickable { viewModel.updateForm(dept = dept) }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(dept, color = if (isSelected) (if (isDark) OmniSky else OmniDeepPurple) else omniTextMuted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                if (!state.isModelAvailable) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isDark) Color(0x26F59E0B) else Color(0x1AF59E0B))
-                            .border(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = Color(0xFFF59E0B),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "AI Recognition Pack Required",
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = omniTextPrimary(isDark)
-                                )
-                                Text(
-                                    text = "Download the 380 MB AI Face Pack in Settings to extract facial templates and enroll ${LocalizationManager.getEntityPlural(state.orgType).lowercase()}.",
-                                    fontSize = 11.sp,
-                                    color = omniTextSecondary(isDark),
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                }
-
-                // Action Button: Continue to Face Enrollment
-                CupertinoButton(
-                    text = if (state.isModelAvailable) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else "AI Pack Required to Enroll",
-                    icon = if (state.isModelAvailable) Icons.Default.Face else Icons.Default.CloudDownload,
-                    enabled = state.isModelAvailable,
-                    brush = if (state.isModelAvailable) OmniButtonBrush else null,
-                    onClick = { viewModel.startBiometricStudio(context) }
-                )
-            }
-        }
-
-        // Registered Directory List with Name Search & Profile Management
-        item {
-            IOSCard(modifier = Modifier.fillMaxWidth()) {
-                SectionHeader(
-                    text = "ENROLLED ${LocalizationManager.getEntityPlural(state.orgType).uppercase()} (${state.enrolledStudentsList.size} / ${SubscriptionTierManager.getMaxStudentsDisplay()})"
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Role Filter Chips Row
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
-                ) {
-                    val filters = listOf(
-                        "ALL" to "All People",
-                        "PRIMARY" to LocalizationManager.getEntityPlural(state.orgType),
-                        "STAFF" to "Staff & Faculty",
-                        "VISITOR" to "Visitors"
-                    )
-                    items(filters) { (key, label) ->
-                        val isSelected = state.selectedRoleFilter == key
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
-                                .clickable { viewModel.onRoleFilterChanged(key) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color.White else omniTextMuted(isDark),
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                // Search Box
-                CupertinoSearchField(
-                    query = state.searchQuery,
-                    onQueryChange = { viewModel.onSearchQueryChanged(it) },
-                    placeholder = "Search by name, ${LocalizationManager.getIdLabel(state.orgType).lowercase()}, or department..."
-                )
-
-                if (state.searchQuery.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Found ${state.filteredEnrolledStudents.size} of ${state.enrolledStudentsList.size} registered profiles",
-                        color = omniCyan(isDark),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (state.enrolledStudentsList.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.Default.PersonAdd,
-                        title = "No ${LocalizationManager.getEntityPlural(state.orgType).lowercase()} enrolled yet",
-                        subtitle = "Register your first ${LocalizationManager.getEntitySingular(state.orgType).lowercase()} or staff member above to enable face identification"
-                    )
-                } else if (state.filteredEnrolledStudents.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.Default.SearchOff,
-                        title = LocalizationManager.get(StringKey.SEARCH_STUDENTS),
-                        subtitle = "\"${state.searchQuery}\""
-                    )
-                } else {
-                    state.filteredEnrolledStudents.forEachIndexed { index, student ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { viewModel.openStudentProfile(student) }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        CupertinoButton(
+                            text = "Enroll First ${LocalizationManager.getEntitySingular(state.orgType)}",
+                            icon = Icons.Default.PersonAdd,
+                            onClick = { onTabSelected(1) }
+                        )
+                    } else if (state.filteredEnrolledStudents.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.SearchOff,
+                            title = LocalizationManager.get(StringKey.SEARCH_STUDENTS),
+                            subtitle = "\"${state.searchQuery}\""
+                        )
+                    } else {
+                        state.filteredEnrolledStudents.forEachIndexed { index, student ->
                             Row(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { viewModel.openStudentProfile(student) }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(OmniViolet.copy(alpha = 0.18f))
-                                        .border(1.dp, OmniViolet.copy(alpha = 0.35f), CircleShape),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = student.fullName.take(1).uppercase(),
-                                        color = OmniViolet,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(OmniViolet.copy(alpha = 0.18f))
+                                            .border(1.dp, OmniViolet.copy(alpha = 0.35f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Text(
-                                            text = student.fullName,
-                                            color = omniTextPrimary(isDark),
-                                            fontSize = 13.sp,
+                                            text = student.fullName.take(1).uppercase(),
+                                            color = OmniViolet,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(OmniViolet.copy(alpha = 0.15f))
-                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                                        ) {
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
-                                                text = roleBadge.uppercase(),
-                                                color = OmniSky,
-                                                fontSize = 9.sp,
+                                                text = student.fullName,
+                                                color = omniTextPrimary(isDark),
+                                                fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(OmniViolet.copy(alpha = 0.15f))
+                                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    text = roleBadge.uppercase(),
+                                                    color = OmniSky,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${student.rollNumber} • ${student.department} (${student.semester})",
+                                            color = omniTextMuted(isDark),
+                                            fontSize = 11.sp
+                                        )
                                     }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${student.rollNumber} • ${student.department} (${student.semester})",
-                                        color = omniTextMuted(isDark),
-                                        fontSize = 11.sp
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000))
+                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = LocalizationManager.get(StringKey.EDIT_PROFILE),
+                                            color = omniCyan(isDark),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = LocalizationManager.get(StringKey.EDIT_PROFILE),
+                                        tint = omniTextMuted(isDark),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (index < state.filteredEnrolledStudents.size - 1) {
+                                HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        CupertinoButton(
+                            text = "+ Enroll New ${LocalizationManager.getEntitySingular(state.orgType)}",
+                            icon = Icons.Default.Add,
+                            onClick = { onTabSelected(1) }
+                        )
+                    }
+                }
+            }
+        } else {
+            // Registration Input Card
+            item {
+                IOSCard(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "ENROLL NEW ${LocalizationManager.getEntitySingular(state.orgType).uppercase()}",
+                            color = omniTextMuted(isDark),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.6.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IOSGlassPill(
+                            text = "✦ Enterprise 3D",
+                            icon = Icons.Default.Bolt,
+                            accentColor = OmniViolet
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Role Selector Chips
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "ROLE & DESIGNATION",
+                            color = omniTextMuted(isDark),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val roles = LocalizationManager.getAllowedRoles(state.orgType)
+                            items(roles) { r ->
+                                val isSelected = state.role.equals(r, ignoreCase = true)
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000))
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                        .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .clickable { viewModel.updateForm(role = r) }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = LocalizationManager.get(StringKey.EDIT_PROFILE),
-                                        color = omniCyan(isDark),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        text = LocalizationManager.getRoleBadgeLabel(r),
+                                        color = if (isSelected) Color.White else omniTextMuted(isDark),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = LocalizationManager.get(StringKey.EDIT_PROFILE),
-                                    tint = omniTextMuted(isDark),
-                                    modifier = Modifier.size(18.dp)
-                                )
                             }
                         }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        if (index < state.filteredEnrolledStudents.size - 1) {
-                            HorizontalDivider(color = if (isDark) Color(0x14FFFFFF) else Color(0x14000000), thickness = 0.5.dp)
+                    // Full Name
+                    OutlinedTextField(
+                        value = state.fullName,
+                        onValueChange = { viewModel.updateForm(name = it) },
+                        label = { Text(LocalizationManager.get(StringKey.FULL_NAME), fontSize = 12.sp) },
+                        placeholder = { Text("e.g. John Doe", color = omniTextMuted(isDark), fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = OmniViolet,
+                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                            focusedTextColor = omniTextPrimary(isDark),
+                            unfocusedTextColor = omniTextPrimary(isDark)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // ID / Roll Number
+                    OutlinedTextField(
+                        value = state.rollNumber,
+                        onValueChange = { viewModel.updateForm(roll = it) },
+                        label = { Text(LocalizationManager.getIdLabel(state.orgType), fontSize = 12.sp) },
+                        placeholder = { Text(if (state.orgType.uppercase() == "CORPORATE") "e.g. EMP-1042" else "e.g. CS2024-042", color = omniTextMuted(isDark), fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = OmniViolet,
+                            unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                            focusedTextColor = omniTextPrimary(isDark),
+                            unfocusedTextColor = omniTextPrimary(isDark)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = state.department,
+                            onValueChange = { viewModel.updateForm(dept = it) },
+                            label = { Text(LocalizationManager.get(StringKey.DEPARTMENT), fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.5f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = OmniViolet,
+                                unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                                focusedTextColor = omniTextPrimary(isDark),
+                                unfocusedTextColor = omniTextPrimary(isDark)
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = state.semester,
+                            onValueChange = { viewModel.updateForm(sem = it) },
+                            label = { Text(LocalizationManager.getGroupLabel(state.orgType), fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = OmniViolet,
+                                unfocusedBorderColor = if (isDark) Color(0x33FFFFFF) else Color(0x22000000),
+                                focusedTextColor = omniTextPrimary(isDark),
+                                unfocusedTextColor = omniTextPrimary(isDark)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Quick Department Suggestion Chips
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val depts = listOf("AI & Biometrics", "Computer Science", "Info Science", "Electronics")
+                        items(depts) { dept ->
+                            val isSelected = state.department == dept
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (isSelected) OmniViolet.copy(alpha = 0.20f) else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
+                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(999.dp))
+                                    .clickable { viewModel.updateForm(dept = dept) }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(dept, color = if (isSelected) (if (isDark) OmniSky else OmniDeepPurple) else omniTextMuted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    if (!state.isModelAvailable) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isDark) Color(0x26F59E0B) else Color(0x1AF59E0B))
+                                .border(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color(0xFFF59E0B),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "AI Recognition Pack Required",
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = omniTextPrimary(isDark)
+                                    )
+                                    Text(
+                                        text = "Download the 380 MB AI Face Pack in Settings to extract facial templates and enroll ${LocalizationManager.getEntityPlural(state.orgType).lowercase()}.",
+                                        fontSize = 11.sp,
+                                        color = omniTextSecondary(isDark),
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
+
+                    // Action Button: Continue to Face Enrollment
+                    CupertinoButton(
+                        text = if (state.isModelAvailable) LocalizationManager.get(StringKey.BEGIN_FACE_ENROLLMENT) else "AI Pack Required to Enroll",
+                        icon = if (state.isModelAvailable) Icons.Default.Face else Icons.Default.CloudDownload,
+                        enabled = state.isModelAvailable,
+                        brush = if (state.isModelAvailable) OmniButtonBrush else null,
+                        onClick = { viewModel.startBiometricStudio(context) }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = { onTabSelected(0) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "← Back to Directory",
+                            color = omniTextMuted(isDark),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -2361,7 +2415,9 @@ private fun EnrollmentSuccessView(
     viewModel: EnrollmentViewModel,
     state: EnrollmentUiState,
     isDark: Boolean,
-    onNavigateToScanner: () -> Unit = {}
+    onNavigateToScanner: () -> Unit = {},
+    onEnrollAnother: () -> Unit = {},
+    onViewDirectory: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -2422,6 +2478,7 @@ private fun EnrollmentSuccessView(
             text = "📹 Test in Live Scanner",
             onClick = {
                 viewModel.resetForNextStudent()
+                onViewDirectory()
                 onNavigateToScanner()
             }
         )
@@ -2431,7 +2488,27 @@ private fun EnrollmentSuccessView(
         CupertinoButton(
             text = "➕ Enroll Another Identity",
             isSecondary = true,
-            onClick = { viewModel.resetForNextStudent() }
+            onClick = {
+                viewModel.resetForNextStudent()
+                onEnrollAnother()
+            }
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        TextButton(
+            onClick = {
+                viewModel.resetForNextStudent()
+                onViewDirectory()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "View in Directory",
+                color = omniTextMuted(isDark),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
