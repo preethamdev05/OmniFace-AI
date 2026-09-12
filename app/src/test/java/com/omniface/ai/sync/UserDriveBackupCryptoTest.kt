@@ -184,4 +184,22 @@ class UserDriveBackupCryptoTest {
             assertEquals("PIN ($pin) roundtrip must succeed", String(payload), String(dec))
         }
     }
+
+    @Test
+    fun testDeviceExportedOmniArchiveVerification() {
+        val artifactBackupFile = java.io.File("C:/Users/preet/.gemini/antigravity/brain/d32e2fe7-66bb-4cfc-9b7b-14c3b7451069/backup_from_device.omni")
+        if (artifactBackupFile.exists()) {
+            val deviceBytes = artifactBackupFile.readBytes()
+            assertTrue("Device backup must have OMNI header", deviceBytes.size >= 42)
+            val header = String(deviceBytes.copyOfRange(0, 14), StandardCharsets.UTF_8)
+            assertEquals("OMNI_BACKUP_V1", header)
+
+            val decryptedBytes = UserDriveBackupManager.decryptBytesWithPin(deviceBytes, "123456")
+            val decryptedJson = String(decryptedBytes, StandardCharsets.UTF_8)
+            assertNotNull(decryptedJson)
+            assertTrue("Must contain schema version", decryptedJson.contains("\"version\""))
+            assertTrue("Must contain students list", decryptedJson.contains("\"students\""))
+            assertTrue("Must contain attendance list", decryptedJson.contains("\"attendance\""))
+        }
+    }
 }
