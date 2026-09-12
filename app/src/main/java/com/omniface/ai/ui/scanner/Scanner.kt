@@ -208,6 +208,8 @@ data class ScannerUiState(
 
 class ScannerViewModel : ViewModel() {
     private val db = OmniFaceApplication.instance.database
+    private val attendanceService = OmniFaceApplication.instance.attendanceService
+    private val verificationEngine = OmniFaceApplication.instance.verificationEngine
     private val downloadManager = ModelDownloadManager.getInstance(OmniFaceApplication.instance)
     private val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
     private val securityPipeline: com.omniface.ai.ml.pipeline.FaceSecurityPipeline =
@@ -816,18 +818,16 @@ class ScannerViewModel : ViewModel() {
                     sha256Proof = sha256
                 )
 
-                val record = AttendanceRecordEntity(
-                    recordId = UUID.randomUUID().toString(),
-                    studentRoll = current.matchedRoll,
-                    studentName = current.matchedName,
-                    timestamp = nowMs,
-                    sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(nowMs)),
-                    confidencePct = current.lastConfidence,
-                    securityTier = current.activeTier.name,
-                    sha256Hash = sha256,
-                    isSynced = false
+                val domainVerified = com.omniface.ai.ml.verification.domain.VerificationDecision.Verified(
+                    identityId = current.matchedRoll,
+                    displayName = current.matchedName,
+                    role = cachedStudentRoleMap[current.matchedRoll] ?: "STUDENT",
+                    confidence = current.lastConfidence / 100f,
+                    liveness = 1.0f,
+                    leafHash = sha256
                 )
-                db.attendanceDao().insertRecord(record)
+                attendanceService.recordVerifiedAttendance(domainVerified, current.activeTier.name, nowMs)
+                com.omniface.ai.attendance.AegisMintingWorker.enqueue(OmniFaceApplication.instance)
                 _uiState.update {
                     val shouldPause = it.scannerMode == ScannerMode.MANUAL_HANDHELD || it.autoPauseOnMatch
                     if (shouldPause) {
@@ -877,18 +877,16 @@ class ScannerViewModel : ViewModel() {
                 sha256Proof = sha256
             )
 
-            val record = AttendanceRecordEntity(
-                recordId = UUID.randomUUID().toString(),
-                studentRoll = roll,
-                studentName = name,
-                timestamp = nowMs,
-                sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(nowMs)),
-                confidencePct = 100f,
-                securityTier = "MANUAL_OVERRIDE",
-                sha256Hash = sha256,
-                isSynced = false
+            val domainVerified = com.omniface.ai.ml.verification.domain.VerificationDecision.Verified(
+                identityId = roll,
+                displayName = name,
+                role = cachedStudentRoleMap[roll] ?: "STUDENT",
+                confidence = 1.0f,
+                liveness = 1.0f,
+                leafHash = sha256
             )
-            db.attendanceDao().insertRecord(record)
+            attendanceService.recordVerifiedAttendance(domainVerified, "MANUAL_OVERRIDE", nowMs)
+            com.omniface.ai.attendance.AegisMintingWorker.enqueue(OmniFaceApplication.instance)
             _uiState.update {
                 it.copy(
                     showManualOverrideDialog = false,
@@ -1301,19 +1299,16 @@ class ScannerViewModel : ViewModel() {
                                     sha256Proof = sha256
                                 )
 
-                                val sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp))
-                                val record = AttendanceRecordEntity(
-                                    recordId = UUID.randomUUID().toString(),
-                                    studentRoll = decision.matchedStudentRoll,
-                                    studentName = decision.matchedStudentName,
-                                    timestamp = currentTimestamp,
-                                    sessionDate = sessionDate,
-                                    confidencePct = decision.matchConfidence,
-                                    securityTier = _uiState.value.activeTier.name,
-                                    sha256Hash = sha256,
-                                    isSynced = false
+                                val domainVerified = com.omniface.ai.ml.verification.domain.VerificationDecision.Verified(
+                                    identityId = decision.matchedStudentRoll,
+                                    displayName = decision.matchedStudentName,
+                                    role = cachedStudentRoleMap[decision.matchedStudentRoll] ?: "STUDENT",
+                                    confidence = decision.matchConfidence / 100f,
+                                    liveness = decision.livenessScore / 100f,
+                                    leafHash = sha256
                                 )
-                                val isNewlyRecorded = db.attendanceDao().recordAttendanceIfNotExists(record)
+                                val isNewlyRecorded = attendanceService.recordVerifiedAttendance(domainVerified, _uiState.value.activeTier.name, currentTimestamp)
+                                com.omniface.ai.attendance.AegisMintingWorker.enqueue(OmniFaceApplication.instance)
                                 lastAttendanceRecordTimeMs = currentTimestamp
 
                                 if (isNewlyRecorded) {
@@ -1382,19 +1377,16 @@ class ScannerViewModel : ViewModel() {
                                         sha256Proof = sha256
                                     )
 
-                                    val sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(currentTimestamp))
-                                    val record = AttendanceRecordEntity(
-                                        recordId = UUID.randomUUID().toString(),
-                                        studentRoll = cardClean,
-                                        studentName = resolvedName,
-                                        timestamp = currentTimestamp,
-                                        sessionDate = sessionDate,
-                                        confidencePct = Math.max(decision.matchConfidence, 78.0f),
-                                        securityTier = "2FA_CORRELATED",
-                                        sha256Hash = sha256,
-                                        isSynced = false
+                                    val domainVerified = com.omniface.ai.ml.verification.domain.VerificationDecision.Verified(
+                                        identityId = cardClean,
+                                        displayName = resolvedName,
+                                        role = cachedStudentRoleMap[cardClean] ?: "STUDENT",
+                                        confidence = Math.max(decision.matchConfidence, 78.0f) / 100f,
+                                        liveness = 1.0f,
+                                        leafHash = sha256
                                     )
-                                    val isNewlyRecorded = db.attendanceDao().recordAttendanceIfNotExists(record)
+                                    val isNewlyRecorded = attendanceService.recordVerifiedAttendance(domainVerified, "2FA_CORRELATED", currentTimestamp)
+                                    com.omniface.ai.attendance.AegisMintingWorker.enqueue(OmniFaceApplication.instance)
                                     lastAttendanceRecordTimeMs = currentTimestamp
 
                                     if (isNewlyRecorded) {

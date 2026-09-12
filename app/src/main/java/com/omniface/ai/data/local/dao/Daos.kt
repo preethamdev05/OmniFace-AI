@@ -51,6 +51,9 @@ interface PersonDao {
     @Query("SELECT * FROM face_templates")
     suspend fun getAllTemplates(): List<FaceTemplateEntity>
 
+    @Query("SELECT * FROM face_templates")
+    fun getAllTemplatesFlow(): Flow<List<FaceTemplateEntity>>
+
     @Query("SELECT * FROM face_templates WHERE student_roll = :roll")
     suspend fun getTemplatesForPerson(roll: String): List<FaceTemplateEntity>
 

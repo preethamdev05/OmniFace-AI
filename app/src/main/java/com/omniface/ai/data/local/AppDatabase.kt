@@ -12,19 +12,24 @@ import com.omniface.ai.data.local.entity.FaceTemplateEntity
 import com.omniface.ai.data.local.entity.PersonEntity
 import com.omniface.ai.data.local.entity.StudentEntity
 
+import com.omniface.ai.data.local.dao.AegisOutboxDao
+import com.omniface.ai.data.local.entity.AegisOutboxEntity
+
 @Database(
     entities = [
         PersonEntity::class,
         FaceTemplateEntity::class,
-        AttendanceRecordEntity::class
+        AttendanceRecordEntity::class,
+        AegisOutboxEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun personDao(): PersonDao
     open fun studentDao(): PersonDao = personDao()
     abstract fun attendanceDao(): AttendanceDao
+    abstract fun aegisOutboxDao(): AegisOutboxDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -120,6 +125,26 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `students` ADD COLUMN `role` TEXT NOT NULL DEFAULT 'STUDENT'")
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `aegis_outbox` (
+                        `record_id` TEXT NOT NULL,
+                        `student_roll` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `confidence_pct` REAL NOT NULL,
+                        `leaf_hash` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `retry_count` INTEGER NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`record_id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_aegis_outbox_status` ON `aegis_outbox` (`status`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_aegis_outbox_timestamp` ON `aegis_outbox` (`timestamp`)")
             }
         }
     }

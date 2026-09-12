@@ -24,6 +24,18 @@ class OmniFaceApplication : Application() {
     lateinit var database: AppDatabase
         private set
 
+    val identityStore: com.omniface.ai.ml.verification.domain.IdentityStore by lazy {
+        com.omniface.ai.data.local.adapter.RoomIdentityStoreAdapter(database)
+    }
+
+    val attendanceService: com.omniface.ai.attendance.AttendanceService by lazy {
+        com.omniface.ai.attendance.AttendanceService(database)
+    }
+
+    val verificationEngine: com.omniface.ai.ml.verification.engine.BiometricVerificationEngine by lazy {
+        com.omniface.ai.ml.verification.engine.BiometricVerificationEngineImpl.create(this, identityStore)
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -69,7 +81,8 @@ class OmniFaceApplication : Application() {
                 AppDatabase.MIGRATION_2_4,
                 AppDatabase.MIGRATION_4_5,
                 AppDatabase.MIGRATION_5_6,
-                AppDatabase.MIGRATION_6_7
+                AppDatabase.MIGRATION_6_7,
+                AppDatabase.MIGRATION_7_8
             )
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
