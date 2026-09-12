@@ -482,10 +482,10 @@ fun DashboardScreen(
 
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(CircleShape)
                                 .background(OmniViolet.copy(alpha = if (isDark) 0.20f else 0.12f))
-                                .border(0.75.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .border(0.75.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "$completionPct%",
@@ -506,7 +506,7 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
+                            .clip(CircleShape),
                         color = OmniViolet,
                         trackColor = if (isDark) Color(0x22FFFFFF) else Color(0x14000000)
                     )
@@ -685,9 +685,9 @@ fun DashboardScreen(
 
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(omniEmerald(isDark).copy(alpha = 0.15f))
-                                    .border(0.5.dp, omniEmerald(isDark).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                    .border(0.5.dp, omniEmerald(isDark).copy(alpha = 0.35f), CircleShape)
                                     .padding(horizontal = 9.dp, vertical = 4.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {

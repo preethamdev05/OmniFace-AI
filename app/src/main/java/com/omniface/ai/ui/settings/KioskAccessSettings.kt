@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -148,7 +149,7 @@ fun KioskAccessSettingsSubScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 ) {
                     Text(LocalizationManager.get(StringKey.CONFIRM_ACTION), fontWeight = FontWeight.Bold)
                 }
@@ -252,7 +253,7 @@ fun KioskAccessSettingsSubScreen(
                     },
                     enabled = !isPairingLoading && pairingCodeInput.length == 6,
                     colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 ) {
                     if (isPairingLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
@@ -392,7 +393,7 @@ fun KioskAccessSettingsSubScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(CircleShape)
                                         .background(Color(0xFF007AFF).copy(alpha = if (isDark) 0.22f else 0.14f)),
                                     contentAlignment = Alignment.Center
                                 ) {

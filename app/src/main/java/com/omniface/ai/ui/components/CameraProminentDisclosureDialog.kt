@@ -130,7 +130,7 @@ fun CameraProminentDisclosureDialog(
             Button(
                 onClick = onAccept,
                 colors = ButtonDefaults.buttonColors(containerColor = omniEmerald(isDark)),
-                shape = RoundedCornerShape(12.dp)
+                shape = CircleShape
             ) {
                 Text("Continue & Grant Access", fontWeight = FontWeight.Bold)
             }

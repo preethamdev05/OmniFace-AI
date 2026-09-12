@@ -489,7 +489,7 @@ fun BiometricDeduplicationStudio(
                                                 enabled = !state.isProcessingAction && !state.isScanning,
                                                 modifier = Modifier.weight(1f).height(38.dp),
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                                shape = RoundedCornerShape(10.dp),
+                                                shape = CircleShape,
                                                 border = BorderStroke(0.75.dp, omniTextMuted(isDark).copy(alpha = 0.4f))
                                             ) {
                                                 Text(
@@ -527,7 +527,7 @@ fun BiometricDeduplicationStudio(
                                                 enabled = !state.isProcessingAction && !state.isScanning,
                                                 modifier = Modifier.weight(1f).height(38.dp),
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                                shape = RoundedCornerShape(10.dp),
+                                                shape = CircleShape,
                                                 colors = ButtonDefaults.buttonColors(
                                                     containerColor = Color(0xFF38BDF8).copy(alpha = 0.25f),
                                                     contentColor = Color(0xFF38BDF8)
@@ -568,7 +568,7 @@ fun BiometricDeduplicationStudio(
                                             enabled = !state.isProcessingAction && !state.isScanning,
                                             modifier = Modifier.fillMaxWidth().height(38.dp),
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = CircleShape,
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = Color(0xFFFF3B30).copy(alpha = 0.18f),
                                                 contentColor = Color(0xFFFF3B30)

@@ -225,9 +225,9 @@ fun LoginScreen(
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(omniEmerald(isDark).copy(alpha = 0.12f))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
                             )
 
                             Spacer(modifier = Modifier.height(20.dp))
@@ -457,9 +457,9 @@ fun LoginScreen(
 
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .clip(CircleShape)
                                         .background(omniEmerald(isDark).copy(alpha = 0.2f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "Gmail Verified",

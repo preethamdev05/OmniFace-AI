@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -215,7 +216,7 @@ fun BiometricSettingsSubScreen(
                                     Button(
                                         onClick = { viewModel.startModelDownload(context) },
                                         modifier = Modifier.fillMaxWidth().height(40.dp),
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = CircleShape,
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9500))
                                     ) {
                                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
@@ -231,7 +232,7 @@ fun BiometricSettingsSubScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(44.dp),
-                                        shape = RoundedCornerShape(12.dp),
+                                        shape = CircleShape,
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
                                     ) {
                                         Icon(Icons.Default.CloudDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -246,7 +247,7 @@ fun BiometricSettingsSubScreen(
                                         OutlinedButton(
                                             onClick = { viewModel.startModelDownload(context) },
                                             modifier = Modifier.weight(1f).height(40.dp),
-                                            shape = RoundedCornerShape(10.dp)
+                                            shape = CircleShape
                                         ) {
                                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
@@ -255,7 +256,7 @@ fun BiometricSettingsSubScreen(
                                         OutlinedButton(
                                             onClick = { viewModel.deleteDownloadedModel(context) },
                                             modifier = Modifier.weight(1f).height(40.dp),
-                                            shape = RoundedCornerShape(10.dp),
+                                            shape = CircleShape,
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF3B30))
                                         ) {
                                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFFF3B30))
@@ -282,7 +283,7 @@ fun BiometricSettingsSubScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(CircleShape)
                                         .background(Color(0xFF34C759).copy(alpha = if (isDark) 0.22f else 0.14f)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -380,7 +381,7 @@ fun BiometricSettingsSubScreen(
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(CircleShape)
                                     .background(Color(0xFF8B5CF6).copy(alpha = if (isDark) 0.22f else 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {

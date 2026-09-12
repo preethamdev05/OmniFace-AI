@@ -645,7 +645,7 @@ fun LedgerScreen(
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(CircleShape)
                             .background(omniEmerald(isDark).copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -762,7 +762,7 @@ fun LedgerScreen(
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(CircleShape)
                             .background(if (isValid) omniEmerald(isDark).copy(alpha = 0.15f) else Color(0x22EF4444)),
                         contentAlignment = Alignment.Center
                     ) {

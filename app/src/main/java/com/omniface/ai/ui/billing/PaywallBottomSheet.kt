@@ -372,9 +372,9 @@ private fun PlanSelectionCard(
         // Badge
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(CircleShape)
                 .background(badgeColor.copy(alpha = 0.15f))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
             Text(badge, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = badgeColor)
         }

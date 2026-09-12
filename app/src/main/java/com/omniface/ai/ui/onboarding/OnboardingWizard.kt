@@ -137,7 +137,7 @@ fun OnboardingWizard(
                             Box(
                                 modifier = Modifier
                                     .size(if (i == currentStep) 24.dp else 8.dp, 8.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(CircleShape)
                                     .background(
                                         if (i == currentStep) OmniViolet
                                         else if (i < currentStep) omniEmerald(isDark)
@@ -328,7 +328,7 @@ private fun Step1OrgSetup(
                         Box(
                             modifier = Modifier
                                 .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(CircleShape)
                                 .background(if (isSelected) OmniViolet.copy(alpha = 0.2f) else if (isDark) Color(0x22FFFFFF) else Color(0x11000000)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -410,7 +410,7 @@ private fun Step2RosterBootstrap(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CircleShape)
                         .background(OmniViolet.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -468,7 +468,7 @@ private fun Step2RosterBootstrap(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CircleShape)
                         .background(omniCyan(isDark).copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -521,7 +521,7 @@ private fun Step2RosterBootstrap(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CircleShape)
                         .background(omniEmerald(isDark).copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {

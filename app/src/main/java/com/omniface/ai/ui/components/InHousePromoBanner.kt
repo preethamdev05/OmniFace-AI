@@ -97,9 +97,9 @@ fun InHousePromoBanner(
                     Spacer(modifier = Modifier.width(6.dp))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(CircleShape)
                             .background(omniEmerald(isDark))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
                     ) {
                         Text("₹199/mo", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
                     }

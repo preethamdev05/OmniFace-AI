@@ -290,7 +290,7 @@ fun PersonInfoSheet(
                                         semester = student.semester
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
                                     contentColor = omniTextPrimary(isDark)
@@ -315,7 +315,7 @@ fun PersonInfoSheet(
                                         semester = student.semester
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = omniCyan(isDark),
                                     contentColor = Color.White
@@ -391,7 +391,7 @@ fun PersonInfoSheet(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(
                                         if (isEnrolled) Color(0xFF10B981).copy(alpha = 0.15f)
                                         else if (isDark) Color(0x22FFFFFF) else Color(0x0D000000)
@@ -399,7 +399,7 @@ fun PersonInfoSheet(
                                     .border(
                                         width = 0.75.dp,
                                         color = if (isEnrolled) Color(0xFF10B981).copy(alpha = 0.4f) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = CircleShape
                                     )
                                     .padding(vertical = 6.dp),
                                 contentAlignment = Alignment.Center
@@ -485,7 +485,7 @@ fun PersonInfoSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isDark) Color(0x3338BDF8) else Color(0x1A0284C7),
                         contentColor = omniCyan(isDark)
@@ -506,7 +506,7 @@ fun PersonInfoSheet(
                     modifier = Modifier
                         .weight(1.3f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF0284C7),
                         contentColor = Color.White
@@ -526,7 +526,7 @@ fun PersonInfoSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isDark) Color(0x33F59E0B) else Color(0x1AF59E0B),
                         contentColor = Color(0xFFF59E0B)
@@ -547,7 +547,7 @@ fun PersonInfoSheet(
                         .fillMaxWidth()
                         .padding(bottom = 28.dp)
                         .height(46.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
                     border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
                 ) {
@@ -585,7 +585,7 @@ fun PersonInfoSheet(
                         onDeleteClick()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 ) {
                     Text("Delete Permanently", fontWeight = FontWeight.Bold, color = Color.White)
                 }

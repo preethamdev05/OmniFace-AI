@@ -168,25 +168,25 @@ fun CupertinoTabBar(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(width = 48.dp, height = 30.dp)
+                                        .size(width = 50.dp, height = 30.dp)
                                         .then(
                                             if (isSelected) {
                                                 Modifier
                                                     .shadow(
                                                         elevation = 6.dp,
-                                                        shape = RoundedCornerShape(15.dp),
+                                                        shape = CircleShape,
                                                         ambientColor = Color(0x4D6366F1),
                                                         spotColor = Color(0x668B5CF6)
                                                     )
-                                                    .clip(RoundedCornerShape(15.dp))
+                                                    .clip(CircleShape)
                                                     .background(OmniButtonBrush)
                                                     .border(
                                                         0.75.dp,
                                                         if (isDark) Color(0x4DFFFFFF) else Color(0x40FFFFFF),
-                                                        RoundedCornerShape(15.dp)
+                                                        CircleShape
                                                     )
                                             } else {
-                                                Modifier.clip(RoundedCornerShape(15.dp))
+                                                Modifier.clip(CircleShape)
                                             }
                                         ),
                                     contentAlignment = Alignment.Center

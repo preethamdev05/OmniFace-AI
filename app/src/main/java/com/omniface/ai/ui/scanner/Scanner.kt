@@ -2067,9 +2067,9 @@ fun ScannerScreen(
                         // Left: FOV & 3D Depth
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(CircleShape)
                                 .background(Color(0x990B0F19))
-                                .border(0.5.dp, Color(0x4006B6D4), RoundedCornerShape(6.dp))
+                                .border(0.5.dp, Color(0x4006B6D4), CircleShape)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -2093,9 +2093,9 @@ fun ScannerScreen(
                         // Right: Live Silicon NPU
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(CircleShape)
                                 .background(Color(0x990B0F19))
-                                .border(0.5.dp, Color(0x4010B981), RoundedCornerShape(6.dp))
+                                .border(0.5.dp, Color(0x4010B981), CircleShape)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -2479,10 +2479,10 @@ fun ScannerScreen(
                                         val roleBadge = LocalizationManager.getRoleBadgeLabel(state.matchedRole)
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
+                                                .clip(CircleShape)
                                                 .background(OmniViolet.copy(alpha = 0.15f))
-                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
+                                                .padding(horizontal = 7.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = roleBadge.uppercase(),
@@ -2559,9 +2559,9 @@ fun ScannerScreen(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
+                                                .clip(CircleShape)
                                                 .background(Color(0x3334C759))
-                                                .border(0.5.dp, Color(0xFF34C759).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                                .border(0.5.dp, Color(0xFF34C759).copy(alpha = 0.4f), CircleShape)
                                                 .padding(horizontal = 9.dp, vertical = 5.dp)
                                         ) {
                                             Text(
@@ -2787,9 +2787,9 @@ fun ScannerScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .clip(CircleShape)
                                         .background(if (isDark) Color(0x330284C7) else Color(0x1A0284C7))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
                                         text = if (showNeuralDiagnostics) "Hide" else "Inspect",
@@ -3587,7 +3587,7 @@ private fun ThermalGovernorDialog(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x3334C759) else Color(0x1A34C759)),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = CircleShape
                         ) {
                             Text("❄️ Nominal", color = Color(0xFF34C759), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
@@ -3597,7 +3597,7 @@ private fun ThermalGovernorDialog(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33FF9F0A) else Color(0x1AFF9F0A)),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = CircleShape
                         ) {
                             Text("⚡ Warm", color = Color(0xFFFF9F0A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
@@ -3607,7 +3607,7 @@ private fun ThermalGovernorDialog(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33FF453A) else Color(0x1AFF453A)),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = CircleShape
                         ) {
                             Text("🔥 Critical", color = Color(0xFFFF453A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
@@ -3617,7 +3617,7 @@ private fun ThermalGovernorDialog(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0x33007AFF) else Color(0x1A007AFF)),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = CircleShape
                         ) {
                             Text("🔄 Auto", color = Color(0xFF007AFF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }

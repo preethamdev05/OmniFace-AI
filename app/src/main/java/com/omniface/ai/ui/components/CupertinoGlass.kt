@@ -589,9 +589,9 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = onAction,
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(actionText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -658,9 +658,9 @@ fun SettingRow(
                 Box(
                     modifier = Modifier
                         .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(CircleShape)
                         .background(iconTint.copy(alpha = if (isDark) 0.20f else 0.12f))
-                        .border(0.5.dp, iconTint.copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(10.dp)),
+                        .border(0.5.dp, iconTint.copy(alpha = if (isDark) 0.40f else 0.25f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -844,9 +844,9 @@ fun CupertinoMetricTile(
                     Text(
                         text = title.uppercase(),
                         color = omniTextMuted(isDark),
-                        fontSize = 10.5.sp,
+                        fontSize = if (title.length > 12) 8.5.sp else 9.5.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
+                        letterSpacing = if (title.length > 12) 0.sp else 0.15.sp,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -854,17 +854,17 @@ fun CupertinoMetricTile(
                     Spacer(modifier = Modifier.width(6.dp))
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(28.dp)
+                            .clip(CircleShape)
                             .background(accentColor.copy(alpha = if (isDark) 0.20f else 0.12f))
-                            .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), RoundedCornerShape(10.dp)),
+                            .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
                             tint = accentColor,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
@@ -1003,38 +1003,14 @@ fun CupertinoButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            // Apple Button-in-Button Icon Container
             if (icon != null) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(
-                            if (isSecondary) {
-                                if (isDark) Color(0x26FFFFFF) else Color(0x14000000)
-                            } else {
-                                Color(0x2EFFFFFF)
-                            }
-                        )
-                        .border(
-                            0.5.dp,
-                            if (isSecondary) {
-                                if (isDark) Color(0x33FFFFFF) else Color(0x1F000000)
-                            } else {
-                                Color(0x47FFFFFF)
-                            },
-                            RoundedCornerShape(9.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (enabled) effectiveContentColor else TextMuted,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(9.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (enabled) effectiveContentColor else TextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
             }
             Text(
                 text = text,
@@ -1096,7 +1072,7 @@ fun CupertinoActionPill(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(CircleShape)
             .background(bgColor)
             .clickable {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

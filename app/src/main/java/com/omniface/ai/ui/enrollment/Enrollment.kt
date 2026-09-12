@@ -1206,11 +1206,11 @@ private fun RegistrationFormView(
                             val isSelected = state.selectedRoleFilter == key
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, CircleShape)
                                     .clickable { viewModel.onRoleFilterChanged(key) }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Text(
                                     text = label,
@@ -1302,10 +1302,10 @@ private fun RegistrationFormView(
                                             val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
                                             Box(
                                                 modifier = Modifier
-                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .clip(CircleShape)
                                                     .background(OmniViolet.copy(alpha = 0.15f))
-                                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
-                                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
                                                     text = roleBadge.uppercase(),
@@ -1327,9 +1327,9 @@ private fun RegistrationFormView(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(CircleShape)
                                             .background(if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000))
-                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
                                         Text(
                                             text = LocalizationManager.get(StringKey.EDIT_PROFILE),
@@ -1411,11 +1411,11 @@ private fun RegistrationFormView(
                                 val isSelected = state.role.equals(r, ignoreCase = true)
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(CircleShape)
                                         .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                        .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, CircleShape)
                                         .clickable { viewModel.updateForm(role = r) }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Text(
                                         text = LocalizationManager.getRoleBadgeLabel(r),
@@ -1641,10 +1641,10 @@ private fun RegistrationFormView(
                             val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(CircleShape)
                                     .background(OmniViolet.copy(alpha = 0.15f))
-                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .border(0.5.dp, OmniViolet.copy(alpha = 0.35f), CircleShape)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = roleBadge.uppercase(),
@@ -1781,7 +1781,7 @@ private fun RegistrationFormView(
                                         semester = student.semester
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
                                     contentColor = omniTextPrimary(isDark)
@@ -1806,7 +1806,7 @@ private fun RegistrationFormView(
                                         semester = student.semester
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = omniCyan(isDark),
                                     contentColor = Color.White
@@ -1900,11 +1900,11 @@ private fun RegistrationFormView(
                             val isSelected = state.editRole.equals(r, ignoreCase = true)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(CircleShape)
                                     .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(8.dp))
+                                    .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, CircleShape)
                                     .clickable { viewModel.updateEditFields(role = r) }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Text(
                                     text = LocalizationManager.getRoleBadgeLabel(r),
@@ -2370,10 +2370,10 @@ private fun BiometricStudioView(
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
-                                    .shadow(4.dp, RoundedCornerShape(12.dp), ambientColor = Color(0x4D30D158))
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .shadow(4.dp, CircleShape, ambientColor = Color(0x4D30D158))
+                                    .clip(CircleShape)
                                     .background(Color(0xFF131823))
-                                    .border(1.5.dp, omniEmerald(isDark), RoundedCornerShape(12.dp))
+                                    .border(1.5.dp, omniEmerald(isDark), CircleShape)
                             ) {
                                 Image(
                                     bitmap = thumb.asImageBitmap(),

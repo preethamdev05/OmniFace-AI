@@ -584,7 +584,7 @@ fun GoogleDriveBackupScreen(
                             enabled = !isBackingUp && !isRestoring,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = omniEmerald(isDark)),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = CircleShape
                         ) {
                             if (isBackingUp) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
@@ -605,7 +605,7 @@ fun GoogleDriveBackupScreen(
                                 shareCurrentBackup()
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = CircleShape,
                             border = androidx.compose.foundation.BorderStroke(1.dp, omniEmerald(isDark).copy(alpha = 0.6f))
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, tint = omniEmerald(isDark), modifier = Modifier.size(18.dp))
@@ -622,7 +622,7 @@ fun GoogleDriveBackupScreen(
                                 exportDocumentLauncher.launch(fileName)
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = CircleShape,
                             border = androidx.compose.foundation.BorderStroke(1.dp, omniCyan(isDark).copy(alpha = 0.6f))
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null, tint = omniCyan(isDark), modifier = Modifier.size(18.dp))
@@ -676,7 +676,7 @@ fun GoogleDriveBackupScreen(
                                 Toast.makeText(context, "SHA-1 copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = CircleShape
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -710,7 +710,7 @@ fun GoogleDriveBackupScreen(
                                 tempPinInput = backupPin
                                 showPinDialog = true
                             },
-                            shape = RoundedCornerShape(10.dp)
+                            shape = CircleShape
                         ) {
                             Text("Change PIN (Current: ${backupPin.length} digits)", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -831,7 +831,7 @@ fun GoogleDriveBackupScreen(
                             enabled = !isBackingUp && !isRestoring,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = omniCyan(isDark)),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = CircleShape
                         ) {
                             if (isRestoring) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
@@ -985,7 +985,7 @@ fun GoogleDriveBackupScreen(
                                     exportDocumentLauncher.launch("omniface_backup_${System.currentTimeMillis()}.enc")
                                 },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
+                                shape = CircleShape
                             ) {
                                 Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -996,7 +996,7 @@ fun GoogleDriveBackupScreen(
                                     importDocumentLauncher.launch(arrayOf("application/octet-stream", "*/*"))
                                 },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
+                                shape = CircleShape
                             ) {
                                 Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))

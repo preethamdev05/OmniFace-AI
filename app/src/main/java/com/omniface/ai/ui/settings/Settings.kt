@@ -589,7 +589,7 @@ fun SettingsScreen(
                                         Box(
                                             modifier = Modifier
                                                 .size(40.dp)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(CircleShape)
                                                 .background(OmniViolet.copy(alpha = if (isDark) 0.22f else 0.14f)),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -656,7 +656,7 @@ fun SettingsScreen(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(14.dp))
                                             .background(if (isDark) Color(0x1A1E293B) else Color(0xFFF1F5F9))
                                             .padding(vertical = 8.dp, horizontal = 10.dp)
                                     ) {
@@ -676,7 +676,7 @@ fun SettingsScreen(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(14.dp))
                                             .background(if (isDark) Color(0x1A1E293B) else Color(0xFFF1F5F9))
                                             .padding(vertical = 8.dp, horizontal = 10.dp)
                                     ) {
@@ -696,7 +696,7 @@ fun SettingsScreen(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(14.dp))
                                             .background(if (isDark) Color(0x1A1E293B) else Color(0xFFF1F5F9))
                                             .padding(vertical = 8.dp, horizontal = 10.dp)
                                     ) {
@@ -737,7 +737,7 @@ fun SettingsScreen(
                                         Box(
                                             modifier = Modifier
                                                 .size(38.dp)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(CircleShape)
                                                 .background(
                                                     if (activeTier == SubscriptionTier.FREE) Color(0xFF64748B).copy(alpha = 0.18f)
                                                     else Color(0xFF10B981).copy(alpha = 0.18f)
@@ -784,11 +784,11 @@ fun SettingsScreen(
                                                 try { context.startActivity(intent) } catch (_: Exception) {}
                                             }
                                         },
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = CircleShape,
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (activeTier == SubscriptionTier.FREE) Color(0xFF10B981) else (if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0))
                                         ),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                                         modifier = Modifier.height(34.dp)
                                     ) {
                                         Text(
@@ -938,7 +938,7 @@ fun SettingsScreen(
                                         Box(
                                             modifier = Modifier
                                                 .size(38.dp)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(CircleShape)
                                                 .background(OmniViolet.copy(alpha = 0.18f)),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -986,14 +986,14 @@ fun SettingsScreen(
                                         val isSelected = currentOrgType.equals(typeKey, ignoreCase = true)
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(10.dp))
+                                                .clip(CircleShape)
                                                 .background(if (isSelected) OmniViolet else (if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000)))
-                                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, RoundedCornerShape(10.dp))
+                                                .border(0.75.dp, if (isSelected) OmniViolet else Color.Transparent, CircleShape)
                                                 .clickable {
                                                     LocalizationManager.setOrgType(typeKey, context)
                                                     viewModel.setOrgType(typeKey)
                                                 }
-                                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
                                         ) {
                                             Text(
                                                 text = typeLabel,
@@ -1407,7 +1407,7 @@ private fun SettingsCategoryCard(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .clip(CircleShape)
                         .background(category.accentColor.copy(alpha = if (isDark) 0.22f else 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
