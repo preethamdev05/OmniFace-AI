@@ -1175,17 +1175,17 @@ fun CupertinoMetricDisc(
                     Text(
                         text = title.uppercase(),
                         color = omniTextMuted(isDark),
-                        fontSize = 9.5.sp,
+                        fontSize = if (title.length > 13) 7.5.sp else if (title.length > 10) 8.2.sp else 9.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.2.sp,
+                        letterSpacing = if (title.length > 10) (-0.3).sp else 0.sp,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(28.dp)
                             .clip(CircleShape)
                             .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.10f))
                             .border(1.dp, accentColor.copy(alpha = if (isDark) 0.45f else 0.30f), CircleShape),
@@ -1195,7 +1195,7 @@ fun CupertinoMetricDisc(
                             imageVector = icon,
                             contentDescription = null,
                             tint = accentColor,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
@@ -1225,8 +1225,9 @@ fun CupertinoMetricDisc(
                     Text(
                         text = subtitle,
                         color = omniTextMuted(isDark),
-                        fontSize = 11.5.sp,
+                        fontSize = if (subtitle.length > 14) 10.sp else 11.sp,
                         fontWeight = FontWeight.Medium,
+                        letterSpacing = (-0.2).sp,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )

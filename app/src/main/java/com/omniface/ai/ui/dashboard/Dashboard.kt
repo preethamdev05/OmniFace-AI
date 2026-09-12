@@ -317,7 +317,7 @@ fun DashboardScreen(
     val isDark = LocalThemeIsDark.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val todayDateFormatted = remember { SimpleDateFormat("EEE, MMM d, yyyy", Locale.getDefault()).format(Date()) }
+    val todayDateFormatted = remember { SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date()) }
 
     var showPaywall by remember { mutableStateOf(false) }
     var paywallReason by remember { mutableStateOf(PaywallTriggerReason.STUDENT_LIMIT_REACHED) }
@@ -376,10 +376,12 @@ fun DashboardScreen(
                             letterSpacing = (-0.5).sp
                         )
                         Text(
-                            text = "Smart Attendance • $todayDateFormatted",
+                            text = todayDateFormatted,
                             color = omniTextMuted(isDark),
-                            fontSize = 11.sp,
-                            letterSpacing = (-0.1).sp
+                            fontSize = 11.5.sp,
+                            letterSpacing = (-0.1).sp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }

@@ -105,8 +105,8 @@ fun InHousePromoBanner(
                     }
                 }
                 Text(
-                    text = "250 slots • Excel & PDF reports • Drive cloud sync",
-                    fontSize = 11.5.sp,
+                    text = "250 slots • Excel/PDF • Cloud Sync",
+                    fontSize = 11.sp,
                     color = omniTextSecondary(isDark),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

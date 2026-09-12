@@ -1290,13 +1290,19 @@ private fun RegistrationFormView(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
                                             Text(
                                                 text = student.fullName,
                                                 color = omniTextPrimary(isDark),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
@@ -1311,7 +1317,9 @@ private fun RegistrationFormView(
                                                     text = roleBadge.uppercase(),
                                                     color = OmniSky,
                                                     fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
@@ -1319,33 +1327,19 @@ private fun RegistrationFormView(
                                         Text(
                                             text = "${student.rollNumber} • ${student.department} (${student.semester})",
                                             color = omniTextMuted(isDark),
-                                            fontSize = 11.sp
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                         )
                                     }
                                 }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(CircleShape)
-                                            .background(if (isDark) Color(0x1AFFFFFF) else Color(0x0D000000))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                                    ) {
-                                        Text(
-                                            text = LocalizationManager.get(StringKey.EDIT_PROFILE),
-                                            color = omniCyan(isDark),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.ChevronRight,
-                                        contentDescription = LocalizationManager.get(StringKey.EDIT_PROFILE),
-                                        tint = omniTextMuted(isDark),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = LocalizationManager.get(StringKey.EDIT_PROFILE),
+                                    tint = omniTextMuted(isDark).copy(alpha = 0.6f),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
 
                             if (index < state.filteredEnrolledStudents.size - 1) {
@@ -1355,7 +1349,7 @@ private fun RegistrationFormView(
 
                         Spacer(modifier = Modifier.height(14.dp))
                         CupertinoButton(
-                            text = "+ Enroll New ${LocalizationManager.getEntitySingular(state.orgType)}",
+                            text = "Enroll New ${LocalizationManager.getEntitySingular(state.orgType)}",
                             icon = Icons.Default.Add,
                             onClick = { onTabSelected(1) }
                         )
@@ -1630,12 +1624,18 @@ private fun RegistrationFormView(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
                                 text = student.fullName,
                                 color = omniTextPrimary(isDark),
                                 fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             val roleBadge = LocalizationManager.getRoleBadgeLabel(student.role)
@@ -1650,7 +1650,9 @@ private fun RegistrationFormView(
                                     text = roleBadge.uppercase(),
                                     color = OmniSky,
                                     fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }

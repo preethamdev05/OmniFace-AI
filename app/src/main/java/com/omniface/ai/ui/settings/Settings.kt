@@ -752,22 +752,26 @@ fun SettingsScreen(
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
+                                        Column(modifier = Modifier.weight(1f, fill = false)) {
                                             Text(
                                                 text = activeTier.title,
                                                 color = omniTextPrimary(isDark),
                                                 fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                             Text(
                                                 text = when (activeTier) {
-                                                    SubscriptionTier.FREE -> "Limit: 25 people • $playPrice"
-                                                    SubscriptionTier.PREMIUM -> "Limit: 250 people • Active Subscription"
-                                                    SubscriptionTier.PRO -> "Limit: 500 people • Pro Active"
-                                                    SubscriptionTier.INSTITUTION -> "500+ people • Institution Fleet"
+                                                    SubscriptionTier.FREE -> "25 people • $playPrice"
+                                                    SubscriptionTier.PREMIUM -> "250 people • Active"
+                                                    SubscriptionTier.PRO -> "500 people • Active"
+                                                    SubscriptionTier.INSTITUTION -> "500+ people • Fleet"
                                                 },
                                                 color = omniTextMuted(isDark),
-                                                fontSize = 11.5.sp
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                             )
                                         }
                                     }
