@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "num_steps": 200,
+  "batch_size": 192,
+  "total_images_processed": 38400,
+  "total_duration_sec": 65.6,
+  "mean_throughput_sps": 585.39,
+  "p50_throughput_sps": 655.9,
+  "min_throughput_sps": 598.31,
+  "max_throughput_sps": 701.44,
+  "initial_temp_c": 55,
+  "peak_temp_c": 60,
+  "final_temp_c": 60,
+  "temp_delta_c": 5,
+  "mean_clock_mhz": 2086.6,
+  "clock_stability_pct": 74.49,
+  "throttling_detected": false
+}

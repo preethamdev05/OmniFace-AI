@@ -1,0 +1,38 @@
+{
+  "mode": "optimized",
+  "batch_size": 64,
+  "p_identities": 16,
+  "k_images": 4,
+  "num_workers": 4,
+  "pin_memory": true,
+  "non_blocking": true,
+  "num_measured_steps": 15,
+  "mean_step_latency_ms": 183.71,
+  "p50_step_latency_ms": 184.98,
+  "p95_step_latency_ms": 189.46,
+  "throughput_samples_per_sec": 348.37,
+  "gpu_active_time_ratio": 0.4737,
+  "dataloader_stall_pct": 52.27,
+  "latency_breakdown_ms": {
+    "data_loading_wait": 96.03,
+    "teacher_cpu_inference": 0.0,
+    "host_to_device_h2d": 0.67,
+    "forward_pass": 12.51,
+    "loss_computation": 17.22,
+    "backward_pass": 51.14,
+    "optimizer_step": 6.15
+  },
+  "percentage_breakdown": {
+    "data_loading_pct": 52.3,
+    "teacher_cpu_pct": 0.0,
+    "gpu_compute_pct": 47.4
+  },
+  "telemetry": {
+    "vram_allocated_mb": 263.25,
+    "vram_peak_allocated_mb": 1193.47,
+    "vram_reserved_mb": 1280.0,
+    "gpu_util_pct": 12,
+    "gpu_temp_c": 57,
+    "cpu_util_pct": 17.7
+  }
+}

@@ -1,0 +1,9 @@
+Experiment,Batch,Throughput (samp/s),Step Latency (ms),Data Wait (ms),Teacher CPU (ms),DataLoader Stall %,GPU Active %,GPU Util %,Peak VRAM (MB),Temp (C),Speedup vs Base
+A: Baseline (Online CavaFace CPU),64,61.84,1034.94,186.73,754.02,90.9%,9.0%,0%,1193.38,58,1.00x
+B: + Offline CavaFace Cache,64,245.35,260.85,160.22,0.0,61.42%,38.2%,0%,1193.47,61,3.97x
+C: + Non-Blocking H2D Transfer,64,260.2,245.96,146.44,0.0,59.54%,40.2%,29%,1193.47,60,4.21x
+D: + Multi-Worker Prefetch (w=2),64,320.17,199.89,100.52,0.0,50.29%,49.4%,43%,1193.47,60,5.18x
+E: + Multi-Worker Prefetch (w=4),64,311.75,205.29,103.62,0.0,50.47%,49.2%,19%,1193.47,60,5.04x
+"F: + Batch Scaling (B=128, P=32, K=4)",128,469.0,272.92,105.21,0.0,38.55%,61.0%,31%,1693.92,62,7.58x
+"G: + Batch Scaling (B=192, P=48, K=4)",192,561.08,342.2,92.23,0.0,26.95%,72.6%,30%,2208.26,60,9.07x
+"H: + Batch Scaling (B=256, P=64, K=4) + TF32",256,629.19,406.87,95.55,0.0,23.48%,76.1%,39%,2701.43,63,10.17x

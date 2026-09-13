@@ -121,3 +121,5 @@ run_end_to_end_real_face_test.py
 .env*
 *.tsbuildinfo
 supabase/.temp/
+training/unified/data_cache/*/*.bin
+training/unified/data_cache/*/*.npy
