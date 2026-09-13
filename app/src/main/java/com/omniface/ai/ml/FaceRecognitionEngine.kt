@@ -48,11 +48,21 @@ enum class SecurityTier(
     val threshold: Float,
     val marginThreshold: Float,
     val label: String,
-    val farDesc: String
+    val farDesc: String,
+    val calibratedThreshold: Float = when (label) {
+        "Standard" -> 0.120f
+        "High" -> 0.158f
+        else -> 0.220f
+    },
+    val calibratedMargin: Float = when (label) {
+        "Standard" -> 0.020f
+        "High" -> 0.030f
+        else -> 0.040f
+    }
 ) {
-    STANDARD(0.650f, 0.040f, "Standard", "Doorway Kiosk (FAR 1:10 • τ ≥ 65%)"),
-    HIGH(0.720f, 0.045f, "High", "ISO/IEC Standard (FAR 1:100 • τ ≥ 72%)"),
-    STRICT(0.800f, 0.050f, "Strict", "Bank Grade (FAR 1:1,000 • τ ≥ 80%)");
+    STANDARD(0.650f, 0.040f, "Standard", "Doorway Kiosk (FAR 1:10 • τ ≥ 65%)", 0.120f, 0.020f),
+    HIGH(0.720f, 0.045f, "High", "ISO/IEC Standard (FAR 1:100 • τ ≥ 72%)", 0.158f, 0.030f),
+    STRICT(0.800f, 0.050f, "Strict", "Bank Grade (FAR 1:1,000 • τ ≥ 80%)", 0.220f, 0.040f);
 
     val displayName: String get() = label
     val cosineSimilarityThreshold: Float get() = threshold
@@ -62,6 +72,12 @@ enum class SecurityTier(
         HIGH -> "1:100"
         STRICT -> "1:1,000"
     }
+
+    fun getEffectiveThreshold(isMobileFaceNet: Boolean = true): Float =
+        if (isMobileFaceNet) calibratedThreshold else threshold
+
+    fun getEffectiveMargin(isMobileFaceNet: Boolean = true): Float =
+        if (isMobileFaceNet) calibratedMargin else marginThreshold
 }
 
 enum class NeuralBackbone(val label: String, val params: String, val isQualcommOptimized: Boolean) {
@@ -875,8 +891,9 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         val top2Roll = top2?.roll
 
         val margin = if (scoredStudents.size > 1) (top1Score - top2Score) else top1Score
-        val threshold = securityTier.threshold
-        val marginThreshold = securityTier.marginThreshold
+        val isMobileFaceNet = activeBackbone == NeuralBackbone.MOBILEFACENET
+        val threshold = if (isMobileFaceNet) securityTier.calibratedThreshold else securityTier.threshold
+        val marginThreshold = if (isMobileFaceNet) securityTier.calibratedMargin else securityTier.marginThreshold
 
         val confidenceZone: ConfidenceZone
         val isMatch: Boolean
@@ -885,9 +902,10 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         // To be a verified match:
         // 1. compositeScore >= threshold
         // 2. top1MaxAngle >= threshold (individual best angle must meet criteria)
-        // 3. For multi-angle profiles, top1Centroid must not be drastically lower than threshold (centroid >= threshold - 0.120f)
+        // 3. For multi-angle profiles, top1Centroid must not be drastically lower than threshold
         // 4. Decision margin >= marginThreshold if multiple students enrolled
-        val isCentroidConsistent = (top1Centroid >= (threshold - 0.120f))
+        val centroidTolerance = if (isMobileFaceNet) 0.050f else 0.120f
+        val isCentroidConsistent = (top1Centroid >= (threshold - centroidTolerance))
 
         if (top1Score >= threshold && top1MaxAngle >= threshold && isCentroidConsistent && (scoredStudents.size <= 1 || margin >= marginThreshold)) {
             confidenceZone = ConfidenceZone.ACCEPT
@@ -903,7 +921,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             } else {
                 "Ambiguous Identity: Top-1 $bestMatchRoll (${"%.3f".format(top1Score)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Score)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
             }
-        } else if (top1Score >= (threshold - 0.060f) || top1MaxAngle >= (threshold - 0.040f)) {
+        } else if (top1Score >= (threshold - (if (isMobileFaceNet) 0.025f else 0.060f)) || top1MaxAngle >= (threshold - (if (isMobileFaceNet) 0.015f else 0.040f))) {
             // Borderline score
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
@@ -918,10 +936,11 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
         // Calibrated 0-100% confidence for UI presentation
         val normalizedConfidence = if (isMatch) {
-            val progress = ((top1Score - threshold) / (0.85f - threshold).coerceAtLeast(0.10f)).coerceIn(0.0f, 1.0f)
+            val maxExpected = if (isMobileFaceNet) 0.35f else 0.85f
+            val progress = ((top1Score - threshold) / (maxExpected - threshold).coerceAtLeast(0.05f)).coerceIn(0.0f, 1.0f)
             (85.0f + progress * 14.9f).coerceIn(85.0f, 99.9f)
         } else {
-            ((top1Score.coerceAtLeast(0f) / threshold) * 65.0f).coerceIn(0.0f, 65.0f)
+            ((top1Score.coerceAtLeast(0f) / threshold.coerceAtLeast(0.05f)) * 65.0f).coerceIn(0.0f, 65.0f)
         }
 
         MatchResult(

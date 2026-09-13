@@ -416,7 +416,8 @@ class BiometricVerificationEngineImpl(
                                 queryEmbedding = effectiveEmbedding,
                                 studentMap = effectiveStudentMap,
                                 securityTier = securityTier,
-                                activeTier = recognitionEngine.activeHardwareTier
+                                activeTier = recognitionEngine.activeHardwareTier,
+                                useCalibratedThreshold = (recognitionEngine.activeBackbone == NeuralBackbone.MOBILEFACENET)
                             )
                         } catch (t: Throwable) {
                             Log.e(TAG, "Gate 3 Match Exception", t)
