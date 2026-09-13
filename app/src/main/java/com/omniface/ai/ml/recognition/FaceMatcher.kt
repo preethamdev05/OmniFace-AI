@@ -143,10 +143,12 @@ class FaceMatcher {
 
             val csv = adapted.joinToString(",") { "%.6f".format(java.util.Locale.US, it) }
             val encryptedCsv = try {
-                AndroidSecurityUtils.encrypt(csv)
-            } catch (_: Throwable) {
-                csv
-            }
+                val enc = AndroidSecurityUtils.encrypt(csv)
+                if (enc.isNotBlank()) enc else null
+            } catch (t: Throwable) {
+                android.util.Log.e("FaceMatcher", "Failed to encrypt adapted centroid: ${t.message}")
+                null
+            } ?: return@write null
 
             Pair(centroidTemplate.templateId, encryptedCsv)
         }

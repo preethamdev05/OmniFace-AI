@@ -74,6 +74,15 @@ class RoomIdentityStoreAdapter(
         }
     }
 
+    override suspend fun updateTemplateEmbedding(templateId: String, newEncryptedCsv: String) {
+        try {
+            database.personDao().updateTemplateEmbedding(templateId, newEncryptedCsv)
+            Log.d(TAG, "Persisted adapted template embedding for $templateId")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to persist adapted template embedding: ${t.message}")
+        }
+    }
+
     private fun parseAndNormalizeEmbedding(csv: String): FloatArray {
         return try {
             val arr = csv.split(",").map { it.trim().toFloat() }.toFloatArray()

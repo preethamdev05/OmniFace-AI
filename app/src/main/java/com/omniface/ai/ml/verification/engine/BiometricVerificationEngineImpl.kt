@@ -737,9 +737,9 @@ class BiometricVerificationEngineImpl(
                 )
                 if (adaptedPair != null) {
                     val (tplId, newEncryptedCsv) = adaptedPair
-                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            com.omniface.ai.OmniFaceApplication.instance.database.studentDao().updateTemplateEmbedding(tplId, newEncryptedCsv)
+                            identityStore.updateTemplateEmbedding(tplId, newEncryptedCsv)
                             Log.d(TAG, "🧠 [DYNAMIC CENTROID] Adapted and persisted template $tplId for ${stabilized.matchedStudentRoll}")
                         } catch (t: Throwable) {
                             Log.w(TAG, "Failed to persist adapted centroid: ${t.message}")

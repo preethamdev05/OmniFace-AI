@@ -45,4 +45,5 @@ data class IdentityTemplate(
 interface IdentityStore {
     fun observeTemplates(): Flow<List<IdentityTemplate>>
     suspend fun getTemplateCount(): Int
+    suspend fun updateTemplateEmbedding(templateId: String, newEncryptedCsv: String) { /* default no-op */ }
 }

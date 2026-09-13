@@ -29,7 +29,14 @@ class FakeIdentityStore(
         _templatesFlow.value = _templatesFlow.value + template
     }
 
+    val updatedEmbeddings = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    override suspend fun updateTemplateEmbedding(templateId: String, newEncryptedCsv: String) {
+        updatedEmbeddings[templateId] = newEncryptedCsv
+    }
+
     fun clear() {
         _templatesFlow.value = emptyList()
+        updatedEmbeddings.clear()
     }
 }
