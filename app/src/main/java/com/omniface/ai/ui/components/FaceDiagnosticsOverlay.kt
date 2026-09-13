@@ -39,6 +39,7 @@ import com.omniface.ai.ml.FaceAttributesResult
 import com.omniface.ai.ml.FaceMap3DMMResult
 import com.omniface.ai.ml.MediaPipeMeshResult
 import com.omniface.ai.ml.RegistrationQualityScore
+import com.omniface.ai.hardware.NpuHardwareDetector
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -62,7 +63,7 @@ data class FaceGeometryVisualData(
     val studentName: String = "",
     val studentRoll: String = "",
     val isLive: Boolean = true,
-    val activeHardwareNpu: String = "Qualcomm Hexagon NPU",
+    val activeHardwareNpu: String = NpuHardwareDetector.detectNpuHardware().npuName,
     val isFrontCamera: Boolean = true
 )
 

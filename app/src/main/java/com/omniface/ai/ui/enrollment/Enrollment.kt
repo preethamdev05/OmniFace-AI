@@ -139,6 +139,7 @@ data class EnrollmentUiState(
     val editSemester: String = "",
     val orgType: String = "SCHOOL",
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
+    val npuInfo: com.omniface.ai.hardware.NpuHardwareInfo = NpuHardwareDetector.detectNpuHardware(),
     val isQualcommDevice: Boolean = NpuHardwareDetector.isQualcommAiHubDevice(),
     val isModelAvailable: Boolean = false,
     val isEngineLoaded: Boolean = false,
@@ -2249,7 +2250,7 @@ private fun BiometricStudioView(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (state.isQualcommDevice) {
+                if (state.npuInfo.isGenuineNpuDetected) {
                     Box(
                         modifier = Modifier
                             .shadow(6.dp, RoundedCornerShape(999.dp), ambientColor = Color(0x3300E5FF))
@@ -2259,7 +2260,7 @@ private fun BiometricStudioView(
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "⚡ HEXAGON NPU • 45 TOPS",
+                            text = "⚡ ${state.npuInfo.shortNpuLabel.uppercase()} • ${state.npuInfo.peakTops}",
                             color = omniCyan(isDark),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold

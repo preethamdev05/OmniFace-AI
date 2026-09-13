@@ -16,7 +16,7 @@ enum class HardwareBackend(val label: String) {
  */
 data class HardwareTelemetry(
     val backend: HardwareBackend = HardwareBackend.NPU_NNAPI,
-    val resolvedBackendLabel: String = "Qualcomm Hexagon NPU (INT8)",
+    val resolvedBackendLabel: String = "${com.omniface.ai.hardware.NpuHardwareDetector.detectNpuHardware().npuName} (INT8)",
     val thermalState: ThermalState = ThermalState.NOMINAL,
     val deviceTemperature: Float = 32.0f,
     val latencyMs: Long = 4L,

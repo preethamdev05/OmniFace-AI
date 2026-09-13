@@ -175,7 +175,7 @@ data class ScannerUiState(
     val lensFacing: Int = CameraSelector.LENS_FACING_FRONT,
     val isDatabaseEmpty: Boolean = false,
     val enrolledCount: Int = 0,
-    val hardwareTierLabel: String = "Hexagon NPU",
+    val hardwareTierLabel: String = NpuHardwareDetector.detectNpuHardware().shortNpuLabel,
     val benchmarkLatencyMs: Long = 6L,
     val showManualOverrideDialog: Boolean = false,
     val showHardwareSwitcher: Boolean = false,
@@ -3489,15 +3489,25 @@ private fun HardwareSwitcherDialog(
                     fontSize = 12.sp
                 )
 
+                val detectedNpu = remember { NpuHardwareDetector.detectNpuHardware() }
+                val npuTitle = "⚡ ${detectedNpu.npuName}"
+                val npuDesc = "Per-Channel INT8 Quantized • Sub-8ms • ${detectedNpu.peakTops} peak"
+                val gpuTitle = when {
+                    detectedNpu.socManufacturer.contains("Qualcomm", ignoreCase = true) -> "🚀 Qualcomm Adreno GPU"
+                    detectedNpu.socManufacturer.contains("MediaTek", ignoreCase = true) -> "🚀 ARM Mali / Immortalis GPU"
+                    detectedNpu.socManufacturer.contains("Google", ignoreCase = true) -> "🚀 Mali-G715 / G710 GPU"
+                    detectedNpu.socManufacturer.contains("Samsung", ignoreCase = true) -> "🚀 Samsung Xclipse GPU"
+                    else -> "🚀 Mobile GPU Delegate"
+                }
                 val options = listOf(
                     Triple(
                         HardwareTier.NPU_NNAPI,
-                        "⚡ Qualcomm Hexagon HTP NPU",
-                        "Per-Channel INT8 Quantized • Sub-8ms • 45 TOPS peak"
+                        npuTitle,
+                        npuDesc
                     ),
                     Triple(
                         HardwareTier.GPU_DELEGATE,
-                        "🚀 Qualcomm Adreno GPU",
+                        gpuTitle,
                         "FP16 Accelerated • OpenCL/Vulkan Hardware Delegate"
                     ),
                     Triple(
@@ -3509,7 +3519,7 @@ private fun HardwareSwitcherDialog(
 
                 options.forEach { (tier, title, desc) ->
                     val isSelected = currentTier.contains(tier.name.take(3), ignoreCase = true) ||
-                        (tier == HardwareTier.NPU_NNAPI && (currentTier.contains("NPU", ignoreCase = true) || currentTier.contains("Hexagon", ignoreCase = true)))
+                        (tier == HardwareTier.NPU_NNAPI && (currentTier.contains("NPU", ignoreCase = true) || currentTier.contains("Hexagon", ignoreCase = true) || currentTier.contains("APU", ignoreCase = true)))
 
                     Row(
                         modifier = Modifier

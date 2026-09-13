@@ -25,7 +25,21 @@ data class NpuHardwareInfo(
     val boardPlatform: String,
     val isGenuineNpuDetected: Boolean,
     val diagnosticSummary: String
-)
+) {
+    val shortNpuLabel: String
+        get() = when {
+            npuName.contains("Hexagon", ignoreCase = true) -> "Hexagon NPU"
+            npuName.contains("APU 890", ignoreCase = true) -> "MediaTek APU"
+            npuName.contains("APU 790", ignoreCase = true) -> "MediaTek APU"
+            npuName.contains("APU 690", ignoreCase = true) -> "MediaTek APU"
+            npuName.contains("APU", ignoreCase = true) || npuName.contains("NeuroPilot", ignoreCase = true) -> "MediaTek APU"
+            npuName.contains("Tensor", ignoreCase = true) || npuName.contains("TPU", ignoreCase = true) -> "Tensor TPU"
+            npuName.contains("Exynos", ignoreCase = true) -> "Exynos NPU"
+            npuName.contains("Neural Matrix", ignoreCase = true) -> "ARM Matrix NPU"
+            isGenuineNpuDetected -> npuName.split(" ").take(2).joinToString(" ")
+            else -> "Neural Engine"
+        }
+}
 
 object NpuHardwareDetector {
 
@@ -245,6 +259,21 @@ object NpuHardwareDetector {
         }
 
         // 3. MediaTek Dimensity Series (NeuroPilot APU)
+        if (sPlat.contains("mt6991") || sModel.contains("9400") || sModel.contains("DIMENSITY 9400") || sModel.contains("MT6991")) {
+            return NpuHardwareInfo(
+                socModel = "MediaTek Dimensity 9400 (MT6991)",
+                socManufacturer = "MediaTek Inc.",
+                npuName = "MediaTek APU 890 (NeuroPilot GenAI Engine)",
+                npuArchitecture = "8th Gen NeuroPilot AI Engine + Generative Systolic Array",
+                peakTops = "50.0 TOPS",
+                supportedPrecisions = listOf("INT8 (Hardware)", "FP16 (Hardware)", "INT4 (Hardware)"),
+                armFeatures = features,
+                boardPlatform = platform,
+                isGenuineNpuDetected = true,
+                diagnosticSummary = "Genuine MediaTek APU 890 active. Hardware NeuroPilot tensor execution verified."
+            )
+        }
+
         if (sPlat.contains("mt6989") || sModel.contains("9300") || sModel.contains("DIMENSITY 9300")) {
             return NpuHardwareInfo(
                 socModel = "MediaTek Dimensity 9300",

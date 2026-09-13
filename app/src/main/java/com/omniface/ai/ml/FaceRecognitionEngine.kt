@@ -40,7 +40,7 @@ data class EngineLoadingProgress(
     val stage: String = "Initializing Neural Accelerator...",
     val progress: Float = 0.0f,
     val activeModelName: String = "ArcFace 512-D",
-    val hardwareTarget: String = "Qualcomm Hexagon NPU",
+    val hardwareTarget: String = NpuHardwareDetector.detectNpuHardware().npuName,
     val isError: Boolean = false
 )
 

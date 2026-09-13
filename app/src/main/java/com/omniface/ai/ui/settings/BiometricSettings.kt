@@ -437,14 +437,10 @@ fun BiometricSettingsSubScreen(
                         rawSoc.substring(index).trim()
                     }
                     rawSoc.isNotBlank() -> rawSoc
-                    else -> "Snapdragon 8s Gen 3"
+                    else -> npuInfo.socModel.ifBlank { "Generic ARM Silicon" }
                 }
 
-                val cleanNpu = when {
-                    npuInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Qualcomm Hexagon NPU"
-                    npuInfo.npuName.isNotBlank() -> npuInfo.npuName
-                    else -> "Qualcomm Hexagon NPU"
-                }
+                val cleanNpu = npuInfo.npuName.ifBlank { "Neural Engine" }
 
                 IOSCard(cornerRadius = 20.dp) {
                     Column(modifier = Modifier.fillMaxWidth()) {

@@ -628,9 +628,7 @@ fun SettingsScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         IOSGlassPill(
-                                            text = if (state.hardwareTier.contains("Hexagon", ignoreCase = true)) "Hexagon NPU"
-                                                   else if (state.hardwareTier.contains("NNAPI", ignoreCase = true)) "NNAPI INT8"
-                                                   else state.hardwareTier.take(12),
+                                            text = state.npuHardwareInfo.shortNpuLabel,
                                             accentColor = omniCyan(isDark)
                                         )
                                         IconButton(
@@ -1247,16 +1245,8 @@ fun SettingsScreen(
     // Hardware Acceleration & Silicon Architecture Info Dialog
     if (showHardwareInfoDialog) {
         val rawSoc = state.npuHardwareInfo.socModel
-        val cleanSoc = when {
-            rawSoc.contains("Snapdragon", ignoreCase = true) -> "Snapdragon 8s Gen 3 (SM8650)"
-            rawSoc.isNotBlank() -> rawSoc
-            else -> "Qualcomm Snapdragon"
-        }
-        val cleanNpu = when {
-            state.npuHardwareInfo.npuName.contains("Hexagon", ignoreCase = true) -> "Qualcomm Hexagon NPU"
-            state.npuHardwareInfo.npuName.isNotBlank() -> state.npuHardwareInfo.npuName
-            else -> "Qualcomm Hexagon NPU"
-        }
+        val cleanSoc = state.npuHardwareInfo.socModel.ifBlank { "Generic ARM Silicon" }
+        val cleanNpu = state.npuHardwareInfo.npuName.ifBlank { "Neural Engine" }
 
         AlertDialog(
             onDismissRequest = { showHardwareInfoDialog = false },

@@ -102,4 +102,37 @@ class Tier1NpuHardwareTest {
         assertEquals("Samsung Exynos Dual-NPU (17K MACs)", info.npuName)
         assertEquals("17.0+ TOPS", info.peakTops)
     }
+
+    @Test
+    fun testMediaTekDimensity9400Mapping() {
+        val info = NpuHardwareInfo(
+            socModel = "MediaTek Dimensity 9400 (MT6991)",
+            socManufacturer = "MediaTek Inc.",
+            npuName = "MediaTek APU 890 (NeuroPilot GenAI Engine)",
+            npuArchitecture = "8th Gen NeuroPilot AI Engine + Generative Systolic Array",
+            peakTops = "50.0 TOPS",
+            supportedPrecisions = listOf("INT8 (Hardware)", "FP16 (Hardware)", "INT4 (Hardware)"),
+            armFeatures = listOf("i8mm", "asimddp"),
+            boardPlatform = "mt6991",
+            isGenuineNpuDetected = true,
+            diagnosticSummary = "Genuine MediaTek APU 890 active."
+        )
+        assertEquals("MediaTek Dimensity 9400 (MT6991)", info.socModel)
+        assertEquals("MediaTek APU 890 (NeuroPilot GenAI Engine)", info.npuName)
+        assertEquals("50.0 TOPS", info.peakTops)
+        assertEquals("MediaTek APU", info.shortNpuLabel)
+    }
+
+    @Test
+    fun testShortNpuLabelResolution() {
+        val hexagon = NpuHardwareInfo("SM8650", "Qualcomm", "Qualcomm Hexagon NPU", "", "", emptyList(), emptyList(), "", true, "")
+        val apu = NpuHardwareInfo("MT6991", "MediaTek", "MediaTek APU 890", "", "", emptyList(), emptyList(), "", true, "")
+        val tensor = NpuHardwareInfo("G4", "Google", "Google Tensor TPU", "", "", emptyList(), emptyList(), "", true, "")
+        val exynos = NpuHardwareInfo("Exynos 2400", "Samsung", "Samsung Exynos Dual-NPU", "", "", emptyList(), emptyList(), "", true, "")
+
+        assertEquals("Hexagon NPU", hexagon.shortNpuLabel)
+        assertEquals("MediaTek APU", apu.shortNpuLabel)
+        assertEquals("Tensor TPU", tensor.shortNpuLabel)
+        assertEquals("Exynos NPU", exynos.shortNpuLabel)
+    }
 }

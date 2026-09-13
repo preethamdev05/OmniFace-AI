@@ -22,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.omniface.ai.i18n.LocalizationManager
 import com.omniface.ai.i18n.StringKey
+import com.omniface.ai.hardware.NpuHardwareDetector
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +79,7 @@ import com.omniface.ai.ui.components.InHousePromoBanner
 data class DashboardUiState(
     val enrolledCount: Int = 0,
     val todayScansCount: Int = 0,
-    val hardwareTierLabel: String = "Engine Standby",
+    val hardwareTierLabel: String = NpuHardwareDetector.detectNpuHardware().shortNpuLabel,
     val benchmarkLatencyMs: Long = 0L,
     val selectedTier: SecurityTier = SecurityTier.HIGH,
     val recentScans: List<AttendanceRecordEntity> = emptyList(),
@@ -386,8 +387,9 @@ fun DashboardScreen(
                     }
                 }
 
+                val npuInfo = remember { NpuHardwareDetector.detectNpuHardware() }
                 IOSGlassPill(
-                    text = "⚡ Hexagon NPU",
+                    text = "⚡ ${npuInfo.shortNpuLabel}",
                     showPulsingDot = true,
                     accentColor = OmniEmerald
                 )
