@@ -100,9 +100,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
 
     packaging {
         resources {

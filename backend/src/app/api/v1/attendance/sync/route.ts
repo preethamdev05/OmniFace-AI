@@ -4,6 +4,7 @@ import { isDbConfigured, getDb } from '@/db';
 import { attendanceEvents, devices, subscriptions, organizations } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { requireDevice } from '@/lib/api-auth';
+import { dispatchBatchWhatsAppAlerts, WhatsAppAttendanceAlert } from '@/lib/whatsapp';
 
 interface RawAttendanceRecord {
   record_id?: string;
@@ -227,6 +228,21 @@ export async function POST(req: NextRequest) {
           console.error('PostgreSQL attendance sync persistence warning:', dbErr);
         }
       }
+    }
+
+    // Asynchronously dispatch WhatsApp notifications without blocking the sync response
+    if (verifiedRecords.length > 0) {
+      const alerts: WhatsAppAttendanceAlert[] = verifiedRecords.map((r) => ({
+        studentRoll: r.studentRoll,
+        studentName: r.studentName,
+        sessionDate: r.sessionDate,
+        timestamp: r.timestamp,
+        status: r.status,
+        recipientPhone: (r as any).phone || null,
+      }));
+      dispatchBatchWhatsAppAlerts(alerts).catch((wErr) => {
+        console.warn('[WhatsApp] Async batch dispatch warning:', wErr);
+      });
     }
 
     const responseData = {

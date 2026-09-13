@@ -137,36 +137,33 @@ class AdMobIntegrationTest {
     }
 
     @Test
-    fun testScannerScreenAdExclusionPolicy() {
-        // Policy: Never render ads on CameraX / Face Recognition Scanner viewport
-        val scannerRoute = Screen.Scanner.route
-        val nonScannerRoutes = listOf(
-            Screen.Dashboard.route,
+    fun testScannerAndEnrollmentScreenAdExclusionPolicy() {
+        // Policy: Never render ads on Scanner, Biometric Enrollment, or Confirmation surfaces
+        val forbiddenRoutes = listOf(
+            Screen.Scanner.route,
             Screen.Enrollment.route,
+            "scanner",
+            "enrollment",
+            "confirmation",
+            "attendance_confirm"
+        )
+        val permittedRoutes = listOf(
+            Screen.Dashboard.route,
             Screen.Ledger.route,
             Screen.Settings.route
         )
 
-        // Helper function mimicking the OmniFaceApp navigation condition:
-        // if (currentRoute != Screen.Scanner.route) { AdaptiveBannerAd() }
-        fun isAdRenderingAllowedOnRoute(route: String): Boolean {
-            return route != Screen.Scanner.route
+        for (route in forbiddenRoutes) {
+            assertFalse(
+                "Route ($route) MUST NEVER display ads",
+                AdMobManager.shouldDisplayAdsOnRoute(route)
+            )
         }
 
-        assertFalse(
-            "Scanner screen route MUST NEVER display ads",
-            isAdRenderingAllowedOnRoute(scannerRoute)
-        )
-
-        for (route in nonScannerRoutes) {
+        for (route in permittedRoutes) {
             assertTrue(
-                "Non-scanner route ($route) is eligible for ads on FREE tier",
-                isAdRenderingAllowedOnRoute(route)
-            )
-            assertNotEquals(
-                "Non-scanner route must not match scanner route",
-                scannerRoute,
-                route
+                "Secondary non-scanner route ($route) is eligible for ads on FREE tier",
+                AdMobManager.shouldDisplayAdsOnRoute(route)
             )
         }
     }

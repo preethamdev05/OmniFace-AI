@@ -132,8 +132,8 @@ fun OmniFaceApp() {
                 containerColor = if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7),
                 bottomBar = {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        if (currentRoute != Screen.Scanner.route) {
-                            AdaptiveBannerAd()
+                        if (com.omniface.ai.ads.AdMobManager.shouldDisplayAdsOnRoute(currentRoute)) {
+                            AdaptiveBannerAd(currentRoute = currentRoute)
                         }
                         CupertinoTabBar(
                             currentRoute = currentRoute,

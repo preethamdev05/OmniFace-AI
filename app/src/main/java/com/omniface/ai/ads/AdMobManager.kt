@@ -70,6 +70,22 @@ object AdMobManager {
     }
 
     /**
+     * Surface-level gating: strictly prohibits ads on Scanner, Biometric Enrollment,
+     * and Attendance Confirmation surfaces. Ads are only rendered on secondary surfaces
+     * (Dashboard overview, Ledger history, Settings) for the FREE tier.
+     */
+    fun shouldDisplayAdsOnRoute(route: String): Boolean {
+        if (!shouldDisplayAds()) return false
+        val suppressedSurfaces = setOf(
+            "scanner",
+            "enrollment",
+            "confirmation",
+            "attendance_confirm"
+        )
+        return route.lowercase() !in suppressedSurfaces
+    }
+
+    /**
      * Builds a standard AdRequest
      */
     fun buildAdRequest(): AdRequest {

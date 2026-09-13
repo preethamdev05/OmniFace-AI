@@ -42,12 +42,18 @@ private const val TAG = "AdaptiveBannerAd"
 @Composable
 fun AdaptiveBannerAd(
     modifier: Modifier = Modifier,
-    adUnitId: String = AdMobManager.bannerAdUnitId
+    adUnitId: String = AdMobManager.bannerAdUnitId,
+    currentRoute: String? = null
 ) {
     val tier by SubscriptionTierManager.currentTier.collectAsState()
     
     // Hard entitlement gate: If the plan does not display ads, render nothing
     if (!tier.displaysAds) {
+        return
+    }
+
+    // Surface gate: Strictly suppress ads on scanner, enrollment, and confirmation surfaces
+    if (currentRoute != null && !AdMobManager.shouldDisplayAdsOnRoute(currentRoute)) {
         return
     }
 
