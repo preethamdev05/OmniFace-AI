@@ -373,19 +373,25 @@ class FaceMatcher {
         for (i in 0 until size) {
             val va = a[i]
             val vb = b[i]
+            if (va.isNaN() || vb.isNaN() || va.isInfinite() || vb.isInfinite()) return 0.0f
             sum += va * vb
             normA += va * va
             normB += vb * vb
         }
         val denom = sqrt(normA * normB)
-        return if (denom > 1e-7f) (sum / denom).coerceIn(-1.0f, 1.0f) else 0.0f
+        if (denom <= 1e-7f || denom.isNaN() || sum.isNaN()) return 0.0f
+        val sim = sum / denom
+        return if (sim.isNaN()) 0.0f else sim.coerceIn(-1.0f, 1.0f)
     }
 
     private fun l2Normalize(vec: FloatArray): FloatArray {
         var sum = 0.0f
-        for (v in vec) sum += (v * v)
+        for (v in vec) {
+            if (v.isNaN() || v.isInfinite()) return FloatArray(vec.size)
+            sum += (v * v)
+        }
         val norm = sqrt(sum)
-        if (norm > 1e-7f) {
+        if (norm > 1e-7f && !norm.isNaN()) {
             val inv = 1.0f / norm
             for (i in vec.indices) vec[i] *= inv
         }
