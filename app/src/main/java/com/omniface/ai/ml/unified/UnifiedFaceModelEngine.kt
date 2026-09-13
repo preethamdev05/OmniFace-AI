@@ -93,8 +93,8 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         val modelAsset = try {
             val list = assetManager.list("") ?: emptyArray()
             when {
-                list.contains(INT8_MODEL_FILE) -> INT8_MODEL_FILE
                 list.contains(PRIMARY_MODEL_FILE) -> PRIMARY_MODEL_FILE
+                list.contains(INT8_MODEL_FILE) -> INT8_MODEL_FILE
                 else -> null
             }
         } catch (_: Throwable) {
@@ -165,7 +165,7 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         val activeInterpreter = interpreter ?: return null
         val t0 = SystemClock.elapsedRealtime()
 
-        val inputBuffer = preprocessBitmap(alignedBitmap)
+        val inputBuffer = preprocessBitmap(alignedBitmap, activeInterpreter)
 
         val identityOutput = Array(1) { FloatArray(EMBEDDING_DIM) }
         val padOutput = Array(1) { FloatArray(PAD_CLASSES) }
@@ -214,12 +214,20 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         )
     }
 
-    private fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
+    private fun preprocessBitmap(bitmap: Bitmap, interpreter: Interpreter): ByteBuffer {
         val scaled = if (bitmap.width != INPUT_WIDTH || bitmap.height != INPUT_HEIGHT) {
             Bitmap.createScaledBitmap(bitmap, INPUT_WIDTH, INPUT_HEIGHT, true)
         } else bitmap
 
-        val byteBuffer = ByteBuffer.allocateDirect(1 * INPUT_WIDTH * INPUT_HEIGHT * INPUT_CHANNELS * 4)
+        val inputTensor = interpreter.getInputTensor(0)
+        val isQuantized = inputTensor.dataType() == org.tensorflow.lite.DataType.INT8 ||
+                inputTensor.dataType() == org.tensorflow.lite.DataType.UINT8
+        val quantParams = inputTensor.quantizationParams()
+        val scale = if (quantParams.scale > 0f) quantParams.scale else 0.0078125f
+        val zeroPoint = quantParams.zeroPoint
+
+        val bytesPerChannel = if (isQuantized) 1 else 4
+        val byteBuffer = ByteBuffer.allocateDirect(1 * INPUT_WIDTH * INPUT_HEIGHT * INPUT_CHANNELS * bytesPerChannel)
         byteBuffer.order(ByteOrder.nativeOrder())
         val intValues = IntArray(INPUT_WIDTH * INPUT_HEIGHT)
         scaled.getPixels(intValues, 0, INPUT_WIDTH, 0, 0, INPUT_WIDTH, INPUT_HEIGHT)
@@ -228,9 +236,22 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         for (i in 0 until INPUT_WIDTH) {
             for (j in 0 until INPUT_HEIGHT) {
                 val v = intValues[pixel++]
-                byteBuffer.putFloat((((v shr 16) and 0xFF) - 127.5f) / 128.0f)
-                byteBuffer.putFloat((((v shr 8) and 0xFF) - 127.5f) / 128.0f)
-                byteBuffer.putFloat(((v and 0xFF) - 127.5f) / 128.0f)
+                val rNorm = (((v shr 16) and 0xFF) - 127.5f) / 128.0f
+                val gNorm = (((v shr 8) and 0xFF) - 127.5f) / 128.0f
+                val bNorm = ((v and 0xFF) - 127.5f) / 128.0f
+
+                if (isQuantized) {
+                    val rQ = kotlin.math.round(((rNorm / scale) + zeroPoint)).toInt().coerceIn(-128, 127).toByte()
+                    val gQ = kotlin.math.round(((gNorm / scale) + zeroPoint)).toInt().coerceIn(-128, 127).toByte()
+                    val bQ = kotlin.math.round(((bNorm / scale) + zeroPoint)).toInt().coerceIn(-128, 127).toByte()
+                    byteBuffer.put(rQ)
+                    byteBuffer.put(gQ)
+                    byteBuffer.put(bQ)
+                } else {
+                    byteBuffer.putFloat(rNorm)
+                    byteBuffer.putFloat(gNorm)
+                    byteBuffer.putFloat(bNorm)
+                }
             }
         }
         if (scaled !== bitmap && !scaled.isRecycled) {
