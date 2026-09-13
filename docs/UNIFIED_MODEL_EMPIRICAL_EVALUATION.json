@@ -1,0 +1,36 @@
+{
+  "model_name": "OmniFaceUnifiedModelV1",
+  "architecture": "MobileNetV4-Conv-Small (Shared 512-ch Feature Map)",
+  "total_parameters": 3483335,
+  "compute_device": "CUDA (NVIDIA GeForce RTX 5060 Laptop GPU)",
+  "epochs_trained": 25,
+  "best_epoch": 4,
+  "validation_samples": 420,
+  "validation_identities": 105,
+  "biometric_metrics": {
+    "genuine_distribution": {
+      "mean_cosine_distance": 0.893109299694188,
+      "std_cosine_distance": 0.312495256405037
+    },
+    "impostor_distribution": {
+      "mean_cosine_distance": 0.9790702423732728,
+      "std_cosine_distance": 0.29500898698841654
+    },
+    "d_prime_separation": 0.28287985193038445,
+    "tar_at_far_1pct": 0.04,
+    "tar_at_far_01pct": 0.01,
+    "cavaface_cosine_agreement": 0.004887756425887346
+  },
+  "calibrated_thresholds": {
+    "tau_standard": 0.5873896479606628,
+    "tau_high": 0.2884927988052368,
+    "tau_strict": 0.218400239944458,
+    "track_swap_threshold": 0.9169328713417048,
+    "temporal_fusion_mode": "quality_weighted"
+  },
+  "exported_flatbuffers": {
+    "fp16": "app/src/main/assets/unified_face_v1_fp16.tflite",
+    "int8": "app/src/main/assets/unified_face_v1_int8.tflite",
+    "onnx": "models_cache/unified_face_v1.onnx"
+  }
+}

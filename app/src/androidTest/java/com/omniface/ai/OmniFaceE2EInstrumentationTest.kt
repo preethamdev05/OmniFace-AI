@@ -56,6 +56,14 @@ class OmniFaceE2EInstrumentationTest {
 
     @Test
     fun testFaceTemplateStorageAndRetrieval() = runBlocking {
+        val person = PersonEntity(
+            rollNumber = "INS-002",
+            fullName = "Ananya Sharma",
+            department = "Electrical Engineering",
+            semester = "III"
+        )
+        db.personDao().insertPerson(person)
+
         val dummyVector = FloatArray(512) { 0.04419f }
         val template = FaceTemplateEntity(
             id = UUID.randomUUID().toString(),
@@ -75,6 +83,14 @@ class OmniFaceE2EInstrumentationTest {
 
     @Test
     fun testAttendanceRecordMarkAsSynced() = runBlocking {
+        val person = PersonEntity(
+            rollNumber = "INS-003",
+            fullName = "Rahul Dravid",
+            department = "Physical Education",
+            semester = "VIII"
+        )
+        db.personDao().insertPerson(person)
+
         val record = AttendanceRecordEntity(
             recordId = "att_test_001",
             studentRoll = "INS-003",
@@ -84,8 +100,6 @@ class OmniFaceE2EInstrumentationTest {
             confidencePct = 98.4f,
             securityTier = "HIGH",
             sha256Hash = "hash123",
-            hardwareHash = "hw123",
-            offlineFlag = 1,
             isSynced = false
         )
         db.attendanceDao().insertRecord(record)
@@ -118,5 +132,23 @@ class OmniFaceE2EInstrumentationTest {
 
         assertNull(db.personDao().getPersonByRoll("INS-004"))
         assertEquals(0, db.personDao().getTemplatesForPerson("INS-004").size)
+    }
+
+    @Test
+    fun testUnifiedFaceModelEngineOnHardware() {
+        val engine = com.omniface.ai.ml.unified.UnifiedFaceModelEngine(context)
+        assertTrue("UnifiedFaceModelEngine must initialize successfully on hardware", engine.isReady)
+        val dummyBitmap = android.graphics.Bitmap.createBitmap(112, 112, android.graphics.Bitmap.Config.ARGB_8888)
+        val result = engine.processFace(dummyBitmap)
+        assertNotNull("Unified inference result must not be null", result)
+        assertEquals(512, result?.identityEmbedding?.size)
+        assertEquals(3, result?.padProbabilities?.size)
+        assertEquals(4, result?.qualityScores?.size)
+        assertEquals(1404, result?.meshLandmarks?.size)
+        assertEquals(265, result?.geometry3DMM?.size)
+        assertEquals(2, result?.gazeAngles?.size)
+        assertEquals(5, result?.attributeProbabilities?.size)
+        assertTrue("Latency must be positive", (result?.latencyMs ?: 0L) >= 0L)
+        engine.close()
     }
 }

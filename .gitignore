@@ -73,6 +73,10 @@ training/kaggle_unified_output/
 training/*.zip
 training/*.tar.gz
 
+training/105_classes_pins_dataset/
+*.pt
+*.pth
+
 # Large Raw Keras Checkpoints & Heavy Model Binaries (>25MB / raw checkpoints)
 models/*.keras
 models/*.zip

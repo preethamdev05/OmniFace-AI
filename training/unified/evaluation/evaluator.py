@@ -17,14 +17,15 @@ class BiometricEvaluator:
         generator = OpenSetPairGenerator(dataset)
         genuine_pairs, impostor_pairs = generator.generate_pairs(num_genuine=num_genuine, num_impostor=num_impostor)
         
-        # Extract embeddings for all dataset samples
-        embeddings = []
-        for i in range(len(dataset)):
-            img, _, _ = dataset[i]
-            img = img.unsqueeze(0).to(self.device)
-            out = self.model(img)
-            emb = out["identity_embedding"].squeeze(0).cpu().numpy()
-            embeddings.append(emb)
+        # Extract embeddings for all dataset samples in batches
+        embeddings_list = []
+        batch_size = 64
+        for i in range(0, len(dataset), batch_size):
+            chunk = [dataset[j][0] for j in range(i, min(i + batch_size, len(dataset)))]
+            batch_imgs = torch.stack(chunk).to(self.device)
+            out = self.model(batch_imgs)
+            embeddings_list.append(out["identity_embedding"].cpu().numpy())
+        embeddings = np.concatenate(embeddings_list, axis=0)
             
         # Compute Cosine Distances: 1.0 - (u . v)
         genuine_dists = []
@@ -69,22 +70,24 @@ class BiometricEvaluator:
         self.model.eval()
         apcer_count, apcer_total = 0, 0
         bpcer_count, bpcer_total = 0, 0
+        batch_size = 64
         
-        for i in range(len(dataset)):
-            img, targets, _ = dataset[i]
-            true_label = targets["pad_label"].item()
-            img = img.unsqueeze(0).to(self.device)
-            out = self.model(img)
-            pred_label = torch.argmax(out["pad_logits"], dim=-1).item()
+        for i in range(0, len(dataset), batch_size):
+            indices = list(range(i, min(i + batch_size, len(dataset))))
+            batch_imgs = torch.stack([dataset[j][0] for j in indices]).to(self.device)
+            true_labels = [dataset[j][1]["pad_label"].item() for j in indices]
+            out = self.model(batch_imgs)
+            pred_labels = torch.argmax(out["pad_logits"], dim=-1).cpu().numpy()
             
-            if true_label == 0:  # Bona fide
-                bpcer_total += 1
-                if pred_label != 0:
-                    bpcer_count += 1
-            else:  # Presentation attack (print or screen)
-                apcer_total += 1
-                if pred_label == 0:
-                    apcer_count += 1
+            for true_label, pred_label in zip(true_labels, pred_labels):
+                if true_label == 0:  # Bona fide
+                    bpcer_total += 1
+                    if pred_label != 0:
+                        bpcer_count += 1
+                else:  # Presentation attack (print or screen)
+                    apcer_total += 1
+                    if pred_label == 0:
+                        apcer_count += 1
                     
         apcer = (apcer_count / max(1, apcer_total))
         bpcer = (bpcer_count / max(1, bpcer_total))

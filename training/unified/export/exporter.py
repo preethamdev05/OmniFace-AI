@@ -9,18 +9,18 @@ class ModelExporter:
     Enforces exact single-graph input [1, 3, 112, 112] and named output signatures.
     """
     def __init__(self, model: nn.Module):
-        self.model = model
+        self.model = model.cpu()
         self.model.eval()
 
     def export_onnx(self, output_path: str, opset_version: int = 17) -> str:
-        dummy_input = torch.randn(1, 3, 112, 112)
+        dummy_input = torch.randn(1, 3, 112, 112, device="cpu")
         input_names = ["input_face_raw_rgb"]
         output_names = [
             "identity_embedding",
             "pad_logits",
+            "quality_scores",
             "mesh_landmarks",
             "geom_3dmm",
-            "quality_scores",
             "gaze_angles",
             "attribute_probs"
         ]
@@ -37,9 +37,9 @@ class ModelExporter:
                 return (
                     out["identity_embedding"],
                     out["pad_logits"],
+                    out["quality_scores"],
                     out["mesh_landmarks"],
                     out["geom_3dmm"],
-                    out["quality_scores"],
                     out["gaze_angles"],
                     out["attribute_probs"]
                 )
@@ -74,9 +74,9 @@ class ModelExporter:
                 return (
                     out["identity_embedding"],
                     out["pad_logits"],
+                    out["quality_scores"],
                     out["mesh_landmarks"],
                     out["geom_3dmm"],
-                    out["quality_scores"],
                     out["gaze_angles"],
                     out["attribute_probs"]
                 )

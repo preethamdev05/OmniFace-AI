@@ -72,8 +72,34 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
     private var gpuDelegate: GpuDelegate? = null
     private var nnapiDelegate: NnApiDelegate? = null
 
+    private var identityOutputIdx = 0
+    private var padOutputIdx = 1
+    private var qualityOutputIdx = 2
+    private var meshOutputIdx = 3
+    private var geomOutputIdx = 4
+    private var gazeOutputIdx = 5
+    private var attribOutputIdx = 6
+
     var activeHardwareTier: HardwareTier = HardwareTier.CPU_XNNPACK
         private set
+
+    private fun resolveOutputIndices(interp: Interpreter) {
+        val count = interp.outputTensorCount
+        for (i in 0 until count) {
+            val tensor = interp.getOutputTensor(i)
+            val totalElements = tensor.shape().fold(1) { acc, dim -> acc * dim }
+            when (totalElements) {
+                EMBEDDING_DIM -> identityOutputIdx = i
+                PAD_CLASSES -> padOutputIdx = i
+                QUALITY_DIMS -> qualityOutputIdx = i
+                MESH_POINTS * 3 -> meshOutputIdx = i
+                GEOM_DIM -> geomOutputIdx = i
+                GAZE_DIMS -> gazeOutputIdx = i
+                ATTRIB_DIMS -> attribOutputIdx = i
+            }
+        }
+        Log.i(TAG, "Resolved output tensor indices: id=$identityOutputIdx, pad=$padOutputIdx, quality=$qualityOutputIdx, mesh=$meshOutputIdx, geom=$geomOutputIdx, gaze=$gazeOutputIdx, attr=$attribOutputIdx")
+    }
 
     val npuHardwareInfo: NpuHardwareInfo by lazy {
         NpuHardwareDetector.detectNpuHardware()
@@ -112,7 +138,9 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
                 addDelegate(nnapi)
                 setNumThreads(4)
             }
-            interpreter = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            resolveOutputIndices(interp)
+            interpreter = interp
             nnapiDelegate = nnapi
             activeHardwareTier = HardwareTier.NPU_NNAPI
             Log.i(TAG, "Initialized UnifiedFaceModel on NPU/NNAPI ($modelAsset)")
@@ -127,7 +155,9 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
                 addDelegate(gpu)
                 setNumThreads(4)
             }
-            interpreter = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            resolveOutputIndices(interp)
+            interpreter = interp
             gpuDelegate = gpu
             activeHardwareTier = HardwareTier.GPU_DELEGATE
             Log.i(TAG, "Initialized UnifiedFaceModel on GPU ($modelAsset)")
@@ -141,7 +171,9 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
                 setNumThreads(4)
                 setUseXNNPACK(true)
             }
-            interpreter = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            resolveOutputIndices(interp)
+            interpreter = interp
             activeHardwareTier = HardwareTier.CPU_XNNPACK
             Log.i(TAG, "Initialized UnifiedFaceModel on CPU XNNPACK ($modelAsset)")
             return true
@@ -176,13 +208,13 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         val attribOutput = Array(1) { FloatArray(ATTRIB_DIMS) }
 
         val outputs = mutableMapOf<Int, Any>(
-            0 to identityOutput,
-            1 to padOutput,
-            2 to qualityOutput,
-            3 to meshOutput,
-            4 to geomOutput,
-            5 to gazeOutput,
-            6 to attribOutput
+            identityOutputIdx to identityOutput,
+            padOutputIdx to padOutput,
+            qualityOutputIdx to qualityOutput,
+            meshOutputIdx to meshOutput,
+            geomOutputIdx to geomOutput,
+            gazeOutputIdx to gazeOutput,
+            attribOutputIdx to attribOutput
         )
 
         try {

@@ -1,3 +1,4 @@
+import os
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -16,15 +17,31 @@ class OmniFaceMultiTaskDataset(Dataset):
         num_samples: int = 1000,
         num_identities: int = 105,
         is_training: bool = True,
-        num_mesh_points: int = 468
+        num_mesh_points: int = 468,
+        cache_path: Optional[str] = "training/unified/datasets/teacher_dataset_cache.pt"
     ):
-        self.num_samples = num_samples
-        self.num_identities = num_identities
         self.is_training = is_training
         self.num_mesh_points = num_mesh_points
         self.transforms = BiometricAugmentationPipeline(is_training=is_training)
-        
-        # Deterministic sample metadata for auditing
+        self.records = None
+
+        if cache_path and os.path.exists(cache_path):
+            try:
+                cache = torch.load(cache_path, weights_only=False)
+                data_list = cache["train_data"] if is_training else cache["val_data"]
+                if len(data_list) > 0:
+                    self.records = data_list
+                    self.num_identities = cache.get("num_classes", num_identities)
+                    self.num_samples = len(self.records)
+                    self.sample_ids = [r["sample_id"] for r in self.records]
+                    self.identity_labels = [r["identity_label"].item() for r in self.records]
+                    self.pad_labels = [r["pad_label"].item() for r in self.records]
+                    return
+            except Exception:
+                self.records = None
+
+        self.num_samples = num_samples
+        self.num_identities = num_identities
         self.sample_ids = [f"sample_{i:06d}" for i in range(num_samples)]
         self.identity_labels = [i % num_identities for i in range(num_samples)]
         self.pad_labels = [(i % 3) for i in range(num_samples)]  # 0: bona fide, 1: print, 2: replay
@@ -33,6 +50,30 @@ class OmniFaceMultiTaskDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, str]]:
+        if self.records is not None:
+            r = self.records[idx]
+            face = r["face"]
+            if self.is_training:
+                face = self.transforms(face)
+            targets = {
+                "identity_label": r["identity_label"],
+                "pad_label": r["pad_label"],
+                "mesh_landmarks": r["mesh_landmarks"],
+                "geom_3dmm": r["geom_3dmm"],
+                "quality_scores": r["quality_scores"],
+                "gaze_angles": r["gaze_angles"],
+                "attribute_probs": r["attribute_probs"],
+                "teacher_emb": r["teacher_emb"],
+                "teacher_pad_logits": r["pad_logits"],
+                "teacher_confidence": torch.tensor(0.98, dtype=torch.float32)
+            }
+            meta = {
+                "sample_id": r["sample_id"],
+                "image_hash": hashlib.sha256(face.numpy().tobytes()).hexdigest(),
+                "ground_truth_available": "true" if r["pad_label"].item() == 0 else "false"
+            }
+            return face, targets, meta
+
         # Deterministic synthetic seed per sample for reproducible testing
         rng = np.random.RandomState(idx)
         
