@@ -79,7 +79,6 @@ class FaceSecurityPipeline(
     constructor(
         context: Context,
         recognitionEngine: FaceRecognitionEngine,
-        omniFaceEngine: OmniFaceIntelligenceEngine?,
         tracker: FaceTracker = FaceTracker()
     ) : this(
         context,
@@ -89,7 +88,6 @@ class FaceSecurityPipeline(
                     context = context.applicationContext,
                     identityStore = OmniFaceApplication.instance.identityStore,
                     recognitionEngine = recognitionEngine,
-                    omniFaceEngine = omniFaceEngine,
                     tracker = tracker
                 )
         } catch (_: Throwable) {
@@ -97,15 +95,12 @@ class FaceSecurityPipeline(
                 context = context.applicationContext,
                 identityStore = EmptyIdentityStore(),
                 recognitionEngine = recognitionEngine,
-                omniFaceEngine = omniFaceEngine,
                 tracker = tracker
             )
         }
     )
 
     val recognitionEngine: FaceRecognitionEngine get() = engine.recognitionEngine
-    val omniFaceEngine: OmniFaceIntelligenceEngine? get() = engine.omniFaceEngine
-    val qualcommEngine: OmniFaceIntelligenceEngine? get() = engine.omniFaceEngine
     val tracker: FaceTracker get() = engine.tracker
     val passivePadEngine: PassivePadEngine get() = engine.passivePadEngine
     val multiStageLivenessEngine: MultiStageLivenessEngine get() = engine.multiStageLivenessEngine
@@ -128,30 +123,18 @@ class FaceSecurityPipeline(
                             app.verificationEngine as BiometricVerificationEngineImpl
                         } else {
                             val recEngine = FaceRecognitionEngine.getInstance(appContext)
-                            val intelEngine = try {
-                                OmniFaceIntelligenceEngine.getInstance(appContext)
-                            } catch (_: Throwable) {
-                                null
-                            }
                             BiometricVerificationEngineImpl(
                                 context = appContext,
                                 identityStore = EmptyIdentityStore(),
-                                recognitionEngine = recEngine,
-                                omniFaceEngine = intelEngine
+                                recognitionEngine = recEngine
                             )
                         }
                     } catch (_: Throwable) {
                         val recEngine = FaceRecognitionEngine.getInstance(appContext)
-                        val intelEngine = try {
-                            OmniFaceIntelligenceEngine.getInstance(appContext)
-                        } catch (_: Throwable) {
-                            null
-                        }
                         BiometricVerificationEngineImpl(
                             context = appContext,
                             identityStore = EmptyIdentityStore(),
-                            recognitionEngine = recEngine,
-                            omniFaceEngine = intelEngine
+                            recognitionEngine = recEngine
                         )
                     }
                     FaceSecurityPipeline(appContext, verificationEngine).also { INSTANCE = it }
@@ -172,26 +155,7 @@ class FaceSecurityPipeline(
         engine.preloadCachedBiometrics(cachedList)
     }
 
-    /**
-     * Presentation adapter delegates face feature extraction and inference directly to
-     * [BiometricVerificationEngineImpl], which executes `unifiedEngine.processScannerFace`
-     * under bounded concurrency control without dynamic tensor resizing.
-     */
-    fun processScannerFace(
-        faceCrop: Bitmap,
-        headYaw: Float,
-        headPitch: Float,
-        leftEyeOpenProb: Float?,
-        rightEyeOpenProb: Float?,
-        alignedFace: Bitmap?
-    ) = engine.unifiedEngine.processScannerFace(
-        faceCrop = faceCrop,
-        headYaw = headYaw,
-        headPitch = headPitch,
-        leftEyeOpenProb = leftEyeOpenProb,
-        rightEyeOpenProb = rightEyeOpenProb,
-        alignedFace = alignedFace
-    )
+
 
     suspend fun processFrame(
         faces: List<Face>,

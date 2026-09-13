@@ -141,17 +141,15 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     fun getActiveModelDisplayName(): String {
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded || isModelAvailable()) {
+        if (isModelAvailable()) {
             return "OmniFace Deep AI Engine"
         }
         return "AI Recognition Pack (Not Installed)"
     }
 
     private fun getInitialState(): ModelDownloadState {
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
         val file = getLocalModelFile()
-        if (unified.isModelLoaded || isModelAvailable()) {
+        if (isModelAvailable()) {
             return ModelDownloadState.Ready(
                 activeModelName = "OmniFace Deep AI Engine",
                 modelSizeBytes = if (file.exists()) file.length() else 380182456L
@@ -297,9 +295,9 @@ class ModelDownloadManager(private val context: Context) {
                     Log.i(TAG, "✅ Model successfully installed: ${installedModelFile.absolutePath} (${installedModelFile.length()} bytes)")
                     invalidateModelCache()
                     cachedModelAvailable = true
-                    UnifiedFaceIntelligenceEngine.getInstance(context).reloadModel()
+                    FaceRecognitionEngine.getInstance(context).reloadEngine()
                     _downloadState.value = ModelDownloadState.Ready(
-                        activeModelName = "Unified OmniFace AI (Qualcomm CavaFace + 6 Auxiliary Heads)",
+                        activeModelName = "OmniFace Deep AI Engine",
                         modelSizeBytes = installedModelFile.length()
                     )
                     withContext(Dispatchers.Main) {
@@ -360,10 +358,7 @@ class ModelDownloadManager(private val context: Context) {
         if (alt.exists()) {
             runCatching { alt.delete() }
         }
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded) {
-            unified.unloadUnifiedModel()
-        }
+        FaceRecognitionEngine.getInstance(context).reloadEngine()
         _downloadState.value = ModelDownloadState.Idle(
             modelExistsLocally = false,
             activeModelName = "AI Recognition Pack (Not Installed)",

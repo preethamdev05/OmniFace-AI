@@ -115,8 +115,8 @@ class BiometricPipelineConsolidationTest {
         val content = file!!.readText()
 
         assertTrue(
-            "FaceSecurityPipeline must reference processScannerFace for high-throughput single-model path",
-            content.contains("unifiedEngine.processScannerFace")
+            "FaceSecurityPipeline must delegate to BiometricVerificationEngineImpl",
+            content.contains("BiometricVerificationEngineImpl")
         )
         assertFalse(
             "FaceSecurityPipeline must not contain legacy mobilefacenet_512d fallback",

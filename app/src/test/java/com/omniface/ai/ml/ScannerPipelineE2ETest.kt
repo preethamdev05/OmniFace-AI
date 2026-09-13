@@ -322,7 +322,7 @@ class ScannerPipelineE2ETest {
     // ── 9. Critical Single-Model Architectural Invariant ──
 
     @Test
-    fun testScannerArchitecture_usesOnlyUnifiedModelFile() {
+    fun testScannerArchitecture_delegatesToAuthoritativeEngine() {
         val relPath = "app/src/main/java/com/omniface/ai/ml/pipeline/FaceSecurityPipeline.kt"
         val altRelPath = "src/main/java/com/omniface/ai/ml/pipeline/FaceSecurityPipeline.kt"
         val candidates = listOf(
@@ -338,13 +338,13 @@ class ScannerPipelineE2ETest {
         val pipelineContent = pipelineFile!!.readText()
 
         assertTrue(
-            "FaceSecurityPipeline must directly invoke processScannerFace on UnifiedFaceIntelligenceEngine",
-            pipelineContent.contains("unifiedEngine.processScannerFace")
+            "FaceSecurityPipeline must directly delegate to BiometricVerificationEngineImpl",
+            pipelineContent.contains("BiometricVerificationEngineImpl")
         )
 
         assertFalse(
-            "FaceSecurityPipeline must not contain fallback to mobilefacenet",
-            pipelineContent.contains("mobilefacenet_512d")
+            "FaceSecurityPipeline must not reference dead unifiedEngine.processScannerFace",
+            pipelineContent.contains("unifiedEngine.processScannerFace")
         )
     }
 }

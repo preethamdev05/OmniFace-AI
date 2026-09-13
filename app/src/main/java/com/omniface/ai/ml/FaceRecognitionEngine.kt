@@ -375,15 +375,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
     @Suppress("DEPRECATION")
     private fun initializeHardwareEngine() {
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded) {
-            activeBackbone = NeuralBackbone.QUALCOMM_CAVAFACE
-            activeHardwareTier = HardwareTier.NPU_NNAPI
-            isModelQuantizedInt8 = false
-            Log.i(TAG, "⚡ [UNIFIED SOVEREIGN ENGINE] FaceRecognitionEngine delegating to UnifiedFaceIntelligenceEngine (${unified.activeBackend}). Standalone legacy models bypassed.")
-            return
-        }
-
         if (tryInitTier(HardwareTier.NPU_NNAPI, candidateModelsFor(HardwareTier.NPU_NNAPI))) return
         if (tryInitTier(HardwareTier.GPU_DELEGATE, candidateModelsFor(HardwareTier.GPU_DELEGATE))) return
         if (tryInitTier(HardwareTier.CPU_XNNPACK, candidateModelsFor(HardwareTier.CPU_XNNPACK))) return
@@ -637,11 +628,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
     }
 
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded && !faceBitmap.isRecycled) {
-            val emb = unified.extractEmbedding(faceBitmap)
-            if (emb.isNotEmpty() && (emb[0] != 0f || emb[1] != 0f || emb[2] != 0f)) return emb
-        }
         ensureInitialized()
         synchronized(engineMutex) {
             val interpreter = tfliteInterpreter
@@ -731,10 +717,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
      * Returns 0 if model is not loaded.
      */
     fun benchmarkInferenceLatency(): Long {
-        val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
-        if (unified.isModelLoaded) {
-            return unified.benchmarkInferenceLatency()
-        }
         if (!engineReady) {
             return 0L
         }

@@ -46,7 +46,6 @@ class BiometricVerificationEngineImpl(
     private val context: Context,
     private val identityStore: IdentityStore,
     val recognitionEngine: FaceRecognitionEngine,
-    val omniFaceEngine: OmniFaceIntelligenceEngine?,
     val tracker: FaceTracker = FaceTracker(),
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) : BiometricVerificationEngine {
@@ -62,16 +61,10 @@ class BiometricVerificationEngineImpl(
         ): BiometricVerificationEngineImpl {
             val appContext = context.applicationContext
             val recEngine = FaceRecognitionEngine.getInstance(appContext)
-            val intelEngine = try {
-                OmniFaceIntelligenceEngine.getInstance(appContext)
-            } catch (_: Throwable) {
-                null
-            }
             return BiometricVerificationEngineImpl(
                 context = appContext,
                 identityStore = identityStore,
-                recognitionEngine = recEngine,
-                omniFaceEngine = intelEngine
+                recognitionEngine = recEngine
             )
         }
     }
@@ -80,7 +73,6 @@ class BiometricVerificationEngineImpl(
     val multiStageLivenessEngine = MultiStageLivenessEngine(context, passivePadEngine)
     val temporalLivenessEngine = TemporalLivenessEngine()
     val matcher = FaceMatcher()
-    val unifiedEngine: UnifiedFaceIntelligenceEngine get() = UnifiedFaceIntelligenceEngine.getInstance(context)
 
     // Volatile in-memory cache of domain identity templates
     @Volatile
@@ -166,13 +158,12 @@ class BiometricVerificationEngineImpl(
         matcher.preloadCachedBiometrics(cachedList)
         recognitionEngine.preloadCachedBiometrics(cachedList)
 
-        val tierLabel = if (unifiedEngine.isModelLoaded) unifiedEngine.activeBackend
-        else recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
+        val tierLabel = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
 
         _telemetry.update {
             it.copy(
                 resolvedBackendLabel = tierLabel,
-                isReady = unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady
+                isReady = recognitionEngine.isEngineReady
             )
         }
         Log.i(TAG, "BiometricVerificationEngine reloaded ${templates.size} volatile identity templates")
@@ -395,84 +386,50 @@ class BiometricVerificationEngineImpl(
                 }
             }
 
-            val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
-                if (!scheduler.isTrackCancelled(trackId)) {
-                    scheduler.execute {
-                        unifiedEngine.processScannerFace(
-                            faceCrop = faceCrop,
-                            headYaw = face.headEulerAngleY,
-                            headPitch = face.headEulerAngleX,
-                            leftEyeOpenProb = face.leftEyeOpenProbability,
-                            rightEyeOpenProb = face.rightEyeOpenProbability,
-                            alignedFace = alignedFaceBitmap
-                        )
-                    }
-                } else null
-            } else null
-
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null
             var passivePadResult: PassivePadResult? = null
-            var map3dResult: FaceMap3DMMResult? = null
-            var attrResult: FaceAttributesResult? = null
-            var gazeResult: EyeGazeResult? = null
-            var meshResult: MediaPipeMeshResult? = null
-            var hrnetResult: HRNetFaceResult? = null
+            val map3dResult: FaceMap3DMMResult? = null
+            val attrResult: FaceAttributesResult? = null
+            val gazeResult: EyeGazeResult? = null
+            val meshResult: MediaPipeMeshResult? = null
+            val hrnetResult: HRNetFaceResult? = null
 
-            if (unifiedResult != null) {
-                lastExtractedEmbedding = unifiedResult.embedding512
-                passivePadResult = unifiedResult.passivePad
-                map3dResult = unifiedResult.map3d
-                attrResult = unifiedResult.attributes
-                gazeResult = unifiedResult.gaze
-                meshResult = unifiedResult.mesh
-                hrnetResult = unifiedResult.hrnet
+            if (faceCrop != null && !faceCrop.isRecycled && !scheduler.isTrackCancelled(trackId)) {
+                val extractedEmbedding = try {
+                    val alignedOrCrop = alignedFaceBitmap ?: faceCrop
+                    scheduler.execute {
+                        recognitionEngine.extractEmbedding(alignedOrCrop)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Embedding extraction error: ${t.message}")
+                    FloatArray(0)
+                }
 
-                if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
-                    trackState.pushEmbedding(unifiedResult.embedding512, qualityResult.overallQualityScore / 100f)
-                    val effectiveEmbedding = trackState.getFusedEmbedding() ?: unifiedResult.embedding512
-                    try {
-                        matchResult = matcher.match(
-                            queryEmbedding = effectiveEmbedding,
-                            studentMap = effectiveStudentMap,
-                            securityTier = securityTier,
-                            activeTier = recognitionEngine.activeHardwareTier
-                        )
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "Gate 3 Match Exception", t)
+                if (extractedEmbedding.isNotEmpty()) {
+                    lastExtractedEmbedding = extractedEmbedding
+                    if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                        trackState.pushEmbedding(extractedEmbedding, qualityResult.overallQualityScore / 100f)
+                        val effectiveEmbedding = trackState.getFusedEmbedding() ?: extractedEmbedding
+                        try {
+                            matchResult = matcher.match(
+                                queryEmbedding = effectiveEmbedding,
+                                studentMap = effectiveStudentMap,
+                                securityTier = securityTier,
+                                activeTier = recognitionEngine.activeHardwareTier
+                            )
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Gate 3 Match Exception", t)
+                        }
                     }
                 }
-            } else {
-                if (faceCrop != null && !faceCrop.isRecycled) {
-                    val fallbackEmbedding = try {
-                        val alignedOrCrop = alignedFaceBitmap ?: faceCrop
-                        scheduler.execute {
-                            recognitionEngine.extractEmbedding(alignedOrCrop)
-                        }
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "Fallback embedding error: ${t.message}")
-                        FloatArray(0)
-                    }
-                    if (fallbackEmbedding.isNotEmpty()) {
-                        lastExtractedEmbedding = fallbackEmbedding
-                        if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
-                            trackState.pushEmbedding(fallbackEmbedding, qualityResult.overallQualityScore / 100f)
-                            val effectiveEmbedding = trackState.getFusedEmbedding() ?: fallbackEmbedding
-                            try {
-                                matchResult = matcher.match(
-                                    queryEmbedding = effectiveEmbedding,
-                                    studentMap = effectiveStudentMap,
-                                    securityTier = securityTier,
-                                    activeTier = recognitionEngine.activeHardwareTier
-                                )
-                            } catch (t: Throwable) {
-                                Log.e(TAG, "Gate 3 Match Exception (fallback)", t)
-                            }
-                        }
-                    }
+
+                if (config.isPassivePadEnabled) {
                     try {
                         passivePadResult = passivePadEngine.run(faceCrop)
-                    } catch (_: Throwable) {}
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Passive PAD evaluation error: ${t.message}")
+                    }
                 }
             }
 

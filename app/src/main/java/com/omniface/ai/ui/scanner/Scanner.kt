@@ -213,12 +213,9 @@ class ScannerViewModel : ViewModel() {
     private val attendanceService = OmniFaceApplication.instance.attendanceService
     private val verificationEngine = OmniFaceApplication.instance.verificationEngine
     private val downloadManager = ModelDownloadManager.getInstance(OmniFaceApplication.instance)
-    private val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
     private val securityPipeline: com.omniface.ai.ml.pipeline.FaceSecurityPipeline =
         com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(OmniFaceApplication.instance)
     private val recognitionEngine: FaceRecognitionEngine = securityPipeline.recognitionEngine
-    private val omniFaceIntelligenceEngine: OmniFaceIntelligenceEngine? = securityPipeline.omniFaceEngine
-    private val qualcommIntelligenceEngine: OmniFaceIntelligenceEngine? get() = omniFaceIntelligenceEngine
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val faceTracker: FaceTracker = securityPipeline.tracker
 
@@ -246,15 +243,15 @@ class ScannerViewModel : ViewModel() {
             deviceTemperature = ThermalGovernor.currentTemperature.value,
             isAutoScalingEnabled = ThermalGovernor.isAutoScalingEnabled.value,
             neuralModelConfig = com.omniface.ai.ml.NeuralModelConfigManager.configState.value,
-            isEngineLoaded = unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady,
+            isEngineLoaded = recognitionEngine.isEngineReady,
             isModelAvailable = downloadManager.isModelAvailable(),
-            hardwareTierLabel = if (unifiedEngine.isModelLoaded) unifiedEngine.activeBackend else initialTierLabel,
+            hardwareTierLabel = initialTierLabel,
             enrolledCount = cachedTemplates.map { it.studentRoll }.distinct().size,
             isDatabaseEmpty = cachedTemplates.isEmpty(),
             engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                isReady = unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady,
-                stage = if (unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady) "Ready" else if (!downloadManager.isModelAvailable()) "Model Not Downloaded" else "Initializing Neural Engine...",
-                progress = if (unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady) 1.0f else 0.2f,
+                isReady = recognitionEngine.isEngineReady,
+                stage = if (recognitionEngine.isEngineReady) "Ready" else if (!downloadManager.isModelAvailable()) "Model Not Downloaded" else "Initializing Neural Engine...",
+                progress = if (recognitionEngine.isEngineReady) 1.0f else 0.2f,
                 activeModelName = initialModelName,
                 hardwareTarget = initialTierLabel
             )
@@ -411,22 +408,23 @@ class ScannerViewModel : ViewModel() {
         checkDatabaseStatus()
         observeModelDownloads()
         observeNeuralModelConfig()
-        observeUnifiedEngine()
+        observeTelemetry()
     }
 
-    private fun observeUnifiedEngine() {
+    private fun observeTelemetry() {
         viewModelScope.launch {
-            unifiedEngine.isModelLoadedState.collect { loaded ->
+            verificationEngine.telemetry.collect { tele ->
                 _uiState.update {
                     it.copy(
-                        isEngineLoaded = loaded,
-                        hardwareTierLabel = if (loaded) unifiedEngine.activeBackend else "Engine Standby",
+                        isEngineLoaded = tele.isReady,
+                        hardwareTierLabel = tele.resolvedBackendLabel,
+                        benchmarkLatencyMs = tele.latencyMs,
                         engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                            isReady = loaded || !it.isModelAvailable,
-                            stage = if (loaded) "Ready (${unifiedEngine.activeBackend})" else if (!it.isModelAvailable) "Sensor Test Mode" else "Standby",
-                            progress = if (loaded || !it.isModelAvailable) 1.0f else 0.0f,
-                            activeModelName = it.activeModelDisplayName,
-                            hardwareTarget = if (loaded) unifiedEngine.activeBackend else "CPU"
+                            isReady = tele.isReady || !it.isModelAvailable,
+                            stage = if (tele.isReady) "Ready" else if (!it.isModelAvailable) "Sensor Test Mode" else "Standby",
+                            progress = if (tele.isReady || !it.isModelAvailable) 1.0f else 0.0f,
+                            activeModelName = tele.activeModelName,
+                            hardwareTarget = tele.resolvedBackendLabel
                         )
                     )
                 }
@@ -437,7 +435,7 @@ class ScannerViewModel : ViewModel() {
     fun loadEngineExplicitly(context: Context) {
         if (_uiState.value.isEngineLoading) return
         if (!downloadManager.isModelAvailable()) {
-            android.widget.Toast.makeText(context, "☁️ Downloading AI Face Pack (380 MB)...", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, "☁️ Downloading AI Face Pack...", android.widget.Toast.LENGTH_SHORT).show()
             downloadManager.startDownload {
                 loadEngineExplicitly(context)
             }
@@ -445,17 +443,17 @@ class ScannerViewModel : ViewModel() {
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isEngineLoading = true) }
-            val loaded = withContext(Dispatchers.Default) {
-                unifiedEngine.loadUnifiedModelExplicit(context)
+            val ready = withContext(Dispatchers.Default) {
+                recognitionEngine.isEngineReady
             }
             _uiState.update {
                 it.copy(
                     isEngineLoading = false,
-                    isEngineLoaded = loaded,
-                    hardwareTierLabel = if (loaded) unifiedEngine.activeBackend else "Engine Standby"
+                    isEngineLoaded = ready,
+                    hardwareTierLabel = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
                 )
             }
-            if (loaded) {
+            if (ready) {
                 initEngine(context)
             }
         }
@@ -581,21 +579,6 @@ class ScannerViewModel : ViewModel() {
         viewModelScope.launch {
             ThermalGovernor.isAutoScalingEnabled.collect { enabled ->
                 _uiState.update { it.copy(isAutoScalingEnabled = enabled) }
-            }
-        }
-
-        // Auto-load unified model in background if model is installed on disk
-        if (!unifiedEngine.isModelLoaded && downloadManager.isModelAvailable()) {
-            viewModelScope.launch(Dispatchers.Default) {
-                val loaded = unifiedEngine.loadUnifiedModelExplicit(context)
-                if (loaded) {
-                    _uiState.update {
-                        it.copy(
-                            isEngineLoaded = true,
-                            hardwareTierLabel = unifiedEngine.activeBackend
-                        )
-                    }
-                }
             }
         }
 
@@ -1169,7 +1152,7 @@ class ScannerViewModel : ViewModel() {
         previewHeight: Float,
         downscaleFactor: Float = 1.0f
     ) {
-        val isLoaded = unifiedEngine.isModelLoaded || recognitionEngine.isEngineReady
+        val isLoaded = recognitionEngine.isEngineReady
         if (_uiState.value.isScanningPaused || !_uiState.value.isCameraBound || !isLoaded || fullBitmap == null) {
             if (!_uiState.value.isScanningPaused && _uiState.value.isCameraBound && !isLoaded && fullBitmap != null) {
                 if (_uiState.value.isModelAvailable) {
@@ -2075,11 +2058,11 @@ fun ScannerScreen(
                     // Clean, Real-Time Biometric Reticle & Identity Overlay
                     FaceDiagnosticsOverlay(
                         visualData = state.visualGeometryData,
-                        isDeveloperMode = state.isDeveloperOverlayEnabled && state.neuralModelConfig.isCyberneticHudOverlayEnabled,
-                        showMeshWireframe = state.neuralModelConfig.isMediaPipeMeshEnabled || state.neuralModelConfig.isMeshOverlayEnabled,
-                        showPoseAxes = state.neuralModelConfig.isPoseAxesOverlayEnabled,
-                        showGazeRays = state.neuralModelConfig.isGazeRaysOverlayEnabled,
-                        show3DMMTopography = state.neuralModelConfig.is3DMMOverlayEnabled,
+                        isDeveloperMode = state.isDeveloperOverlayEnabled,
+                        showMeshWireframe = false,
+                        showPoseAxes = false,
+                        showGazeRays = false,
+                        show3DMMTopography = false,
                         modifier = Modifier.fillMaxSize()
                     )
 

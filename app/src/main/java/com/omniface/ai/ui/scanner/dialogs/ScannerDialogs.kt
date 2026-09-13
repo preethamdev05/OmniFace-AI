@@ -125,65 +125,7 @@ internal fun ModelManagerDialog(
                     )
                 }
 
-                // FaceMap 3DMM
-                item {
-                    ModelToggleRow(
-                        title = "FaceMap 3DMM",
-                        subtitle = "265-D 3D Surface Depth Reconstruction",
-                        checked = config.isFaceMap3DMMEnabled,
-                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setFaceMap3DMMEnabled(it) },
-                        isDark = isDark,
-                        tint = Color(0xFF8B5CF6)
-                    )
-                }
 
-                // EyeGazeNet
-                item {
-                    ModelToggleRow(
-                        title = "EyeGazeNet Tracker",
-                        subtitle = "Pupil Vector & Attention Tracking",
-                        checked = config.isEyeGazeEnabled,
-                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setEyeGazeEnabled(it) },
-                        isDark = isDark,
-                        tint = Color(0xFFEC4899)
-                    )
-                }
-
-                // FaceAttribNet
-                item {
-                    ModelToggleRow(
-                        title = "FaceAttribNet Classifier",
-                        subtitle = "Smile, Eyeglasses & Mask Detection",
-                        checked = config.isFaceAttribEnabled,
-                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setFaceAttribEnabled(it) },
-                        isDark = isDark,
-                        tint = Color(0xFFF59E0B)
-                    )
-                }
-
-                // MediaPipe Mesh
-                item {
-                    ModelToggleRow(
-                        title = "MediaPipe 468-Point 3D Mesh",
-                        subtitle = "Dense Facial Surface Point Cloud",
-                        checked = config.isMediaPipeMeshEnabled,
-                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setMediaPipeMeshEnabled(it) },
-                        isDark = isDark,
-                        tint = Color(0xFF14B8A6)
-                    )
-                }
-
-                // HRNet Landmarks
-                item {
-                    ModelToggleRow(
-                        title = "HRNet Deep Landmarks",
-                        subtitle = "29-Point Landmark Heatmap Extractor",
-                        checked = config.isHrnetLandmarksEnabled,
-                        onCheckedChange = { com.omniface.ai.ml.NeuralModelConfigManager.setHrnetLandmarksEnabled(it) },
-                        isDark = isDark,
-                        tint = Color(0xFF6366F1)
-                    )
-                }
 
                 // Dynamic Centroid Adaptation
                 item {

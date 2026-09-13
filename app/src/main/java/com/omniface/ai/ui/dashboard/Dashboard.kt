@@ -58,7 +58,6 @@ import com.omniface.ai.sync.AttendanceSyncWorker
 import com.omniface.ai.ui.components.*
 import com.omniface.ai.ui.navigation.Screen
 import com.omniface.ai.ui.theme.*
-import com.omniface.ai.ml.UnifiedFaceIntelligenceEngine
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextAlign
@@ -100,14 +99,16 @@ data class DashboardUiState(
 class DashboardViewModel : ViewModel() {
     private val db = OmniFaceApplication.instance.database
     private val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    private val unifiedEngine = UnifiedFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance.applicationContext)
+    private val recognitionEngine = FaceRecognitionEngine.getInstance(OmniFaceApplication.instance.applicationContext)
     private val downloadManager = ModelDownloadManager.getInstance(OmniFaceApplication.instance.applicationContext)
+    private val verificationEngine = OmniFaceApplication.instance.verificationEngine
 
     private val _uiState = MutableStateFlow(
         DashboardUiState(
-            isEngineLoaded = unifiedEngine.isModelLoaded,
+            isEngineLoaded = recognitionEngine.isEngineReady,
             isModelAvailable = downloadManager.isModelAvailable(),
-            modelDownloadState = downloadManager.downloadState.value
+            modelDownloadState = downloadManager.downloadState.value,
+            hardwareTierLabel = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
         )
     )
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
@@ -117,14 +118,6 @@ class DashboardViewModel : ViewModel() {
         observeEngineState()
         observeSyncState()
         observeModelDownloads()
-        checkAutoLoadEngine()
-    }
-
-    private fun checkAutoLoadEngine() {
-        val context = OmniFaceApplication.instance.applicationContext
-        if (downloadManager.isModelAvailable() && !unifiedEngine.isModelLoaded) {
-            loadEngine(context, silent = true)
-        }
     }
 
     private fun observeModelDownloads() {
@@ -154,17 +147,13 @@ class DashboardViewModel : ViewModel() {
 
     private fun observeEngineState() {
         viewModelScope.launch {
-            unifiedEngine.isModelLoadedState.collect { loaded ->
-                _uiState.update { it.copy(isEngineLoaded = loaded) }
-                if (loaded) {
-                    benchmarkEngine()
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            hardwareTierLabel = "Engine Standby",
-                            benchmarkLatencyMs = 0L
-                        )
-                    }
+            verificationEngine.telemetry.collect { tele ->
+                _uiState.update {
+                    it.copy(
+                        isEngineLoaded = tele.isReady,
+                        hardwareTierLabel = tele.resolvedBackendLabel,
+                        benchmarkLatencyMs = tele.latencyMs
+                    )
                 }
             }
         }
@@ -173,20 +162,21 @@ class DashboardViewModel : ViewModel() {
     fun loadEngine(context: Context, silent: Boolean = false) {
         if (_uiState.value.isEngineLoading) return
         if (!downloadManager.isModelAvailable()) {
-            Toast.makeText(context, "☁️ Downloading AI Face Pack (380 MB)...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "☁️ Downloading AI Face Pack...", Toast.LENGTH_SHORT).show()
             startModelDownload(context)
             return
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isEngineLoading = true) }
             val loaded = withContext(Dispatchers.Default) {
-                unifiedEngine.loadUnifiedModelExplicit(context)
+                recognitionEngine.isEngineReady
             }
             _uiState.update {
                 it.copy(
                     isEngineLoading = false,
                     isEngineLoaded = loaded,
-                    showActionModal = loaded && !silent
+                    showActionModal = loaded && !silent,
+                    hardwareTierLabel = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
                 )
             }
             if (loaded) {
@@ -197,13 +187,9 @@ class DashboardViewModel : ViewModel() {
 
     fun unloadEngine() {
         viewModelScope.launch(Dispatchers.Default) {
-            unifiedEngine.unloadUnifiedModel()
             _uiState.update {
                 it.copy(
-                    isEngineLoaded = false,
-                    showActionModal = false,
-                    hardwareTierLabel = "Engine Standby",
-                    benchmarkLatencyMs = 0L
+                    showActionModal = false
                 )
             }
         }
@@ -277,12 +263,10 @@ class DashboardViewModel : ViewModel() {
 
     private fun benchmarkEngine() {
         viewModelScope.launch(Dispatchers.Default) {
-            if (!unifiedEngine.isModelLoaded) return@launch
-            val context = OmniFaceApplication.instance.applicationContext
-            val engine = FaceRecognitionEngine.getInstance(context)
-            val latency = engine.benchmarkInferenceLatency()
-            val npuInfo = engine.npuHardwareInfo
-            val tier = engine.activeHardwareTier.getResolvedLabel(npuInfo)
+            if (!recognitionEngine.isEngineReady) return@launch
+            val latency = recognitionEngine.benchmarkInferenceLatency()
+            val npuInfo = recognitionEngine.npuHardwareInfo
+            val tier = recognitionEngine.activeHardwareTier.getResolvedLabel(npuInfo)
 
             _uiState.update {
                 it.copy(

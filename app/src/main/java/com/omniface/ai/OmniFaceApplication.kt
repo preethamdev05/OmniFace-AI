@@ -132,12 +132,8 @@ class OmniFaceApplication : Application() {
                 cachedStudentMap = students.associate { it.rollNumber to it.fullName }
                 cachedTemplates = templates
 
-                // 2. Initialize and load Unified Face Intelligence Engine if available
-                val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(this@OmniFaceApplication)
-                val downloadManager = com.omniface.ai.ml.ModelDownloadManager.getInstance(this@OmniFaceApplication)
-                if (downloadManager.isModelAvailable()) {
-                    unifiedEngine.loadUnifiedModelExplicit(this@OmniFaceApplication)
-                }
+                // 2. Initialize FaceRecognitionEngine
+                com.omniface.ai.ml.FaceRecognitionEngine.getInstance(this@OmniFaceApplication)
 
                 // 3. Initialize FaceSecurityPipeline singleton and preload templates
                 val pipeline = com.omniface.ai.ml.pipeline.FaceSecurityPipeline.getInstance(this@OmniFaceApplication)
@@ -195,12 +191,18 @@ class OmniFaceApplication : Application() {
     }
 
     private fun verifyModelAssetsIntegrity() {
-        val unifiedFile = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.MODEL_ASSET
-        val privateFile = java.io.File(java.io.File(filesDir, "models"), unifiedFile)
-        if (privateFile.exists() && privateFile.canRead()) {
-            Log.i("OmniFaceApp", "Verified unified model in app private storage: ${privateFile.length()} bytes")
+        val candidates = listOf(
+            "mobilefacenet_512d_int8.tflite",
+            "mobilefacenet_512d_fp16.tflite",
+            "mobilefacenet_512d_fp32.tflite",
+            "cavaface.tflite"
+        )
+        val privateModelsDir = java.io.File(filesDir, "models")
+        val found = candidates.any { java.io.File(privateModelsDir, it).exists() }
+        if (found) {
+            Log.i("OmniFaceApp", "Verified model in app private storage.")
         } else {
-            Log.i("OmniFaceApp", "Unified model not pre-bundled in assets; will be downloaded on-demand from Cloudflare R2.")
+            Log.i("OmniFaceApp", "Model verification check complete.")
         }
     }
 

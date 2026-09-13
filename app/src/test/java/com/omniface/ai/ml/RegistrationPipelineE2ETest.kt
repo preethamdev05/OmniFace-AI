@@ -230,14 +230,12 @@ class RegistrationPipelineE2ETest {
             val content = enrollmentFile.readText()
             assertFalse("Enrollment.kt must not reference legacy QualcommFaceIntelligenceEngine",
                 content.contains("QualcommFaceIntelligenceEngine"))
-            assertFalse("Enrollment.kt must not reference legacy standalone mobilefacenet",
-                content.contains("mobilefacenet"))
-            assertFalse("Enrollment.kt must not reference legacy standalone cavaface.tflite",
-                content.contains("cavaface.tflite"))
-            assertFalse("Enrollment.kt must not reference legacy standalone minifasnet",
-                content.contains("minifasnet"))
-            assertTrue("Enrollment.kt must use UnifiedFaceIntelligenceEngine",
+            assertFalse("Enrollment.kt must not reference dead UnifiedFaceIntelligenceEngine",
                 content.contains("UnifiedFaceIntelligenceEngine"))
+            assertTrue("Enrollment.kt must use FaceRecognitionEngine",
+                content.contains("FaceRecognitionEngine"))
+            assertTrue("Enrollment.kt must use PassivePadEngine",
+                content.contains("PassivePadEngine"))
         }
     }
 }

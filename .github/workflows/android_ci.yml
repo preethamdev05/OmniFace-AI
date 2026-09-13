@@ -51,6 +51,13 @@ jobs:
         env:
           DATABASE_URL: 'postgresql://test_user:test_password@localhost:5432/omniface_test'
 
+      - name: 🗄️ Push Drizzle Database Schema
+        run: |
+          cd backend
+          npm run db:push
+        env:
+          DATABASE_URL: 'postgresql://test_user:test_password@localhost:5432/omniface_test'
+
       - name: 🧪 Run Backend Integration Tests
         run: |
           cd backend

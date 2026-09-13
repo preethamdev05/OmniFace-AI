@@ -157,15 +157,16 @@ data class EnrollmentUiState(
 class EnrollmentViewModel : ViewModel() {
     private val db = OmniFaceApplication.instance.database
     private val downloadManager = com.omniface.ai.ml.ModelDownloadManager.getInstance(OmniFaceApplication.instance)
-    private val unifiedEngine: UnifiedFaceIntelligenceEngine = UnifiedFaceIntelligenceEngine.getInstance(OmniFaceApplication.instance)
+    private val recognitionEngine = com.omniface.ai.ml.FaceRecognitionEngine.getInstance(OmniFaceApplication.instance)
+    private val passivePadEngine = com.omniface.ai.ml.antispoof.PassivePadEngine(OmniFaceApplication.instance)
     private val _uiState = MutableStateFlow(
         EnrollmentUiState(
             isModelAvailable = downloadManager.isModelAvailable(),
-            isEngineLoaded = unifiedEngine.isModelLoaded,
+            isEngineLoaded = recognitionEngine.isEngineReady,
             engineLoadingProgress = com.omniface.ai.ml.EngineLoadingProgress(
-                isReady = unifiedEngine.isModelLoaded || !downloadManager.isModelAvailable(),
-                stage = if (unifiedEngine.isModelLoaded) "Ready" else "Standby",
-                progress = if (unifiedEngine.isModelLoaded) 1.0f else 0.0f
+                isReady = recognitionEngine.isEngineReady,
+                stage = if (recognitionEngine.isEngineReady) "Ready" else "Standby",
+                progress = if (recognitionEngine.isEngineReady) 1.0f else 0.0f
             )
         )
     )
@@ -175,23 +176,12 @@ class EnrollmentViewModel : ViewModel() {
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
     init {
-        if (!unifiedEngine.isModelLoaded && downloadManager.isModelAvailable()) {
-            _uiState.update { it.copy(isEngineLoading = true) }
-            viewModelScope.launch(Dispatchers.Default) {
-                val loaded = unifiedEngine.loadUnifiedModelExplicit(OmniFaceApplication.instance)
-                _uiState.update { it.copy(isEngineLoading = false, isEngineLoaded = loaded) }
-            }
-        }
         viewModelScope.launch {
-            unifiedEngine.isModelLoadedState.collect { isLoaded ->
+            recognitionEngine.loadingProgress.collect { progress ->
                 _uiState.update {
                     it.copy(
-                        isEngineLoaded = isLoaded,
-                        engineLoadingProgress = EngineLoadingProgress(
-                            isReady = isLoaded,
-                            stage = if (isLoaded) "Unified AI Engine Ready (${unifiedEngine.activeBackend})" else "Engine Standby",
-                            progress = if (isLoaded) 1.0f else 0.0f
-                        )
+                        isEngineLoaded = progress.isReady,
+                        engineLoadingProgress = progress
                     )
                 }
             }
@@ -479,12 +469,12 @@ class EnrollmentViewModel : ViewModel() {
                 return@launch
             }
 
-            if (!unifiedEngine.isModelLoaded) {
+            if (!recognitionEngine.isEngineReady) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Initializing AI Engine...", Toast.LENGTH_SHORT).show()
                 }
-                val loaded = unifiedEngine.loadUnifiedModelExplicit(context)
-                if (!loaded) {
+                recognitionEngine.reloadEngine()
+                if (!recognitionEngine.isEngineReady) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "AI engine not ready. Please verify the AI model in Settings.", Toast.LENGTH_LONG).show()
                     }
@@ -816,54 +806,17 @@ class EnrollmentViewModel : ViewModel() {
                     }
                 }
 
-                // 2. Execute Unified Registration ML Model (Anti-Spoof + CavaFace + 3DMM + Attrib + Gaze)
-                val regResult = unifiedEngine.processRegistrationFace(
-                    faceCrop = cropSnapshot,
-                    alignedFace = embeddingInputBitmap
-                )
-
-                if (regResult == null) {
+                // 2. Security Gate 1: MiniFASNetV2 Anti-Spoofing (Passive PAD)
+                val padResult = passivePadEngine.run(cropSnapshot)
+                if (!padResult.isLive) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(OmniFaceApplication.instance, "AI Engine initialization error. Please retry.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-
-                // 3. Security Gate 1: MiniFASNetV2 Anti-Spoofing (Passive PAD)
-                if (!regResult.passivePad.isLive) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(OmniFaceApplication.instance, "❌ Enrollment Rejected: ${regResult.passivePad.attackTypeDescription} (Spoof: ${(regResult.passivePad.spoofProbability * 100).toInt()}%)", Toast.LENGTH_LONG).show()
+                        Toast.makeText(OmniFaceApplication.instance, "❌ Enrollment Rejected: ${padResult.attackTypeDescription} (Spoof: ${(padResult.spoofProbability * 100).toInt()}%)", Toast.LENGTH_LONG).show()
                         BiometricSoundboard.playSpoofAlert()
                     }
                     return@launch
                 }
 
-                // 4. Security Gate 2: FaceMap 3DMM Depth Variance
-                if (!regResult.map3d.isTrue3DSurface) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(OmniFaceApplication.instance, "❌ Enrollment Rejected: 2D flat presentation attack detected. Real face required.", Toast.LENGTH_LONG).show()
-                        BiometricSoundboard.playSpoofAlert()
-                    }
-                    return@launch
-                }
-
-                // 5. Security Gate 3: FaceAttribNet Sunglasses / Mask Occlusion
-                val sunglasses = regResult.attributes.sunglassesScore
-                val mask = regResult.attributes.maskScore
-                if (sunglasses > 0.75f) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(OmniFaceApplication.instance, "❌ Dark Sunglasses detected: Please remove sunglasses for enrollment.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-                if (mask > 0.75f) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(OmniFaceApplication.instance, "❌ Face mask detected: Please remove face covering for enrollment.", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-
-                // 6. Security Gate 4: Photometric & Signal Quality Assessment
+                // 3. Security Gate 2: Photometric & Signal Quality Assessment
                 val qualityReport = qualityChecker.checkFaceQuality(embeddingInputBitmap)
                 if (!qualityReport.isGoodQuality) {
                     val msg = when {
@@ -878,23 +831,18 @@ class EnrollmentViewModel : ViewModel() {
                     return@launch
                 }
 
-                // 7. Extract High-Precision CavaFace 512-D Embedding (with flip-augmentation on Step 1)
+                // 4. Extract High-Precision 512-D Embedding (with flip-augmentation on Step 1)
                 val embedding = if (step == 1) {
-                    val flipMatrix = Matrix().apply { preScale(-1.0f, 1.0f) }
-                    val flipped = try {
-                        Bitmap.createBitmap(embeddingInputBitmap, 0, 0, embeddingInputBitmap.width, embeddingInputBitmap.height, flipMatrix, true)
-                    } catch (_: Throwable) { null }
-
-                    if (flipped != null) {
-                        val embFlipped = unifiedEngine.extractCavafaceEmbeddingOnly(flipped)
-                        if (flipped != embeddingInputBitmap && !flipped.isRecycled) flipped.recycle()
-                        val fused = FloatArray(512) { i -> (regResult.embedding512[i] + embFlipped[i]) * 0.5f }
-                        unifiedEngine.l2Normalize(fused)
-                    } else {
-                        regResult.embedding512
-                    }
+                    recognitionEngine.extractEmbeddingWithFlipAugmentation(embeddingInputBitmap)
                 } else {
-                    regResult.embedding512
+                    recognitionEngine.extractEmbedding(embeddingInputBitmap)
+                }
+
+                if (embedding.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(OmniFaceApplication.instance, "AI Engine extraction error. Please retry.", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
                 }
 
                 val sharpness = (qualityReport.blurScore * 10f).coerceIn(0f, 100f)
