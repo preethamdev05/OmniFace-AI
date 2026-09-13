@@ -1,7 +1,7 @@
 {
   "benchmark_title": "OmniFace AI 1-to-100 Face Workload Scaling Matrix",
   "benchmark_version": "1.0.0",
-  "timestamp_utc": "2026-09-13T09:05:02Z",
+  "timestamp_utc": "2026-09-13T09:38:40Z",
   "evaluated_face_counts": [
     1,
     2,

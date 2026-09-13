@@ -1,5 +1,5 @@
 # 📈 OmniFace AI — 1-to-100 Face Workload Scaling Benchmark Report
-**Generated:** 2026-09-13T09:05:02Z  
+**Generated:** 2026-09-13T09:38:40Z  
 **Evaluation Scope:** Scalability and Queueing Dynamics from 1 to 100 Faces under Bounded Concurrency (1–3 Permits)  
 **Strict Architectural Guarantee:** Model batch size remains strictly **1** (`[1, 112, 112, 3]`). No dynamic tensor resizing.  
 

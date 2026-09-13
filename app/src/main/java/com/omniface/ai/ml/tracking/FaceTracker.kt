@@ -27,6 +27,15 @@ enum class IdentityClassification {
 }
 
 /**
+ * Lifecycle state of a tracked face subject.
+ */
+enum class TrackLifecycleState {
+    ACTIVE,
+    LOST,
+    PURGED
+}
+
+/**
  * Persistent Track State across sequential camera frames.
  *
  * Prevents identity flickering, bounding-box jitter, and ID reassignment.
@@ -42,6 +51,7 @@ data class TrackedFaceState(
     val firstSeenTimestampMs: Long = System.currentTimeMillis(),
     var frameCount: Int = 1,
     var lostFrameCount: Int = 0,
+    var lifecycleState: TrackLifecycleState = TrackLifecycleState.ACTIVE,
     val rectFilter: RectOneEuroFilter = RectOneEuroFilter(minCutoff = 1.2f, beta = 0.05f),
     val landmarkFilters: Array<PointFOneEuroFilter> = Array(5) { PointFOneEuroFilter(minCutoff = 1.0f, beta = 0.04f) },
 
@@ -93,6 +103,12 @@ data class TrackedFaceState(
                 embeddingHistory.clear()
                 isClassificationLocked = false
                 consecutiveKnownHits = 0
+                consecutiveUnknownHits = 0
+                consecutiveSpoofHits = 0
+                studentRoll = ""
+                studentName = ""
+                classification = IdentityClassification.UNCONFIRMED
+                lastDecision = null
             }
         }
 
@@ -172,6 +188,7 @@ class FaceTracker {
 
     companion object {
         const val DEFAULT_TRACK_SWAP_SIMILARITY_THRESHOLD = 0.60f
+        const val MAX_LOST_FRAMES = 5
         private const val ALPHA = 0.65f // Smoothing factor for bounding box EMA
         private const val TRACK_TIMEOUT_MS = 1200L // Purge track after 1.2s of silence
         private const val IOU_ASSOCIATION_THRESHOLD = 0.30f
@@ -315,6 +332,7 @@ class FaceTracker {
         prev.lastSeenTimestampMs = now
         prev.frameCount += 1
         prev.lostFrameCount = 0
+        prev.lifecycleState = TrackLifecycleState.ACTIVE
 
         return prev
     }
@@ -488,6 +506,45 @@ class FaceTracker {
     }
 
     /**
+     * Explicitly terminates and removes a specific track (e.g. when cancelled or identity invalidation).
+     * Returns true if the track was present.
+     */
+    fun removeTrack(trackId: Int): Boolean {
+        val removed = activeTracks.remove(trackId)
+        removed?.lifecycleState = TrackLifecycleState.PURGED
+        return removed != null
+    }
+
+    /**
+     * Updates frame-level track presence. Increments lostFrameCount for active tracks that were
+     * not observed in [currentFrameTrackIds]. Automatically purges tracks exceeding [MAX_LOST_FRAMES]
+     * or [TRACK_TIMEOUT_MS].
+     * Returns the list of track IDs that were purged.
+     */
+    fun onFrameTracksUpdated(currentFrameTrackIds: Set<Int>): List<Int> {
+        val now = System.currentTimeMillis()
+        val purgedTrackIds = mutableListOf<Int>()
+        val iterator = activeTracks.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val track = entry.value
+            if (!currentFrameTrackIds.contains(track.trackId)) {
+                track.lostFrameCount++
+                track.lifecycleState = TrackLifecycleState.LOST
+                if (track.lostFrameCount >= MAX_LOST_FRAMES || (now - track.lastSeenTimestampMs) > TRACK_TIMEOUT_MS) {
+                    track.lifecycleState = TrackLifecycleState.PURGED
+                    purgedTrackIds.add(track.trackId)
+                    iterator.remove()
+                }
+            } else {
+                track.lostFrameCount = 0
+                track.lifecycleState = TrackLifecycleState.ACTIVE
+            }
+        }
+        return purgedTrackIds
+    }
+
+    /**
      * Purges tracks that have not been updated within TRACK_TIMEOUT_MS (out of field of view).
      */
     fun purgeOldTracks() {
@@ -501,6 +558,12 @@ class FaceTracker {
     fun clear() {
         activeTracks.clear()
     }
+
+    /**
+     * Returns the number of currently active tracked faces.
+     */
+    val activeTrackCount: Int
+        get() = activeTracks.size
 
     // ── Geometry Helpers ──
 

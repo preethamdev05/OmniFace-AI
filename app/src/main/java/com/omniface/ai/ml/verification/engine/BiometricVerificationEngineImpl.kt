@@ -308,6 +308,12 @@ class BiometricVerificationEngineImpl(
         val scheduler = com.omniface.ai.ml.concurrency.BoundedGroupInferenceScheduler.getDefault()
         scheduler.adaptToThermalState(ThermalGovernor.thermalState.value)
 
+        val detectedTrackIds = faces.mapNotNull { it.trackingId }.toSet()
+        val purgedTrackIds = tracker.onFrameTracksUpdated(detectedTrackIds)
+        for (purgedId in purgedTrackIds) {
+            scheduler.cancelTrack(purgedId)
+        }
+
         for (face in faces.take(12)) {
             val rawBox = face.boundingBox
             val box = if (effectiveDownscale < 0.99f) {
@@ -382,16 +388,18 @@ class BiometricVerificationEngineImpl(
             }
 
             val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
-                scheduler.execute {
-                    unifiedEngine.processScannerFace(
-                        faceCrop = faceCrop,
-                        headYaw = face.headEulerAngleY,
-                        headPitch = face.headEulerAngleX,
-                        leftEyeOpenProb = face.leftEyeOpenProbability,
-                        rightEyeOpenProb = face.rightEyeOpenProbability,
-                        alignedFace = alignedFaceBitmap
-                    )
-                }
+                if (!scheduler.isTrackCancelled(trackId)) {
+                    scheduler.execute {
+                        unifiedEngine.processScannerFace(
+                            faceCrop = faceCrop,
+                            headYaw = face.headEulerAngleY,
+                            headPitch = face.headEulerAngleX,
+                            leftEyeOpenProb = face.leftEyeOpenProbability,
+                            rightEyeOpenProb = face.rightEyeOpenProbability,
+                            alignedFace = alignedFaceBitmap
+                        )
+                    }
+                } else null
             } else null
 
             if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
