@@ -29,6 +29,7 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.all {
+            it.maxParallelForks = 1
             it.testLogging {
                 events("passed", "skipped", "failed")
             }
