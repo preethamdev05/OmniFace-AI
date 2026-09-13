@@ -40,20 +40,12 @@ enum class SecurityTier(
     val marginThreshold: Float,
     val label: String,
     val farDesc: String,
-    val calibratedThreshold: Float = when (label) {
-        "Standard" -> 0.120f
-        "High" -> 0.158f
-        else -> 0.220f
-    },
-    val calibratedMargin: Float = when (label) {
-        "Standard" -> 0.020f
-        "High" -> 0.030f
-        else -> 0.040f
-    }
+    val calibratedThreshold: Float = threshold,
+    val calibratedMargin: Float = marginThreshold
 ) {
-    STANDARD(0.650f, 0.040f, "Standard", "Doorway Kiosk (FAR 1:10 • τ ≥ 65%)", 0.120f, 0.020f),
-    HIGH(0.720f, 0.045f, "High", "ISO/IEC Standard (FAR 1:100 • τ ≥ 72%)", 0.158f, 0.030f),
-    STRICT(0.800f, 0.050f, "Strict", "Bank Grade (FAR 1:1,000 • τ ≥ 80%)", 0.220f, 0.040f);
+    STANDARD(0.650f, 0.040f, "Standard", "Doorway Kiosk (FAR 1:10 • τ ≥ 65%)", 0.650f, 0.040f),
+    HIGH(0.720f, 0.045f, "High", "ISO/IEC Standard (FAR 1:100 • τ ≥ 72%)", 0.720f, 0.045f),
+    STRICT(0.800f, 0.050f, "Strict", "Bank Grade (FAR 1:1,000 • τ ≥ 80%)", 0.800f, 0.050f);
 
     val displayName: String get() = label
     val cosineSimilarityThreshold: Float get() = threshold

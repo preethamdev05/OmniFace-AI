@@ -340,7 +340,7 @@ class FaceMatcher {
         // 2. top1MaxAngle >= threshold (individual best angle must meet criteria)
         // 3. For multi-angle profiles, top1Centroid must not be drastically lower than threshold
         // 4. Decision margin >= marginThreshold if multiple students enrolled
-        val centroidTolerance = if (useCalibratedThreshold) 0.050f else 0.120f
+        val centroidTolerance = 0.100f
         val isCentroidConsistent = (top1Centroid >= (threshold - centroidTolerance))
 
         if (top1Score >= threshold && top1MaxAngle >= threshold && isCentroidConsistent && (scoredStudents.size <= 1 || margin >= marginThreshold)) {
@@ -356,7 +356,7 @@ class FaceMatcher {
             } else {
                 "Ambiguous Identity: Top-1 $bestRoll (${"%.3f".format(top1Score)}) vs Top-2 ${top2Roll ?: "unknown"} (${"%.3f".format(top2Score)}) has narrow margin Δ=${"%.3f".format(margin)} < ${"%.3f".format(marginThreshold)}"
             }
-        } else if (top1Score >= (threshold - (if (useCalibratedThreshold) 0.025f else 0.060f)) || top1MaxAngle >= (threshold - (if (useCalibratedThreshold) 0.015f else 0.040f))) {
+        } else if (top1Score >= (threshold - 0.060f) || top1MaxAngle >= (threshold - 0.040f)) {
             confidenceZone = ConfidenceZone.REVIEW
             isMatch = false
             explanation = "Borderline Match: Cosine sim ${"%.3f".format(top1Score)} near threshold ${"%.3f".format(threshold)} (Δ=${"%.3f".format(margin)})"
@@ -369,7 +369,7 @@ class FaceMatcher {
         val name = if (isMatch) studentMap[bestRoll] ?: bestRoll else "Visitor / Unregistered"
 
         val directConfidencePct = if (isMatch) {
-            val maxExpected = if (useCalibratedThreshold) 0.35f else 0.85f
+            val maxExpected = 0.92f
             val progress = ((top1Score - threshold) / (maxExpected - threshold).coerceAtLeast(0.05f)).coerceIn(0.0f, 1.0f)
             (85.0f + progress * 14.9f).coerceIn(85.0f, 99.9f)
         } else {
