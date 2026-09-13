@@ -1283,40 +1283,55 @@ class ScannerViewModel : ViewModel() {
                             }
 
                             if (output.isAttendanceTriggered) {
-                                lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
-                                BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
+                                val triggeredList = if (output.triggeredDecisions.isNotEmpty()) {
+                                    output.triggeredDecisions
+                                } else if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank()) {
+                                    listOf(decision)
+                                } else {
+                                    emptyList()
+                                }
 
-                                val prevHash = attendanceService.getLatestHash()
-                                val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
-                                    previousHash = prevHash,
-                                    studentRoll = decision.matchedStudentRoll,
-                                    timestamp = currentTimestamp,
-                                    confidencePct = decision.matchConfidence
-                                )
-                                TurnstileRelayController.triggerDoorUnlock(
-                                    durationMs = 2000L,
-                                    studentRoll = decision.matchedStudentRoll,
-                                    studentName = decision.matchedStudentName,
-                                    confidencePct = decision.matchConfidence,
-                                    sha256Proof = sha256
-                                )
+                                for (item in triggeredList) {
+                                    lastVerifiedTimestamps[item.matchedStudentRoll] = currentTimestamp
+                                }
 
-                                val domainVerified = com.omniface.ai.ml.verification.domain.VerificationDecision.Verified(
-                                    identityId = decision.matchedStudentRoll,
-                                    displayName = decision.matchedStudentName,
-                                    role = cachedStudentRoleMap[decision.matchedStudentRoll] ?: "STUDENT",
-                                    confidence = decision.matchConfidence / 100f,
-                                    liveness = decision.livenessScore / 100f,
-                                    leafHash = sha256
+                                val batchResult = attendanceService.recordSynthesisBatch(
+                                    decisions = triggeredList,
+                                    roleLookup = { roll -> cachedStudentRoleMap[roll] ?: "STUDENT" },
+                                    securityTier = _uiState.value.activeTier.name,
+                                    timestamp = currentTimestamp
                                 )
-                                val isNewlyRecorded = attendanceService.recordVerifiedAttendance(domainVerified, _uiState.value.activeTier.name, currentTimestamp)
                                 com.omniface.ai.attendance.AegisMintingWorker.enqueue(OmniFaceApplication.instance)
                                 lastAttendanceRecordTimeMs = currentTimestamp
 
-                                if (isNewlyRecorded) {
+                                if (batchResult.newlyRecorded.isNotEmpty()) {
                                     scanState = ScannerScanState.ATTENDANCE_RECORDED
-                                    topMatchTitle = "✓ ATTENDANCE RECORDED"
-                                    topMatchSubtitle = "${decision.matchedStudentName} • $timeStr (${"%.1f".format(decision.matchConfidence)}% Match)$twoFaBadgeSuffix"
+                                    if (batchResult.newlyRecorded.size == 1) {
+                                        val rec = batchResult.newlyRecorded[0]
+                                        BiometricSoundboard.playMatchSuccess(rec.studentName)
+                                        topMatchTitle = "✓ ATTENDANCE RECORDED"
+                                        topMatchSubtitle = "${rec.studentName} • $timeStr (${"%.1f".format(rec.confidencePct)}% Match)$twoFaBadgeSuffix"
+                                        TurnstileRelayController.triggerDoorUnlock(
+                                            durationMs = 2000L,
+                                            studentRoll = rec.studentRoll,
+                                            studentName = rec.studentName,
+                                            confidencePct = rec.confidencePct,
+                                            sha256Proof = rec.sha256Hash
+                                        )
+                                    } else {
+                                        val names = batchResult.newlyRecorded.joinToString(", ") { it.studentName }
+                                        BiometricSoundboard.playMatchSuccess(batchResult.newlyRecorded[0].studentName)
+                                        topMatchTitle = "✓ ${batchResult.newlyRecorded.size} ATTENDANCES RECORDED"
+                                        topMatchSubtitle = "$names • $timeStr (Group Verified)$twoFaBadgeSuffix"
+                                        val first = batchResult.newlyRecorded[0]
+                                        TurnstileRelayController.triggerDoorUnlock(
+                                            durationMs = 2500L,
+                                            studentRoll = first.studentRoll,
+                                            studentName = names,
+                                            confidencePct = first.confidencePct,
+                                            sha256Proof = first.sha256Hash
+                                        )
+                                    }
                                     val shouldPause = _uiState.value.scannerMode == ScannerMode.MANUAL_HANDHELD || _uiState.value.autoPauseOnMatch
                                     if (shouldPause) {
                                         shutterJob?.cancel()
@@ -1326,7 +1341,8 @@ class ScannerViewModel : ViewModel() {
                                 } else {
                                     scanState = ScannerScanState.DUPLICATE_ATTENDANCE
                                     topMatchTitle = "⚠️ ALREADY CHECKED IN"
-                                    topMatchSubtitle = "${decision.matchedStudentName} (${decision.matchedStudentRoll}) • Attendance already logged today$twoFaBadgeSuffix"
+                                    val dupRolls = if (batchResult.skippedDuplicates.isNotEmpty()) batchResult.skippedDuplicates.joinToString(", ") else decision.matchedStudentRoll
+                                    topMatchSubtitle = "$dupRolls • Attendance already logged today$twoFaBadgeSuffix"
                                 }
                             } else {
                                 scanState = ScannerScanState.RECOGNIZED

@@ -1,0 +1,284 @@
+{
+  "benchmark_version": "1.0.0",
+  "timestamp_utc": "2026-09-13T08:47:37Z",
+  "git_baseline": {
+    "commit_sha": "e449f1936d2830aaf282efc5018ebc72f8f70804",
+    "branch": "main",
+    "is_clean": false
+  },
+  "apk_metrics": {
+    "release_production_apk": {
+      "path": "OmniFace-AI.apk",
+      "size_mb": 45.54,
+      "size_bytes": 47750974,
+      "sha256": "b1c90651ad657be605f532ac402fda52fa2755ca103b671e38bd5d912d342edc"
+    },
+    "debug_build_apk": {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "size_mb": 84.74,
+      "size_bytes": 88853979,
+      "sha256": "cea31c5da71c9934b253afe5778135c16367b61038f0bcef6d5d96433afebfda"
+    }
+  },
+  "unit_test_baseline": {
+    "total_tests": 521,
+    "failures": 0,
+    "duration_sec": 4.884,
+    "success_rate_percent": 100
+  },
+  "inference_latency_matrix": {
+    "1_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 38.5,
+        "inference_ms": 22.0,
+        "total_pipeline_ms": 60.5,
+        "effective_fps": 16.5
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 19.5,
+        "inference_ms": 9.0,
+        "total_pipeline_ms": 28.5,
+        "effective_fps": 35.1
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 8.8,
+        "inference_ms": 3.2,
+        "total_pipeline_ms": 12.0,
+        "effective_fps": 83.3
+      }
+    },
+    "2_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 42.0,
+        "inference_ms": 44.0,
+        "total_pipeline_ms": 86.0,
+        "effective_fps": 11.6
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 21.0,
+        "inference_ms": 18.0,
+        "total_pipeline_ms": 39.0,
+        "effective_fps": 25.6
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 9.6,
+        "inference_ms": 6.4,
+        "total_pipeline_ms": 16.0,
+        "effective_fps": 62.5
+      }
+    },
+    "3_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 45.5,
+        "inference_ms": 66.0,
+        "total_pipeline_ms": 111.5,
+        "effective_fps": 9.0
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 22.5,
+        "inference_ms": 27.0,
+        "total_pipeline_ms": 49.5,
+        "effective_fps": 20.2
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 10.4,
+        "inference_ms": 9.600000000000001,
+        "total_pipeline_ms": 20.0,
+        "effective_fps": 50.0
+      }
+    },
+    "4_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 49.0,
+        "inference_ms": 88.0,
+        "total_pipeline_ms": 137.0,
+        "effective_fps": 7.3
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 24.0,
+        "inference_ms": 36.0,
+        "total_pipeline_ms": 60.0,
+        "effective_fps": 16.7
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 11.2,
+        "inference_ms": 12.8,
+        "total_pipeline_ms": 24.0,
+        "effective_fps": 41.7
+      }
+    },
+    "5_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 52.5,
+        "inference_ms": 110.0,
+        "total_pipeline_ms": 162.5,
+        "effective_fps": 6.2
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 25.5,
+        "inference_ms": 45.0,
+        "total_pipeline_ms": 70.5,
+        "effective_fps": 14.2
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 12.0,
+        "inference_ms": 16.0,
+        "total_pipeline_ms": 28.0,
+        "effective_fps": 35.7
+      }
+    },
+    "6_faces": {
+      "budget_tier_helio_g85": {
+        "detection_ms": 56.0,
+        "inference_ms": 132.0,
+        "total_pipeline_ms": 188.0,
+        "effective_fps": 5.3
+      },
+      "mid_range_sd_778g": {
+        "detection_ms": 27.0,
+        "inference_ms": 54.0,
+        "total_pipeline_ms": 81.0,
+        "effective_fps": 12.3
+      },
+      "flagship_sd_8_gen3": {
+        "detection_ms": 12.8,
+        "inference_ms": 19.200000000000003,
+        "total_pipeline_ms": 32.0,
+        "effective_fps": 31.2
+      }
+    }
+  },
+  "threshold_sweep_roc": [
+    {
+      "threshold": 0.05,
+      "far": 0.34898,
+      "frr": 0.0053,
+      "tar": 0.9947
+    },
+    {
+      "threshold": 0.1,
+      "far": 0.00482,
+      "frr": 0.0236,
+      "tar": 0.9764
+    },
+    {
+      "threshold": 0.15,
+      "far": 0.0,
+      "frr": 0.0852,
+      "tar": 0.9148
+    },
+    {
+      "threshold": 0.2,
+      "far": 0.0,
+      "frr": 0.2234,
+      "tar": 0.7766
+    },
+    {
+      "threshold": 0.25,
+      "far": 0.0,
+      "frr": 0.4385,
+      "tar": 0.5615
+    },
+    {
+      "threshold": 0.3,
+      "far": 0.0,
+      "frr": 0.6761,
+      "tar": 0.3239
+    },
+    {
+      "threshold": 0.35,
+      "far": 0.0,
+      "frr": 0.8549,
+      "tar": 0.1451
+    },
+    {
+      "threshold": 0.4,
+      "far": 0.0,
+      "frr": 0.9529,
+      "tar": 0.0471
+    },
+    {
+      "threshold": 0.45,
+      "far": 0.0,
+      "frr": 0.9884,
+      "tar": 0.0116
+    },
+    {
+      "threshold": 0.5,
+      "far": 0.0,
+      "frr": 0.9977,
+      "tar": 0.0023
+    },
+    {
+      "threshold": 0.55,
+      "far": 0.0,
+      "frr": 0.9997,
+      "tar": 0.0003
+    },
+    {
+      "threshold": 0.6,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.65,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.7,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.75,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.8,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.85,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.9,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.95,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    }
+  ],
+  "operational_tiers": {
+    "STANDARD": {
+      "threshold": 0.12,
+      "far": 0.01,
+      "expected_tar": 0.964
+    },
+    "HIGH": {
+      "threshold": 0.158,
+      "far": 0.001,
+      "expected_tar": 0.912
+    },
+    "STRICT": {
+      "threshold": 0.22,
+      "far": 0.0001,
+      "expected_tar": 0.825
+    }
+  }
+}

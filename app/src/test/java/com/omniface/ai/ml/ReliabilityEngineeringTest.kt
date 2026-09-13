@@ -134,6 +134,116 @@ class ReliabilityEngineeringTest {
     }
 
     @Test
+    fun testAttendanceService_batchAtomicRecording() = runBlocking {
+        val students = listOf(
+            VerificationDecision.Verified(
+                identityId = "STU_2001",
+                displayName = "Rahul Sharma",
+                role = "STUDENT",
+                confidence = 0.92f,
+                liveness = 0.95f,
+                leafHash = ""
+            ),
+            VerificationDecision.Verified(
+                identityId = "STU_2002",
+                displayName = "Priya Patel",
+                role = "STUDENT",
+                confidence = 0.89f,
+                liveness = 0.91f,
+                leafHash = ""
+            ),
+            VerificationDecision.Verified(
+                identityId = "STU_2003",
+                displayName = "Arjun Reddy",
+                role = "STUDENT",
+                confidence = 0.96f,
+                liveness = 0.98f,
+                leafHash = ""
+            )
+        )
+
+        val result = attendanceService.recordVerifiedBatch(students, securityTier = "HIGH")
+
+        assertEquals(3, result.newlyRecorded.size)
+        assertEquals(0, result.skippedDuplicates.size)
+
+        assertTrue(attendanceService.isAlreadyCheckedInToday("STU_2001"))
+        assertTrue(attendanceService.isAlreadyCheckedInToday("STU_2002"))
+        assertTrue(attendanceService.isAlreadyCheckedInToday("STU_2003"))
+        assertEquals(1, attendanceService.getAttendanceCountForStudent("STU_2001"))
+        assertEquals(1, attendanceService.getAttendanceCountForStudent("STU_2002"))
+        assertEquals(1, attendanceService.getAttendanceCountForStudent("STU_2003"))
+
+        // Check hash chaining
+        val hashes = result.newlyRecorded.map { it.sha256Hash }
+        assertEquals(3, hashes.distinct().size)
+        hashes.forEach { assertTrue(it.isNotBlank()) }
+    }
+
+    @Test
+    fun testAttendanceService_inBatchAndDailyDeduplication() = runBlocking {
+        val batch1 = listOf(
+            VerificationDecision.Verified(
+                identityId = "STU_3001",
+                displayName = "Meera Nair",
+                role = "STUDENT",
+                confidence = 0.80f,
+                liveness = 0.88f,
+                leafHash = ""
+            ),
+            VerificationDecision.Verified(
+                identityId = "STU_3001", // Duplicate in same batch with higher confidence
+                displayName = "Meera Nair",
+                role = "STUDENT",
+                confidence = 0.95f,
+                liveness = 0.92f,
+                leafHash = ""
+            ),
+            VerificationDecision.Verified(
+                identityId = "STU_3002",
+                displayName = "Vikram Singh",
+                role = "STUDENT",
+                confidence = 0.91f,
+                liveness = 0.90f,
+                leafHash = ""
+            )
+        )
+
+        val result1 = attendanceService.recordVerifiedBatch(batch1)
+        assertEquals(2, result1.newlyRecorded.size)
+        assertTrue(result1.skippedDuplicates.contains("STU_3001"))
+
+        // Verify that the higher confidence record (95%) was saved
+        val meeraRecord = result1.newlyRecorded.first { it.studentRoll == "STU_3001" }
+        assertEquals(95.0f, meeraRecord.confidencePct, 1e-3f)
+
+        // Second batch attempts to record Vikram again + new student Rohan
+        val batch2 = listOf(
+            VerificationDecision.Verified(
+                identityId = "STU_3002", // Already checked in today
+                displayName = "Vikram Singh",
+                role = "STUDENT",
+                confidence = 0.94f,
+                liveness = 0.93f,
+                leafHash = ""
+            ),
+            VerificationDecision.Verified(
+                identityId = "STU_3003",
+                displayName = "Rohan Verma",
+                role = "STUDENT",
+                confidence = 0.88f,
+                liveness = 0.89f,
+                leafHash = ""
+            )
+        )
+
+        val result2 = attendanceService.recordVerifiedBatch(batch2)
+        assertEquals(1, result2.newlyRecorded.size)
+        assertEquals("STU_3003", result2.newlyRecorded[0].studentRoll)
+        assertTrue(result2.skippedDuplicates.contains("STU_3002"))
+    }
+
+    @Test
     fun testThermalGovernor_adaptiveScaleFactors() {
         ThermalGovernor.setSimulationOverride(ThermalState.NOMINAL)
         assertEquals(1.0f, ThermalGovernor.thermalState.value.downscaleFactor, 1e-4f)

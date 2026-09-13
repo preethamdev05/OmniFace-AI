@@ -53,7 +53,9 @@ data class PipelineFrameOutput(
     val topDecision: BiometricSynthesisDecision,
     val isAttendanceTriggered: Boolean,
     val executionLatencyMs: Long,
-    val activeHardwareTier: String
+    val activeHardwareTier: String,
+    val allDecisions: List<BiometricSynthesisDecision> = emptyList(),
+    val triggeredDecisions: List<BiometricSynthesisDecision> = emptyList()
 )
 
 /**
@@ -497,12 +499,15 @@ class FaceSecurityPipeline(
         val visualItems = mutableListOf<FaceGeometryVisualData>()
         var primaryDecision: BiometricSynthesisDecision? = null
         var attendanceTriggered = false
+        val allDecisions = mutableListOf<BiometricSynthesisDecision>()
+        val triggeredDecisions = mutableListOf<BiometricSynthesisDecision>()
 
         for (i in intermediateFaces.indices) {
             val item = intermediateFaces[i]
             val resolvedDecision = resolvedDecisions[i]
             val trackId = item.trackId
             val decision = tracker.stabilizeDecision(trackId, resolvedDecision)
+            allDecisions.add(decision)
             val matchResult = item.matchResult
             val lastExtractedEmbedding = item.lastExtractedEmbedding
 
@@ -542,6 +547,7 @@ class FaceSecurityPipeline(
                     lastVerifiedTimestamps[roll] = now
                     consecutiveMatchCounts[roll] = 0
                     trackState?.hasTriggeredAttendance = true
+                    triggeredDecisions.add(decision)
                 }
             }
 
@@ -624,7 +630,9 @@ class FaceSecurityPipeline(
             ),
             isAttendanceTriggered = attendanceTriggered,
             executionLatencyMs = elapsedMs,
-            activeHardwareTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
+            activeHardwareTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
+            allDecisions = allDecisions,
+            triggeredDecisions = triggeredDecisions
         )
     }
 
