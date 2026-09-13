@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const backendDir = path.resolve(__dirname, '..');
 
 const PORT = 3005;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -81,7 +86,7 @@ async function runTenantIsolationTests() {
   } catch {
     console.log('Starting Next.js test server on port ' + PORT + '...');
     serverProcess = spawn('npx', ['next', 'start', '-p', String(PORT)], {
-      cwd: process.cwd(),
+      cwd: backendDir,
       shell: true,
       stdio: 'inherit',
       env: {

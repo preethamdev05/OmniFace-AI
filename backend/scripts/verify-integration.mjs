@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { spawn } from 'child_process';
 import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const backendDir = path.resolve(__dirname, '..');
 
 const PORT = 3005;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -149,7 +154,7 @@ async function runTests() {
   // --- INTEGRATION: LIVE HTTP ROUTE SECURITY ---
   console.log('\n--- 2. Starting Next.js Production Server on port ' + PORT + ' ---');
   const serverProcess = spawn('npx', ['next', 'start', '-p', String(PORT)], {
-    cwd: process.cwd(),
+    cwd: backendDir,
     shell: true,
     stdio: 'inherit',
     env: {
