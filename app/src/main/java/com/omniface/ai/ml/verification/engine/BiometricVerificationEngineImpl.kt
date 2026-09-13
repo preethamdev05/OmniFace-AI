@@ -396,15 +396,18 @@ class BiometricVerificationEngineImpl(
             val hrnetResult: HRNetFaceResult? = null
 
             if (faceCrop != null && !faceCrop.isRecycled && !scheduler.isTrackCancelled(trackId)) {
-                val extractedEmbedding = try {
-                    val alignedOrCrop = alignedFaceBitmap ?: faceCrop
+                val alignedOrCrop = alignedFaceBitmap ?: faceCrop
+                val unifiedEngine = com.omniface.ai.ml.unified.UnifiedFaceModelEngine.getInstance(context)
+                val unifiedResult = try {
                     scheduler.execute {
-                        recognitionEngine.extractEmbedding(alignedOrCrop)
+                        unifiedEngine.processFace(alignedOrCrop)
                     }
                 } catch (t: Throwable) {
-                    Log.w(TAG, "Embedding extraction error: ${t.message}")
-                    FloatArray(0)
+                    Log.w(TAG, "Unified model inference error: ${t.message}")
+                    null
                 }
+
+                val extractedEmbedding = unifiedResult?.identityEmbedding ?: FloatArray(0)
 
                 if (extractedEmbedding.isNotEmpty()) {
                     lastExtractedEmbedding = extractedEmbedding
@@ -417,7 +420,7 @@ class BiometricVerificationEngineImpl(
                                 studentMap = effectiveStudentMap,
                                 securityTier = securityTier,
                                 activeTier = recognitionEngine.activeHardwareTier,
-                                useCalibratedThreshold = (recognitionEngine.activeBackbone == NeuralBackbone.MOBILEFACENET)
+                                useCalibratedThreshold = true
                             )
                         } catch (t: Throwable) {
                             Log.e(TAG, "Gate 3 Match Exception", t)
@@ -426,10 +429,33 @@ class BiometricVerificationEngineImpl(
                 }
 
                 if (config.isPassivePadEnabled) {
-                    try {
-                        passivePadResult = passivePadEngine.run(faceCrop)
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "Passive PAD evaluation error: ${t.message}")
+                    if (unifiedResult != null) {
+                        val liveProb = unifiedResult.padProbabilities.getOrNull(0)?.coerceIn(0f, 1f) ?: 0f
+                        val photoSpoof = unifiedResult.padProbabilities.getOrNull(1)?.coerceIn(0f, 1f) ?: 0f
+                        val screenSpoof = unifiedResult.padProbabilities.getOrNull(2)?.coerceIn(0f, 1f) ?: 0f
+                        val totalSpoof = (photoSpoof + screenSpoof).coerceIn(0f, 1f)
+                        val isLive = unifiedResult.isLive && totalSpoof < 0.50f
+                        val attackDesc = when {
+                            isLive -> "Authentic 3D Human Face"
+                            screenSpoof > 0.60f -> "Electronic Screen Replay Attack"
+                            photoSpoof > 0.60f -> "2D Printed Photo Spoof Attack"
+                            totalSpoof > 0.50f -> "Presentation Attack Detected"
+                            else -> "Suspected Presentation Attack"
+                        }
+                        passivePadResult = PassivePadResult(
+                            isLive = isLive,
+                            livenessScore = liveProb,
+                            spoofProbability = totalSpoof,
+                            attackTypeDescription = attackDesc,
+                            latencyMs = unifiedResult.latencyMs,
+                            inferenceLatencyMs = unifiedResult.latencyMs
+                        )
+                    } else {
+                        try {
+                            passivePadResult = passivePadEngine.run(faceCrop)
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "Passive PAD evaluation error: ${t.message}")
+                        }
                     }
                 }
             }

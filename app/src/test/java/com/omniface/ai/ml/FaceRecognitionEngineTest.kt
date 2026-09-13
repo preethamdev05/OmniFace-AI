@@ -294,7 +294,7 @@ class FaceRecognitionEngineTest {
     @Test
     fun testModelDownloadManagerTargetFilenameInvariant() {
         assertEquals(
-            "mobilefacenet_512d_int8.tflite",
+            "unified_face_v1_int8.tflite",
             ModelDownloadManager.TARGET_MODEL_FILENAME
         )
     }

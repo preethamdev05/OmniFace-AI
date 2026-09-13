@@ -54,7 +54,7 @@ class PreReleasePackagingBinaryVerificationTest {
             angleType = "FRONTAL",
             embedding = FloatArray(512)
         ).modelVersion
-        assertEquals("v1.0_mobilefacenet_512d", defaultModelVersion)
+        assertEquals("UnifiedFaceModel_v1.0", defaultModelVersion)
     }
 
     // ── 2. Neural Model Invariants: [1, 112, 112, 3] & 512-D ──

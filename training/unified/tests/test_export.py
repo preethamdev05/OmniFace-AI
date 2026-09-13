@@ -1,5 +1,10 @@
 import unittest
 import os
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import torch
 from training.unified.models.student_backbones import build_student_backbone
 from training.unified.heads.multitask_heads import OmniFaceUnifiedModelV2

@@ -19,25 +19,29 @@ class TeacherSampleTarget:
 
 class TeacherRegistry:
     """
-    Registry of verified teacher models in models_cache/
+    Registry of verified teacher models in archive/ml/models/ (with models_cache/ fallback).
     Provides reproducible offline pseudo-label targets with confidence weighting.
     """
     TEACHER_MANIFEST = {
-        "cavaface": "models_cache/cavaface.tflite",
-        "silentface": "models_cache/silentface.tflite",
-        "facemap_3dmm": "models_cache/facemap_3dmm.tflite",
-        "face_landmark_detector": "models_cache/face_landmark_detector.tflite",
-        "eyegaze": "models_cache/eyegaze.tflite",
-        "hrnet_face": "models_cache/hrnet_face.tflite"
+        "cavaface": ["archive/ml/models/cavaface/cavaface.tflite", "models_cache/cavaface.tflite"],
+        "silentface": ["archive/ml/models/silentface/silentface.tflite", "models_cache/silentface.tflite"],
+        "facemap_3dmm": ["archive/ml/models/facemap_3dmm/facemap_3dmm.tflite", "models_cache/facemap_3dmm.tflite"],
+        "face_landmark_detector": ["archive/ml/models/landmarks/face_landmark_detector.tflite", "models_cache/face_landmark_detector.tflite"],
+        "eyegaze": ["archive/ml/models/eyegaze/eyegaze.tflite", "models_cache/eyegaze.tflite"],
+        "hrnet_face": ["archive/ml/models/hrnet/hrnet_face.tflite", "models_cache/hrnet_face.tflite"]
     }
     
     def __init__(self, base_dir: str = "."):
         self.base_dir = base_dir
         self.verified_paths = {}
-        for name, rel_path in self.TEACHER_MANIFEST.items():
-            full_path = os.path.join(base_dir, rel_path)
-            if os.path.exists(full_path):
-                self.verified_paths[name] = full_path
+        for name, candidate_paths in self.TEACHER_MANIFEST.items():
+            if isinstance(candidate_paths, str):
+                candidate_paths = [candidate_paths]
+            for rel_path in candidate_paths:
+                full_path = os.path.join(base_dir, rel_path)
+                if os.path.exists(full_path):
+                    self.verified_paths[name] = full_path
+                    break
                 
     def get_status(self) -> Dict[str, bool]:
         return {name: (name in self.verified_paths) for name in self.TEACHER_MANIFEST}

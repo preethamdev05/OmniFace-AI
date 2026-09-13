@@ -84,6 +84,7 @@ models/qualcomm_suite/
 models/qualcomm_cavaface/
 models/buffalo_l/
 models/latest_pretrained/
+archive/ml/models/**/*.tflite
 
 # Temporary & machine-specific build scripts
 *.tmp

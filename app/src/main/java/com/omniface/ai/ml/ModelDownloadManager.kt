@@ -61,7 +61,8 @@ class ModelDownloadManager(private val context: Context) {
     companion object {
         private const val TAG = "OmniFaceModelDownloader"
         private const val MODELS_DIR = "models"
-        const val TARGET_MODEL_FILENAME = "mobilefacenet_512d_int8.tflite"
+        const val TARGET_MODEL_FILENAME = "unified_face_v1_int8.tflite"
+        const val PRIMARY_MODEL_FILENAME = "unified_face_v1_fp16.tflite"
         private const val TMP_EXTENSION = ".download.tmp"
         private val TFLITE_IDENTIFIER = byteArrayOf('T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte())
 
@@ -106,10 +107,8 @@ class ModelDownloadManager(private val context: Context) {
         val candidates = listOfNotNull(
             context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/$TARGET_MODEL_FILENAME") },
             File(context.filesDir, "$MODELS_DIR/$TARGET_MODEL_FILENAME"),
-            context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/mobilefacenet_512d_fp16.tflite") },
-            File(context.filesDir, "$MODELS_DIR/mobilefacenet_512d_fp16.tflite"),
-            File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME"),
-            File("/sdcard/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
+            context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/$PRIMARY_MODEL_FILENAME") },
+            File(context.filesDir, "$MODELS_DIR/$PRIMARY_MODEL_FILENAME")
         )
         for (candidate in candidates) {
             if (candidate.exists() && candidate.length() > 500 * 1024) {
@@ -131,10 +130,10 @@ class ModelDownloadManager(private val context: Context) {
         cachedModelAvailable?.let { return it }
         val hasLocal = findExistingModelFile() != null
         val hasAsset = try {
-            context.assets.open(TARGET_MODEL_FILENAME).use { true }
+            context.assets.open(PRIMARY_MODEL_FILENAME).use { true }
         } catch (_: Throwable) {
             try {
-                context.assets.open("mobilefacenet_512d_fp32.tflite").use { true }
+                context.assets.open(TARGET_MODEL_FILENAME).use { true }
             } catch (_: Throwable) { false }
         }
         val available = hasLocal || hasAsset
@@ -152,22 +151,22 @@ class ModelDownloadManager(private val context: Context) {
 
     fun getActiveModelDisplayName(): String {
         if (isModelAvailable()) {
-            return "OmniFace Deep AI Engine"
+            return "UnifiedFaceModel V1"
         }
-        return "AI Recognition Pack (Not Installed)"
+        return "Unified Face Intelligence (Not Installed)"
     }
 
     private fun getInitialState(): ModelDownloadState {
         val file = getLocalModelFile()
         if (isModelAvailable()) {
             return ModelDownloadState.Ready(
-                activeModelName = "OmniFace Deep AI Engine",
-                modelSizeBytes = if (file.exists()) file.length() else 1610080L
+                activeModelName = "UnifiedFaceModel V1",
+                modelSizeBytes = if (file.exists()) file.length() else 7361736L
             )
         }
         return ModelDownloadState.Idle(
             modelExistsLocally = false,
-            activeModelName = "AI Recognition Pack (Not Installed)",
+            activeModelName = "Unified Face Intelligence (Not Installed)",
             modelSizeBytes = 0L
         )
     }

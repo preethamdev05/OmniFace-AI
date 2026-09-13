@@ -15,7 +15,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.DataType
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 import java.util.Arrays
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.roundToInt
@@ -23,8 +31,9 @@ import kotlin.math.sqrt
 
 import com.omniface.ai.hardware.NpuHardwareDetector
 import com.omniface.ai.hardware.NpuHardwareInfo
+import com.omniface.ai.ml.core.BackendType
+import com.omniface.ai.ml.core.InferenceBackend
 import com.omniface.ai.ml.recognition.FaissVectorIndex
-import com.omniface.ai.ml.unified.UnifiedFaceModelEngine
 
 data class EngineLoadingProgress(
     val isReady: Boolean = false,
@@ -147,7 +156,7 @@ data class CachedBiometric(
     val studentRoll: String,
     val angleType: String,
     val embedding: FloatArray,
-    val modelVersion: String = UnifiedFaceModelEngine.MODEL_VERSION
+    val modelVersion: String = "v1.0_mobilefacenet_512d"
 )
 
 @Suppress("DEPRECATION")
@@ -164,69 +173,344 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             }
     }
 
-    private val unifiedEngine: UnifiedFaceModelEngine
-        get() = UnifiedFaceModelEngine.getInstance(context)
+    val npuHardwareInfo: NpuHardwareInfo = NpuHardwareDetector.detectNpuHardware()
 
-    val npuHardwareInfo: NpuHardwareInfo
-        get() = unifiedEngine.npuHardwareInfo
-
-    val activeHardwareTier: HardwareTier
-        get() = unifiedEngine.activeHardwareTier
-
+    private var tfliteInterpreter: Interpreter? = null
+    private var gpuDelegate: GpuDelegate? = null
+    private var nnApiDelegate: NnApiDelegate? = null
+    var activeHardwareTier: HardwareTier = HardwareTier.NPU_NNAPI
+        private set
     var activeBackbone: NeuralBackbone = NeuralBackbone.MOBILEFACENET
         private set
-
-    val isModelQuantizedInt8: Boolean
-        get() = (activeHardwareTier == HardwareTier.NPU_NNAPI || activeHardwareTier == HardwareTier.NPU_DELEGATE)
+    var isModelQuantizedInt8: Boolean = false
+        private set
+    private var inputQuantScale: Float = 0.0f
+    private var inputQuantZeroPoint: Int = 0
+    private var outputQuantScale: Float = 0.0f
+    private var outputQuantZeroPoint: Int = 0
 
     val isSnapdragonFlagship: Boolean = NpuHardwareDetector.isQualcommAiHubDevice() ||
             (npuHardwareInfo.socModel.contains("Snapdragon", ignoreCase = true) &&
             (npuHardwareInfo.socModel.contains("8", ignoreCase = true) || npuHardwareInfo.socModel.contains("SM8", ignoreCase = true)))
 
-    private val inputSize = UnifiedFaceModelEngine.INPUT_WIDTH
-    private val embeddingDim = UnifiedFaceModelEngine.EMBEDDING_DIM
+    private fun findCavaFaceFile(): File? {
+        val modelFile = ModelDownloadManager.getInstance(context).getLocalModelFile()
+        if (modelFile.exists() && modelFile.canRead()) return modelFile
+        return null
+    }
+
+    private val inputSize = 112
+    private val embeddingDim = 512
+
+    // Pre-Allocated Native Direct Buffers for Zero-GC Execution
+    private val inputBufferFloat: ByteBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4).apply {
+        order(ByteOrder.nativeOrder())
+    }
+    private val inputBufferInt8: ByteBuffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 1).apply {
+        order(ByteOrder.nativeOrder())
+    }
+    private val outputBufferFloat = Array(1) { FloatArray(embeddingDim) }
+    private val outputBufferInt8 = Array(1) { ByteArray(embeddingDim) }
+    private val pixelBuffer = IntArray(inputSize * inputSize)
 
     // In-Memory Decrypted Biometric Matrix Cache & FAISS Vector Index
-    val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
+    private val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
     val faissIndex = FaissVectorIndex(
         dimension = embeddingDim,
         indexType = FaissVectorIndex.IndexType.HNSW_FLAT,
         metricType = FaissVectorIndex.MetricType.INNER_PRODUCT
     )
 
+    // ── Engine Lifecycle: lazy, thread-safe, non-blocking initialization ──────
+    // Heavy TFLite delegate compilation never runs on the caller's (often main) thread.
+    // initializeAsync() kicks off background init from the constructor; inference paths
+    // call ensureInitialized() and only block if a frame arrives before init completes.
+    @Volatile private var engineReady = false
     private val engineMutex = Any()
 
-    private val _loadingProgress = MutableStateFlow(
-        EngineLoadingProgress(
-            isReady = true,
-            stage = "Operational (UnifiedFaceModel V1 Active)",
-            progress = 1.0f,
-            activeModelName = "UnifiedFaceModel V1",
-            hardwareTarget = unifiedEngine.activeHardwareTier.label
-        )
-    )
+    private val _loadingProgress = MutableStateFlow(EngineLoadingProgress())
     val loadingProgress: StateFlow<EngineLoadingProgress> = _loadingProgress.asStateFlow()
 
-    val isEngineReady: Boolean get() = unifiedEngine.isReady
+    /** True once the hardware interpreter is compiled and warmed up. */
+    val isEngineReady: Boolean get() = engineReady
 
+    /** Fire-and-forget background initialization. Idempotent — safe to call repeatedly. */
     fun initializeAsync() {
-        unifiedEngine.initializeEngine()
-        _loadingProgress.value = EngineLoadingProgress(
-            isReady = unifiedEngine.isReady,
-            stage = if (unifiedEngine.isReady) "Operational (UnifiedFaceModel V1 Active)" else "Initialization Failed",
-            progress = 1.0f,
-            activeModelName = "UnifiedFaceModel V1",
-            hardwareTarget = unifiedEngine.activeHardwareTier.label,
-            isError = !unifiedEngine.isReady
+        Thread {
+            try { ensureInitialized() } catch (t: Throwable) {
+                Log.w(TAG, "Async engine init failed: ${t.message}")
+            }
+        }.apply { isDaemon = true; name = "omniface-engine-init" }.start()
+    }
+
+    private fun ensureInitialized() {
+        if (engineReady) return
+        synchronized(engineMutex) {
+            if (engineReady) return
+            _loadingProgress.value = EngineLoadingProgress(
+                isReady = false,
+                stage = "Discovering Neural Silicon Hardware...",
+                progress = 0.15f,
+                hardwareTarget = npuHardwareInfo.socModel
+            )
+            initializeHardwareEngine()
+            engineReady = true
+            _loadingProgress.value = EngineLoadingProgress(
+                isReady = true,
+                stage = "Operational (Sub-8ms Ready)",
+                progress = 1.0f,
+                activeModelName = activeBackbone.label,
+                hardwareTarget = activeHardwareTier.label
+            )
+        }
+    }
+
+    init {
+        initializeAsync()
+    }
+
+    private fun candidateModelsFor(tier: HardwareTier): List<String> = when (tier) {
+        HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> listOf(
+            "mobilefacenet_512d_int8.tflite",
+            "mobilefacenet_512d_fp16.tflite",
+            "mobilefacenet_512d_fp32.tflite",
+            "cavaface.tflite"
         )
+        HardwareTier.GPU_DELEGATE -> listOf(
+            "mobilefacenet_512d_fp16.tflite",
+            "cavaface.tflite",
+            "mobilefacenet_512d_fp32.tflite"
+        )
+        HardwareTier.CPU_XNNPACK -> listOf(
+            "mobilefacenet_512d_fp32.tflite",
+            "mobilefacenet_512d_fp16.tflite",
+            "cavaface.tflite"
+        )
+    }
+
+    /**
+     * Attempts to bring up one hardware tier using the shared InferenceBackend fallback
+     * chain (single source of truth for delegate construction). Returns true on success.
+     */
+    @Suppress("DEPRECATION")
+    private fun tryInitTier(tier: HardwareTier, models: List<String>): Boolean {
+        val preferred = when (tier) {
+            HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> BackendType.QUALCOMM_NPU
+            HardwareTier.GPU_DELEGATE -> BackendType.ADRENO_GPU
+            HardwareTier.CPU_XNNPACK -> BackendType.CPU_XNNPACK
+        }
+        for ((idx, mName) in models.withIndex()) {
+            var interp: Interpreter? = null
+            var gpu: GpuDelegate? = null
+            var nnapi: NnApiDelegate? = null
+            try {
+                val stepProgress = 0.25f + (idx.toFloat() / models.size.toFloat()) * 0.50f
+                _loadingProgress.value = EngineLoadingProgress(
+                    isReady = false,
+                    stage = "Compiling ${tier.label} graph for $mName...",
+                    progress = stepProgress,
+                    activeModelName = mName,
+                    hardwareTarget = tier.label
+                )
+                Log.i(TAG, "⚡ [${tier.name}] Attempting $mName...")
+                val modelBuffer = loadModelFile(mName)
+                val (interpreter, gpuDel, nnApiDel) =
+                    InferenceBackend.createInterpreterWithFallback(modelBuffer, preferred)
+                interp = interpreter; gpu = gpuDel; nnapi = nnApiDel
+
+                // The backend falls through tiers internally — accept only the requested
+                // accelerator so activeHardwareTier always reflects reality.
+                val matchesTier = when (tier) {
+                    HardwareTier.NPU_NNAPI, HardwareTier.NPU_DELEGATE -> nnapi != null
+                    HardwareTier.GPU_DELEGATE -> gpu != null
+                    HardwareTier.CPU_XNNPACK -> gpu == null && nnapi == null
+                }
+                if (!matchesTier) {
+                    Log.w(TAG, "${tier.name} unavailable for $mName — closing fallback resources.")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+
+                // Inspect input and output tensor quantization parameters and shapes
+                val inTensor = interp.getInputTensor(0)
+                val outTensor = interp.getOutputTensor(0)
+
+                val inShape = inTensor.shape()
+                val outShape = outTensor.shape()
+                // Strict validation: input must be [1, 112, 112, 3] and output must be [1, 512]
+                if (inShape.size != 4 || inShape[1] != 112 || inShape[2] != 112 || inShape[3] != 3) {
+                    Log.w(TAG, "Rejecting incompatible model $mName: input shape ${inShape.contentToString()} is not [1, 112, 112, 3]")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+                if (outShape.size != 2 || outShape[1] != 512) {
+                    Log.w(TAG, "Rejecting incompatible model $mName: output shape ${outShape.contentToString()} is not [1, 512]")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+
+                val isInt8 = inTensor.dataType() == DataType.INT8 || inTensor.dataType() == DataType.UINT8
+                isModelQuantizedInt8 = isInt8
+
+                val inParams = inTensor.quantizationParams()
+                if (inParams != null && inParams.scale > 0f) {
+                    inputQuantScale = inParams.scale
+                    inputQuantZeroPoint = inParams.zeroPoint
+                } else {
+                    inputQuantScale = 0f
+                    inputQuantZeroPoint = 0
+                }
+
+                val outParams = outTensor.quantizationParams()
+                if (outParams != null && outParams.scale > 0f) {
+                    outputQuantScale = outParams.scale
+                    outputQuantZeroPoint = outParams.zeroPoint
+                } else {
+                    outputQuantScale = 0f
+                    outputQuantZeroPoint = 0
+                }
+
+                // Warm-up (non-fatal)
+                try {
+                    if (isModelQuantizedInt8) {
+                        inputBufferInt8.rewind()
+                        for (i in 0 until (inputSize * inputSize * 3)) inputBufferInt8.put(0.toByte())
+                        inputBufferInt8.rewind()
+                        interp.run(inputBufferInt8, outputBufferInt8)
+                    } else {
+                        warmupFloat(interp)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Warmup notice for $mName: ${t.message}")
+                }
+
+                tfliteInterpreter = interp
+                gpuDelegate = gpu
+                nnApiDelegate = nnapi
+                activeHardwareTier = tier
+                Log.i(TAG, "✅ [SUCCESS] ${tier.label} active with $mName (${npuHardwareInfo.npuName}, INT8=$isModelQuantizedInt8).")
+                return true
+            } catch (t: Throwable) {
+                Log.w(TAG, "${tier.name} candidate $mName notice: ${t.message}")
+                closeQuietly(interp, gpu, nnapi)
+            }
+        }
+        return false
+    }
+
+    private fun closeQuietly(interp: Interpreter?, gpu: GpuDelegate?, nnapi: NnApiDelegate?) {
+        try { interp?.close() } catch (_: Throwable) {}
+        try { gpu?.close() } catch (_: Throwable) {}
+        try { nnapi?.close() } catch (_: Throwable) {}
+    }
+
+    @Suppress("DEPRECATION")
+    private fun initializeHardwareEngine() {
+        if (tryInitTier(HardwareTier.NPU_NNAPI, candidateModelsFor(HardwareTier.NPU_NNAPI))) return
+        if (tryInitTier(HardwareTier.GPU_DELEGATE, candidateModelsFor(HardwareTier.GPU_DELEGATE))) return
+        if (tryInitTier(HardwareTier.CPU_XNNPACK, candidateModelsFor(HardwareTier.CPU_XNNPACK))) return
+
+        // No neural model available yet — running in camera/detection test mode.
+        activeHardwareTier = HardwareTier.CPU_XNNPACK
+        isModelQuantizedInt8 = false
+        Log.i(TAG, "⚡ [MODEL STANDBY] No neural model active. Operating in Camera & Face Detection mode until model is downloaded.")
+    }
+
+    private fun warmupFloat(interpreter: Interpreter) {
+        inputBufferFloat.rewind()
+        for (i in 0 until (inputSize * inputSize * 3)) inputBufferFloat.putFloat(128.0f)
+        inputBufferFloat.rewind()
+        interpreter.run(inputBufferFloat, outputBufferFloat)
     }
 
     fun reloadEngine() {
-        unifiedEngine.reloadEngine()
+        synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
+            initializeHardwareEngine()
+            engineReady = true
+        }
     }
 
     fun switchHardwareTier(tier: HardwareTier) {
-        unifiedEngine.initializeEngine()
+        synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
+            if (!tryInitTier(tier, candidateModelsFor(tier))) {
+                Log.w(TAG, "Requested tier ${tier.name} unavailable — falling back through ladder.")
+                for (fallback in listOf(HardwareTier.NPU_NNAPI, HardwareTier.GPU_DELEGATE, HardwareTier.CPU_XNNPACK)) {
+                    if (tryInitTier(fallback, candidateModelsFor(fallback))) break
+                }
+            }
+            engineReady = true
+        }
+    }
+
+    private fun closeInterpreterResources() {
+        closeQuietly(tfliteInterpreter, gpuDelegate, nnApiDelegate)
+        tfliteInterpreter = null
+        gpuDelegate = null
+        nnApiDelegate = null
+        isModelQuantizedInt8 = false
+    }
+
+    /**
+     * Maps a model file read-only into memory. Streams/channels are closed eagerly —
+     * on Linux/Android a read-only mmap stays valid after the fd closes, so this
+     * cannot exhaust file descriptors across repeated engine reloads.
+     */
+    private fun mapFileChannel(file: File): ByteBuffer {
+        FileInputStream(file).use { fis ->
+            return fis.channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
+        }
+    }
+
+    private fun loadModelFile(modelName: String): ByteBuffer {
+        // Priority 0: Check for local Qualcomm CavaFace model on Qualcomm devices
+        if (modelName.contains("cavaface", ignoreCase = true)) {
+            val cavafaceFile = findCavaFaceFile()
+            if (cavafaceFile != null && cavafaceFile.exists() && cavafaceFile.canRead()) {
+                Log.i(TAG, "⚡ Loading Qualcomm AI Hub CavaFace Engine from ${cavafaceFile.absolutePath} (${cavafaceFile.length() / 1024 / 1024} MB)...")
+                activeBackbone = NeuralBackbone.QUALCOMM_CAVAFACE
+                return mapFileChannel(cavafaceFile)
+            }
+        }
+
+        // Priority 1: Check for verified downloaded model in private app storage
+        val downloadManager = ModelDownloadManager.getInstance(context)
+        val localFile = downloadManager.getLocalModelFile()
+        if (localFile.exists() && localFile.name == modelName && downloadManager.verifyModelIntegrity(localFile)) {
+            Log.i(TAG, "📂 Loading verified private model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
+            activeBackbone = if (modelName.contains("cavaface", ignoreCase = true)) NeuralBackbone.QUALCOMM_CAVAFACE else NeuralBackbone.MOBILEFACENET
+            return mapFileChannel(localFile)
+        }
+
+        // Priority 2: Check for on-device disk models directory
+        val candidateFiles = listOf(
+            File(context.filesDir, "models/$modelName"),
+            File(context.getExternalFilesDir(null), "models/$modelName"),
+            File("/storage/emulated/0/AI-HUB/FR/models/$modelName")
+        )
+        for (f in candidateFiles) {
+            if (f.exists() && f.canRead() && f.length() > 1024) {
+                Log.i(TAG, "📂 Loading on-device model from: ${f.absolutePath} (${f.length()} bytes)")
+                activeBackbone = NeuralBackbone.MOBILEFACENET
+                return mapFileChannel(f)
+            }
+        }
+
+        // Priority 3: Fallback to pre-bundled APK assets if present
+        activeBackbone = NeuralBackbone.MOBILEFACENET
+        return try {
+            context.assets.openFd(modelName).use { afd ->
+                FileInputStream(afd.fileDescriptor).use { fis ->
+                    fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Model $modelName not bundled in assets and not yet downloaded on device: ${e.message}")
+            throw e
+        }
     }
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
@@ -236,18 +520,14 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
             var loadedCount = 0
             var skippedCount = 0
-            var skippedLegacy = 0
             for (t in templates) {
-                if (t.modelVersion != UnifiedFaceModelEngine.MODEL_VERSION) {
-                    Log.w(TAG, "Skipping legacy template ${t.id} (version: '${t.modelVersion}' != '${UnifiedFaceModelEngine.MODEL_VERSION}'). Re-enrollment required.")
-                    skippedLegacy++
-                    continue
-                }
                 val rawCsv = if (t.isEncrypted) {
                     try {
                         AndroidSecurityUtils.decrypt(t.embeddingEncryptedCsv)
                     } catch (e: Exception) {
-                        Log.e(TAG, "DECRYPT FAILED for template ${t.id}: ${e.message}")
+                        // Do NOT fall back to embeddingEncryptedCsv — it is ciphertext, not a valid embedding.
+                        // Log a distinct ERROR so operators know templates are corrupt (key rotation / loss).
+                        Log.e(TAG, "❌ DECRYPT FAILED for template ${t.id} (student ${t.studentRoll} / ${t.angleType}): ${e.message}. Template SKIPPED — re-enroll this student.")
                         skippedCount++
                         continue
                     }
@@ -255,9 +535,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                     t.embeddingEncryptedCsv
                 }
                 val emb = parseEmbeddingCsv(rawCsv)
-                if (emb.size == embeddingDim) {
-                    l2Normalize(emb)
-                    biometricCache.add(CachedBiometric(t.id, t.studentRoll, t.angleType, emb, t.modelVersion))
+                if (emb.isNotEmpty()) {
+                    biometricCache.add(CachedBiometric(t.id, t.studentRoll, t.angleType, emb))
                     faissBatch.add(
                         FaissVectorIndex.FaissIndexItem(
                             id = t.id,
@@ -268,15 +547,14 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                     )
                     loadedCount++
                 } else {
-                    Log.w(TAG, "Invalid embedding dimension ${emb.size} for template ${t.id} - skipped.")
+                    Log.w(TAG, "⚠️ Empty embedding for template ${t.id} (${t.angleType}) — skipped.")
                     skippedCount++
                 }
             }
             if (faissBatch.isNotEmpty()) {
                 faissIndex.addBatch(faissBatch)
             }
-            unifiedEngine.preloadCachedBiometrics(biometricCache)
-            Log.i(TAG, "📦 Biometric cache & FAISS index loaded: $loadedCount templates, $skippedCount skipped, $skippedLegacy legacy skipped.")
+            Log.i(TAG, "📦 Biometric cache & FAISS index loaded: $loadedCount templates, $skippedCount skipped.")
         }
     }
 
@@ -286,14 +564,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             faissIndex.reset()
             val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
             for (cached in cachedList) {
-                if (cached.modelVersion != UnifiedFaceModelEngine.MODEL_VERSION) {
-                    Log.w(TAG, "Skipping legacy cached biometric ${cached.templateId} (version: '${cached.modelVersion}' != '${UnifiedFaceModelEngine.MODEL_VERSION}')")
-                    continue
-                }
-                if (cached.embedding.size != embeddingDim) {
-                    Log.w(TAG, "Skipping cached biometric ${cached.templateId} with invalid dim ${cached.embedding.size}")
-                    continue
-                }
                 biometricCache.add(cached)
                 faissBatch.add(
                     FaissVectorIndex.FaissIndexItem(
@@ -307,7 +577,6 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
             if (faissBatch.isNotEmpty()) {
                 faissIndex.addBatch(faissBatch)
             }
-            unifiedEngine.preloadCachedBiometrics(biometricCache)
             Log.i(TAG, "📦 Biometric cache & FAISS index loaded directly: ${cachedList.size} templates.")
         }
     }
@@ -391,19 +660,123 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return results
     }
 
-    fun evaluateLiveness(faceBitmap: Bitmap): Boolean {
-        return unifiedEngine.evaluateLiveness(faceBitmap)
-    }
-
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
-        return unifiedEngine.extractEmbedding(faceBitmap)
+        ensureInitialized()
+        synchronized(engineMutex) {
+            val interpreter = tfliteInterpreter
+            if (interpreter == null || faceBitmap.isRecycled) {
+                // If model is not loaded, do NOT generate fake gradient vectors.
+                // Return empty embedding indicating model is not available.
+                return FloatArray(0)
+            }
+
+            return try {
+                val resized = if (faceBitmap.width == inputSize && faceBitmap.height == inputSize) {
+                    faceBitmap
+                } else {
+                    Bitmap.createScaledBitmap(faceBitmap, inputSize, inputSize, true)
+                }
+                resized.getPixels(pixelBuffer, 0, inputSize, 0, 0, inputSize, inputSize)
+                if (resized != faceBitmap && !resized.isRecycled) {
+                    resized.recycle()
+                }
+
+                val embedding = if (isModelQuantizedInt8) {
+                    inputBufferInt8.rewind()
+                    for (pixel in pixelBuffer) {
+                        val r = (pixel shr 16) and 0xFF
+                        val g = (pixel shr 8) and 0xFF
+                        val b = pixel and 0xFF
+                        if (inputQuantScale > 0f) {
+                            val qR = (r.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            val qG = (g.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            val qB = (b.toFloat() / inputQuantScale + inputQuantZeroPoint).roundToInt().coerceIn(-128, 127)
+                            inputBufferInt8.put(qR.toByte())
+                            inputBufferInt8.put(qG.toByte())
+                            inputBufferInt8.put(qB.toByte())
+                        } else {
+                            inputBufferInt8.put((r - 128).coerceIn(-128, 127).toByte())
+                            inputBufferInt8.put((g - 128).coerceIn(-128, 127).toByte())
+                            inputBufferInt8.put((b - 128).coerceIn(-128, 127).toByte())
+                        }
+                    }
+                    inputBufferInt8.rewind()
+                    interpreter.run(inputBufferInt8, outputBufferInt8)
+                    val rawBytes = outputBufferInt8[0]
+                    val floatOut = FloatArray(embeddingDim)
+                    if (outputQuantScale > 0f) {
+                        for (i in 0 until embeddingDim) {
+                            floatOut[i] = (rawBytes[i].toInt() - outputQuantZeroPoint) * outputQuantScale
+                        }
+                    } else {
+                        for (i in 0 until embeddingDim) {
+                            floatOut[i] = rawBytes[i].toFloat() / 128.0f
+                        }
+                    }
+                    l2Normalize(floatOut)
+                } else {
+                    inputBufferFloat.rewind()
+                    val isCavaface = activeBackbone == NeuralBackbone.QUALCOMM_CAVAFACE
+                    for (pixel in pixelBuffer) {
+                        val r = ((pixel shr 16) and 0xFF).toFloat()
+                        val g = ((pixel shr 8) and 0xFF).toFloat()
+                        val b = (pixel and 0xFF).toFloat()
+                        if (isCavaface) {
+                            // Qualcomm CavaFace expects normalized float [0.0f, 1.0f]
+                            inputBufferFloat.putFloat(r / 255.0f)
+                            inputBufferFloat.putFloat(g / 255.0f)
+                            inputBufferFloat.putFloat(b / 255.0f)
+                        } else {
+                            // MobileFaceNet in-graph Rescaling expects [0.0f, 255.0f]
+                            inputBufferFloat.putFloat(r)
+                            inputBufferFloat.putFloat(g)
+                            inputBufferFloat.putFloat(b)
+                        }
+                    }
+                    inputBufferFloat.rewind()
+                    interpreter.run(inputBufferFloat, outputBufferFloat)
+                    l2Normalize(outputBufferFloat[0].copyOf())
+                }
+                embedding
+            } catch (e: Exception) {
+                Log.w(TAG, "TFLite inference fallback: ${e.message}")
+                FloatArray(0)
+            }
+        }
     }
 
     /**
      * Measures REAL end-to-end inference latency on the active backend.
+     * Returns 0 if model is not loaded.
      */
     fun benchmarkInferenceLatency(): Long {
-        return 5L
+        if (!engineReady) {
+            return 0L
+        }
+        ensureInitialized()
+        synchronized(engineMutex) {
+            val interpreter = tfliteInterpreter ?: return 0L
+            val startTime = System.nanoTime()
+            return try {
+                if (isModelQuantizedInt8) {
+                    try {
+                        inputBufferInt8.rewind()
+                        interpreter.run(inputBufferInt8, outputBufferInt8)
+                    } catch (_: Exception) {
+                        inputBufferFloat.rewind()
+                        interpreter.run(inputBufferFloat, outputBufferFloat)
+                    }
+                } else {
+                    inputBufferFloat.rewind()
+                    interpreter.run(inputBufferFloat, outputBufferFloat)
+                }
+                val elapsedNanos = System.nanoTime() - startTime
+                (elapsedNanos / 1_000_000L).coerceAtLeast(1L)
+            } catch (e: Exception) {
+                Log.w(TAG, "Latency benchmark failed: ${e.message}")
+                0L
+            }
+        }
     }
 
 
@@ -662,6 +1035,8 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
 
     override fun close() {
         synchronized(engineMutex) {
+            closeInterpreterResources()
+            engineReady = false
             for (cached in biometricCache) {
                 Arrays.fill(cached.embedding, 0.0f)
             }

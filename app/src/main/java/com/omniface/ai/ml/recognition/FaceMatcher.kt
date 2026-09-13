@@ -43,7 +43,15 @@ class FaceMatcher {
         val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
 
         var skippedCorrupt = 0
+        var skippedLegacy = 0
         for (entity in templates) {
+            // Model version compatibility invariant: Reject legacy/mismatched models
+            if (entity.modelVersion != com.omniface.ai.ml.unified.UnifiedFaceModelEngine.MODEL_VERSION) {
+                android.util.Log.w("FaceMatcher", "Skipping legacy/incompatible template ${entity.id} (version: '${entity.modelVersion}' != '${com.omniface.ai.ml.unified.UnifiedFaceModelEngine.MODEL_VERSION}'). Re-enrollment required.")
+                skippedLegacy++
+                continue
+            }
+
             val decryptedCsv = try {
                 if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
                 else entity.embeddingEncryptedCsv
@@ -59,7 +67,7 @@ class FaceMatcher {
             }
 
             val embedding = parseEmbeddingCsv(decryptedCsv)
-            if (embedding.isNotEmpty()) {
+            if (embedding.size == com.omniface.ai.ml.unified.UnifiedFaceModelEngine.EMBEDDING_DIM) {
                 l2Normalize(embedding)
                 val cached = CachedBiometric(
                     templateId = entity.id,
@@ -77,12 +85,15 @@ class FaceMatcher {
                         vector = embedding
                     )
                 )
+            } else {
+                android.util.Log.w("FaceMatcher", "Skipping template ${entity.id} with invalid dimension ${embedding.size} (expected ${com.omniface.ai.ml.unified.UnifiedFaceModelEngine.EMBEDDING_DIM})")
+                skippedCorrupt++
             }
         }
         if (faissBatch.isNotEmpty()) {
             faissIndex.addBatch(faissBatch)
         }
-        android.util.Log.i("FaceMatcher", "Preloaded ${biometricCache.size} templates into biometricCache (input=${templates.size}, skippedCorrupt=$skippedCorrupt)")
+        android.util.Log.i("FaceMatcher", "Preloaded ${biometricCache.size} templates into biometricCache (input=${templates.size}, skippedCorrupt=$skippedCorrupt, skippedLegacy=$skippedLegacy)")
     }
 
     fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) = lock.write {
@@ -90,6 +101,14 @@ class FaceMatcher {
         faissIndex.reset()
         val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
         for (cached in cachedList) {
+            if (cached.modelVersion != com.omniface.ai.ml.unified.UnifiedFaceModelEngine.MODEL_VERSION) {
+                android.util.Log.w("FaceMatcher", "Skipping cached biometric ${cached.templateId} (version: '${cached.modelVersion}' != '${com.omniface.ai.ml.unified.UnifiedFaceModelEngine.MODEL_VERSION}')")
+                continue
+            }
+            if (cached.embedding.size != com.omniface.ai.ml.unified.UnifiedFaceModelEngine.EMBEDDING_DIM) {
+                android.util.Log.w("FaceMatcher", "Skipping cached biometric ${cached.templateId} with invalid dim ${cached.embedding.size}")
+                continue
+            }
             biometricCache.add(cached)
             faissBatch.add(
                 FaissVectorIndex.FaissIndexItem(
@@ -205,7 +224,7 @@ class FaceMatcher {
             )
         }
 
-        if (queryEmbedding.isEmpty()) {
+        if (queryEmbedding.isEmpty() || queryEmbedding.size != com.omniface.ai.ml.unified.UnifiedFaceModelEngine.EMBEDDING_DIM) {
             return@read MatchResult(
                 studentRoll = "GUEST",
                 studentName = "Unknown Visitor",
@@ -215,7 +234,7 @@ class FaceMatcher {
                 hardwareTier = activeTier,
                 confidenceZone = ConfidenceZone.REJECT,
                 decisionMargin = 0.0f,
-                explanation = "Query embedding is empty"
+                explanation = if (queryEmbedding.isEmpty()) "Query embedding is empty" else "Query vector dimension ${queryEmbedding.size} does not match required ${com.omniface.ai.ml.unified.UnifiedFaceModelEngine.EMBEDDING_DIM}"
             )
         }
 

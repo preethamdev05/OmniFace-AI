@@ -192,10 +192,8 @@ class OmniFaceApplication : Application() {
 
     private fun verifyModelAssetsIntegrity() {
         val candidates = listOf(
-            "mobilefacenet_512d_int8.tflite",
-            "mobilefacenet_512d_fp16.tflite",
-            "mobilefacenet_512d_fp32.tflite",
-            "cavaface.tflite"
+            "unified_face_v1_int8.tflite",
+            "unified_face_v1_fp16.tflite"
         )
         val privateModelsDir = java.io.File(filesDir, "models")
         val foundStorage = candidates.any { java.io.File(privateModelsDir, it).exists() }
