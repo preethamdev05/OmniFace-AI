@@ -1,0 +1,104 @@
+{
+  "experiment_title": "Gaussian Pre-Filter vs Raw Laplacian Quality Gate Evaluation",
+  "timestamp_utc": "2026-09-13T09:03:43Z",
+  "trials_per_condition": 500,
+  "sharpness_threshold": 8.0,
+  "latency_microseconds": {
+    "without_filter_mean_us": 13.91,
+    "with_filter_mean_us": 140.92,
+    "filter_overhead_us": 127.01
+  },
+  "high_iso_blurry_bypass_rate_without_filter_percent": 100.0,
+  "high_iso_blurry_bypass_rate_with_filter_percent": 100.0,
+  "noise_variance_suppression_factor": 48.99,
+  "conditions_evaluated": {
+    "clean_sharp": {
+      "without_filter": {
+        "mean_variance": 268.482,
+        "std_variance": 9.895,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 256.084,
+          "p50": 268.173,
+          "p90": 281.731
+        }
+      },
+      "with_filter": {
+        "mean_variance": 10.64,
+        "std_variance": 0.309,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 10.243,
+          "p50": 10.653,
+          "p90": 11.067
+        }
+      }
+    },
+    "clean_blurry": {
+      "without_filter": {
+        "mean_variance": 8.211,
+        "std_variance": 0.0,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 8.211,
+          "p50": 8.211,
+          "p90": 8.211
+        }
+      },
+      "with_filter": {
+        "mean_variance": 0.67,
+        "std_variance": 0.0,
+        "pass_rate_percent": 0.0,
+        "percentiles": {
+          "p10": 0.67,
+          "p50": 0.67,
+          "p90": 0.67
+        }
+      }
+    },
+    "high_iso_sharp": {
+      "without_filter": {
+        "mean_variance": 6744.618,
+        "std_variance": 271.311,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 6412.21,
+          "p50": 6730.881,
+          "p90": 7111.333
+        }
+      },
+      "with_filter": {
+        "mean_variance": 142.186,
+        "std_variance": 5.282,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 135.607,
+          "p50": 141.831,
+          "p90": 148.556
+        }
+      }
+    },
+    "high_iso_blurry": {
+      "without_filter": {
+        "mean_variance": 6467.786,
+        "std_variance": 247.74,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 6166.488,
+          "p50": 6460.188,
+          "p90": 6783.406
+        }
+      },
+      "with_filter": {
+        "mean_variance": 132.016,
+        "std_variance": 5.363,
+        "pass_rate_percent": 100.0,
+        "percentiles": {
+          "p10": 125.04,
+          "p50": 132.202,
+          "p90": 139.086
+        }
+      }
+    }
+  }
+}

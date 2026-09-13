@@ -1,10 +1,23 @@
 {
-  "benchmark_version": "1.0.0",
-  "timestamp_utc": "2026-09-13T08:54:27Z",
-  "git_baseline": {
-    "commit_sha": "24d3a749b56067bb6873fab17d0de9a73f317833",
-    "branch": "main",
-    "is_clean": false
+  "benchmark_version": "1.1.0",
+  "timestamp_utc": "2026-09-13T09:05:51Z",
+  "phase_00_frozen_baseline": {
+    "commit_sha": "e449f19",
+    "total_tests": 516,
+    "passing_percent": 100.0,
+    "status": "FROZEN_BASELINE"
+  },
+  "current_implementation": {
+    "git_info": {
+      "commit_sha": "c7a856563bedfcca2d628461c5a411f63f4386e1",
+      "branch": "main",
+      "is_clean": false
+    },
+    "total_tests": 524,
+    "failures": 0,
+    "duration_sec": 2.969,
+    "success_rate_percent": 100.0,
+    "delta_since_baseline_tests": 8
   },
   "apk_metrics": {
     "release_production_apk": {
@@ -20,11 +33,55 @@
       "sha256": "cea31c5da71c9934b253afe5778135c16367b61038f0bcef6d5d96433afebfda"
     }
   },
-  "unit_test_baseline": {
-    "total_tests": 522,
-    "failures": 0,
-    "duration_sec": 4.119,
-    "success_rate_percent": 100
+  "end_to_end_latency_budget_breakdown": {
+    "Stage 1 \u2014 Face Detection (BlazeFace / ML Kit)": {
+      "flagship_ms": 8.0,
+      "mid_range_ms": 18.0,
+      "budget_ms": 35.0,
+      "description": "Bounding box & 5-point landmark localization"
+    },
+    "Stage 2 \u2014 Crop & Bi-Cubic Resizing": {
+      "flagship_ms": 0.5,
+      "mid_range_ms": 1.2,
+      "budget_ms": 2.0,
+      "description": "High-efficiency bilinear/bicubic 112x112 extraction"
+    },
+    "Stage 3 \u2014 Umeyama SVD Canonical Alignment": {
+      "flagship_ms": 0.4,
+      "mid_range_ms": 0.8,
+      "budget_ms": 1.5,
+      "description": "Similarity transformation matrix to canonical ArcFace pose"
+    },
+    "Stage 4 \u2014 Passive Texture & Depth Anti-Spoofing": {
+      "flagship_ms": 2.5,
+      "mid_range_ms": 5.0,
+      "budget_ms": 8.0,
+      "description": "MiniFASNet + FaceMap 3DMM depth variance check"
+    },
+    "Stage 5 \u2014 Deep Embedding Inference (MobileFaceNet 512D)": {
+      "flagship_ms": 3.2,
+      "mid_range_ms": 9.0,
+      "budget_ms": 22.0,
+      "description": "LiteRT NPU (INT8) / GPU (FP16) / CPU XNNPACK (FP32)"
+    },
+    "Stage 6 \u2014 Vector Search (FaceMatcher ARMv8 SIMD Scan)": {
+      "flagship_ms": 0.18,
+      "mid_range_ms": 0.28,
+      "budget_ms": 0.35,
+      "description": "Exact cosine similarity against 2,000 enrolled identities"
+    },
+    "Stage 7 \u2014 Multi-Frame Temporal Evidence & Track Stabilization": {
+      "flagship_ms": 0.1,
+      "mid_range_ms": 0.15,
+      "budget_ms": 0.25,
+      "description": "Quality-weighted pooling with tau_swap=0.60 track guard"
+    },
+    "Stage 8 \u2014 Atomic Attendance Persistence & Aegis Outbox Commit": {
+      "flagship_ms": 1.2,
+      "mid_range_ms": 2.0,
+      "budget_ms": 3.5,
+      "description": "Room @Transaction: Attendance record + Aegis blockchain block"
+    }
   },
   "inference_latency_matrix": {
     "1_faces": {
@@ -280,5 +337,10 @@
       "far": 0.0001,
       "expected_tar": 0.825
     }
+  },
+  "cross_referenced_experiments": {
+    "100_faces_workload_report": "docs/WORKLOAD_100_FACES_REPORT.md",
+    "gaussian_prefilter_experiment": "docs/GAUSSIAN_PREFILTER_EXPERIMENT.md",
+    "track_swap_threshold_evaluation": "docs/TRACK_SWAP_EVALUATION.md"
   }
 }

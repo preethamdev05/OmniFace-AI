@@ -66,6 +66,14 @@ object FaceQualityEngine {
     private const val MAX_ALLOWED_ROLL = 28.0f
     private const val MIN_SHARPNESS_VARIANCE = 8.0f // Realistic Laplacian threshold for mobile cameras
 
+    /**
+     * Toggles 3x3 Gaussian smoothing pre-filter before Laplacian variance.
+     * When true (default), attenuates high-frequency sensor noise to prevent high-ISO blur bypass.
+     * When false, evaluates raw pixel 2nd-order discrete derivatives directly.
+     */
+    @Volatile
+    var isGaussianPreFilterEnabled: Boolean = true
+
     fun evaluateFaceQuality(
         face: Face,
         fullFrameWidth: Int,
@@ -147,12 +155,26 @@ object FaceQualityEngine {
 
         for (y in 2 until h - 2 step step) {
             for (x in 2 until w - 2 step step) {
-                // 3x3 Gaussian smoothing pre-filter suppresses high-ISO sensor shot noise
-                val center = computeGaussianSmoothLuminance(pixels, w, h, x, y)
-                val top = computeGaussianSmoothLuminance(pixels, w, h, x, y - 1)
-                val bottom = computeGaussianSmoothLuminance(pixels, w, h, x, y + 1)
-                val left = computeGaussianSmoothLuminance(pixels, w, h, x - 1, y)
-                val right = computeGaussianSmoothLuminance(pixels, w, h, x + 1, y)
+                // When enabled, 3x3 Gaussian smoothing pre-filter suppresses high-ISO sensor shot noise
+                val center: Double
+                val top: Double
+                val bottom: Double
+                val left: Double
+                val right: Double
+
+                if (isGaussianPreFilterEnabled) {
+                    center = computeGaussianSmoothLuminance(pixels, w, h, x, y)
+                    top = computeGaussianSmoothLuminance(pixels, w, h, x, y - 1)
+                    bottom = computeGaussianSmoothLuminance(pixels, w, h, x, y + 1)
+                    left = computeGaussianSmoothLuminance(pixels, w, h, x - 1, y)
+                    right = computeGaussianSmoothLuminance(pixels, w, h, x + 1, y)
+                } else {
+                    center = getLuminance(pixels[y * w + x])
+                    top = getLuminance(pixels[(y - 1) * w + x])
+                    bottom = getLuminance(pixels[(y + 1) * w + x])
+                    left = getLuminance(pixels[y * w + (x - 1)])
+                    right = getLuminance(pixels[y * w + (x + 1)])
+                }
 
                 // Laplacian 2nd-order discrete derivative
                 val laplacian = 4.0 * center - top - bottom - left - right

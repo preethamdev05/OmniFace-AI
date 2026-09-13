@@ -1,0 +1,254 @@
+{
+  "experiment_title": "Track-Swap Divergence Threshold Parameter Sweep",
+  "timestamp_utc": "2026-09-13T09:04:10Z",
+  "sample_size": {
+    "same_person_pairs": 20000,
+    "different_person_pairs": 50000
+  },
+  "same_person_distribution": {
+    "mean_similarity": 0.885,
+    "std_similarity": 0.0475,
+    "min_similarity": 0.6967,
+    "p01": 0.7716,
+    "p05": 0.807,
+    "p50": 0.8854
+  },
+  "different_person_distribution": {
+    "mean_similarity": 0.201,
+    "std_similarity": 0.1148,
+    "max_similarity": 0.55,
+    "p95": 0.3898,
+    "p99": 0.4675,
+    "p50": 0.2016
+  },
+  "default_operating_point_0_60": {
+    "threshold": 0.6,
+    "false_reset_rate_percent": 0.0,
+    "false_contamination_rate_percent": 0.0,
+    "total_error_percent": 0.0
+  },
+  "minimum_error_operating_point": {
+    "threshold": 0.56,
+    "false_reset_rate_percent": 0.0,
+    "false_contamination_rate_percent": 0.0,
+    "total_error_percent": 0.0
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.4,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 4.174,
+      "total_error_percent": 4.174
+    },
+    {
+      "threshold": 0.41,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 3.428,
+      "total_error_percent": 3.428
+    },
+    {
+      "threshold": 0.42,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 2.846,
+      "total_error_percent": 2.846
+    },
+    {
+      "threshold": 0.43,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 2.288,
+      "total_error_percent": 2.288
+    },
+    {
+      "threshold": 0.44,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 1.83,
+      "total_error_percent": 1.83
+    },
+    {
+      "threshold": 0.45,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 1.498,
+      "total_error_percent": 1.498
+    },
+    {
+      "threshold": 0.46,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 1.16,
+      "total_error_percent": 1.16
+    },
+    {
+      "threshold": 0.47,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.94,
+      "total_error_percent": 0.94
+    },
+    {
+      "threshold": 0.48,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.738,
+      "total_error_percent": 0.738
+    },
+    {
+      "threshold": 0.49,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.558,
+      "total_error_percent": 0.558
+    },
+    {
+      "threshold": 0.5,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.44,
+      "total_error_percent": 0.44
+    },
+    {
+      "threshold": 0.51,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.314,
+      "total_error_percent": 0.314
+    },
+    {
+      "threshold": 0.52,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.24,
+      "total_error_percent": 0.24
+    },
+    {
+      "threshold": 0.53,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.186,
+      "total_error_percent": 0.186
+    },
+    {
+      "threshold": 0.54,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.134,
+      "total_error_percent": 0.134
+    },
+    {
+      "threshold": 0.55,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.09,
+      "total_error_percent": 0.09
+    },
+    {
+      "threshold": 0.56,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.57,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.58,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.59,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.6,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.61,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.62,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.63,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.64,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.65,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.66,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.67,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.68,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.69,
+      "false_reset_rate_percent": 0.0,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.0
+    },
+    {
+      "threshold": 0.7,
+      "false_reset_rate_percent": 0.01,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.01
+    },
+    {
+      "threshold": 0.71,
+      "false_reset_rate_percent": 0.02,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.02
+    },
+    {
+      "threshold": 0.72,
+      "false_reset_rate_percent": 0.03,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.03
+    },
+    {
+      "threshold": 0.73,
+      "false_reset_rate_percent": 0.08,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.08
+    },
+    {
+      "threshold": 0.74,
+      "false_reset_rate_percent": 0.12,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.12
+    },
+    {
+      "threshold": 0.75,
+      "false_reset_rate_percent": 0.335,
+      "false_contamination_rate_percent": 0.0,
+      "total_error_percent": 0.335
+    }
+  ]
+}

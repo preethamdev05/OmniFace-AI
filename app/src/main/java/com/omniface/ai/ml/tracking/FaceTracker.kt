@@ -72,16 +72,24 @@ data class TrackedFaceState(
     /**
      * Pushes a new feature embedding with associated capture quality weight (0.0 .. 1.0).
      * Maintains a sliding window of the most recent [maxHistory] frames.
+     *
+     * [trackSwapThreshold]: Minimum cosine similarity between consecutive frames to prevent
+     * identity contamination during subject swaps or occlusions. Default: 0.60f.
      */
-    fun pushEmbedding(embedding: FloatArray, qualityWeight: Float = 1.0f, maxHistory: Int = 5) {
+    fun pushEmbedding(
+        embedding: FloatArray,
+        qualityWeight: Float = 1.0f,
+        maxHistory: Int = 5,
+        trackSwapThreshold: Float = FaceTracker.DEFAULT_TRACK_SWAP_SIMILARITY_THRESHOLD
+    ) {
         if (embedding.isEmpty()) return
 
-        // Track-Swap Guard: if the new embedding drastically diverges from the immediate previous frame (sim < 0.60),
+        // Track-Swap Guard: if the new embedding drastically diverges from the immediate previous frame (sim < trackSwapThreshold),
         // a track swap occurred (e.g. occlusion or subject handover). Purge history to prevent identity poisoning.
         val lastEmb = embeddingHistory.lastOrNull()?.first
         if (lastEmb != null && lastEmb.isNotEmpty()) {
             val sim = computeCosineSim(lastEmb, embedding)
-            if (sim < 0.60f) {
+            if (sim < trackSwapThreshold) {
                 embeddingHistory.clear()
                 isClassificationLocked = false
                 consecutiveKnownHits = 0
@@ -163,6 +171,7 @@ data class TrackedFaceState(
 class FaceTracker {
 
     companion object {
+        const val DEFAULT_TRACK_SWAP_SIMILARITY_THRESHOLD = 0.60f
         private const val ALPHA = 0.65f // Smoothing factor for bounding box EMA
         private const val TRACK_TIMEOUT_MS = 1200L // Purge track after 1.2s of silence
         private const val IOU_ASSOCIATION_THRESHOLD = 0.30f
@@ -447,7 +456,12 @@ class FaceTracker {
     /**
      * Records an extracted embedding and quality weight for the specified track.
      */
-    fun pushTrackEmbedding(trackId: Int, embedding: FloatArray, qualityWeight: Float = 1.0f) {
+    fun pushTrackEmbedding(
+        trackId: Int,
+        embedding: FloatArray,
+        qualityWeight: Float = 1.0f,
+        trackSwapThreshold: Float = DEFAULT_TRACK_SWAP_SIMILARITY_THRESHOLD
+    ) {
         val state = activeTracks.getOrPut(trackId) {
             TrackedFaceState(
                 trackId = trackId,
@@ -456,7 +470,7 @@ class FaceTracker {
                 rawRect = Rect.Zero
             )
         }
-        state.pushEmbedding(embedding, qualityWeight)
+        state.pushEmbedding(embedding, qualityWeight, trackSwapThreshold = trackSwapThreshold)
     }
 
     /**
