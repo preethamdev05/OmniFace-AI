@@ -363,3 +363,25 @@ export const fcmTokens = pgTable('fcm_tokens', {
   index('idx_fcm_tokens_org').on(table.organizationId),
   index('idx_fcm_tokens_user').on(table.userId),
 ]);
+
+// ── 22. Aegis Outbox (Cryptographic Blockchain Anchoring Queue) ──
+export const aegisOutbox = pgTable('aegis_outbox', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }).notNull(),
+  recordId: varchar('record_id', { length: 128 }).notNull().unique(),
+  attendanceEventId: uuid('attendance_event_id').references(() => attendanceEvents.id, { onDelete: 'cascade' }),
+  sessionDate: varchar('session_date', { length: 16 }).notNull(),
+  studentRoll: varchar('student_roll', { length: 64 }).notNull(),
+  sha256Hash: varchar('sha256_hash', { length: 128 }).notNull(),
+  prevHash: varchar('prev_hash', { length: 128 }).notNull(),
+  merkleRoot: varchar('merkle_root', { length: 128 }),
+  status: varchar('status', { length: 32 }).notNull().default('PENDING_MINT'), // PENDING_MINT, MINTED, FAILED
+  retryCount: integer('retry_count').notNull().default(0),
+  errorMessage: text('error_message'),
+  mintedAt: timestamp('minted_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_aegis_outbox_org_status').on(table.organizationId, table.status),
+  index('idx_aegis_outbox_record_id').on(table.recordId),
+]);
