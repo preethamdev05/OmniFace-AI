@@ -805,7 +805,7 @@ class ScannerViewModel : ViewModel() {
             BiometricSoundboard.playMatchSuccess(current.matchedName)
 
             viewModelScope.launch(Dispatchers.IO) {
-                val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                val prevHash = attendanceService.getLatestHash()
                 val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
                     previousHash = prevHash,
                     studentRoll = current.matchedRoll,
@@ -864,7 +864,7 @@ class ScannerViewModel : ViewModel() {
         BiometricSoundboard.playMatchSuccess(name)
 
         viewModelScope.launch(Dispatchers.IO) {
-            val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+            val prevHash = attendanceService.getLatestHash()
             val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
                 previousHash = prevHash,
                 studentRoll = roll,
@@ -906,8 +906,8 @@ class ScannerViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val student = db.studentDao().getStudentByRoll(roll) ?: return@launch
             val templates = db.studentDao().getTemplatesForStudent(roll)
-            val count = db.attendanceDao().getAttendanceCountForStudent(roll)
-            val recent = db.attendanceDao().getRecordsForStudentFlow(roll).firstOrNull() ?: emptyList()
+            val count = attendanceService.getAttendanceCountForStudent(roll)
+            val recent = attendanceService.getRecordsForStudentFlow(roll).firstOrNull() ?: emptyList()
             withContext(Dispatchers.Main) {
                 _uiState.update {
                     it.copy(
@@ -1286,7 +1286,7 @@ class ScannerViewModel : ViewModel() {
                                 lastVerifiedTimestamps[decision.matchedStudentRoll] = currentTimestamp
                                 BiometricSoundboard.playMatchSuccess(decision.matchedStudentName)
 
-                                val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                                val prevHash = attendanceService.getLatestHash()
                                 val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
                                     previousHash = prevHash,
                                     studentRoll = decision.matchedStudentRoll,
@@ -1364,7 +1364,7 @@ class ScannerViewModel : ViewModel() {
                                     lastVerifiedTimestamps[cardClean] = currentTimestamp
                                     BiometricSoundboard.playMatchSuccess(resolvedName)
 
-                                    val prevHash = db.attendanceDao().getLatestHash() ?: AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                                    val prevHash = attendanceService.getLatestHash()
                                     val sha256 = AndroidSecurityUtils.computeAegisBlockHash(
                                         previousHash = prevHash,
                                         studentRoll = cardClean,

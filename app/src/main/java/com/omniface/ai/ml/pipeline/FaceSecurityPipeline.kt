@@ -103,6 +103,7 @@ class FaceSecurityPipeline(
 
     // Sliding agreement counter: studentRoll -> consecutiveCount
     private val consecutiveMatchCounts = ConcurrentHashMap<String, Int>()
+    private val lastVerifiedTimestamps = ConcurrentHashMap<String, Long>()
     private var lastAuthorizedRoll = ""
     private var lastAuthorizedTimestampMs = 0L
 
@@ -518,22 +519,27 @@ class FaceSecurityPipeline(
             // ── Multi-Frame Temporal Consensus Voting ──
             var thisFaceAttendanceTriggered = false
             val trackState = tracker.getTrackState(trackId)
-            if (decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank()) {
-                val roll = decision.matchedStudentRoll
+            val roll = decision.matchedStudentRoll
+            if (decision.isAttendanceAuthorized && roll.isNotBlank()) {
                 val count = (consecutiveMatchCounts[roll] ?: 0) + 1
                 consecutiveMatchCounts[roll] = count
 
                 val now = System.currentTimeMillis()
-                val isTrackAlreadyLogged = trackState?.hasTriggeredAttendance == true
-                val isTimeCooldownElapsed = (now - lastAuthorizedTimestampMs > 45000L) // 45s cooldown for same student
-                val isNewRoll = (roll != lastAuthorizedRoll)
+                val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
+                    synthesis = decision,
+                    quality = item.qualityResult,
+                    consecutiveMatchCount = count,
+                    lastVerifiedTimestampMs = lastVerifiedTimestamps[roll] ?: 0L,
+                    hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true,
+                    currentTimeMs = now
+                )
 
-                val requiredFrames = if (decision.matchSimilarity >= 0.72f) 1 else REQUIRED_CONSECUTIVE_FRAMES
-                if (count >= requiredFrames && !isTrackAlreadyLogged && (isNewRoll || isTimeCooldownElapsed)) {
+                if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
                     thisFaceAttendanceTriggered = true
                     attendanceTriggered = true
                     lastAuthorizedRoll = roll
                     lastAuthorizedTimestampMs = now
+                    lastVerifiedTimestamps[roll] = now
                     consecutiveMatchCounts[roll] = 0
                     trackState?.hasTriggeredAttendance = true
                 }

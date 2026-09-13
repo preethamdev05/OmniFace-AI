@@ -418,7 +418,15 @@ class FaceTracker {
      * Records an extracted embedding and quality weight for the specified track.
      */
     fun pushTrackEmbedding(trackId: Int, embedding: FloatArray, qualityWeight: Float = 1.0f) {
-        activeTracks[trackId]?.pushEmbedding(embedding, qualityWeight)
+        val state = activeTracks.getOrPut(trackId) {
+            TrackedFaceState(
+                trackId = trackId,
+                persistentTrackId = trackId,
+                smoothedRect = Rect.Zero,
+                rawRect = Rect.Zero
+            )
+        }
+        state.pushEmbedding(embedding, qualityWeight)
     }
 
     /**
@@ -426,6 +434,13 @@ class FaceTracker {
      */
     fun getFusedTrackEmbedding(trackId: Int): FloatArray? {
         return activeTracks[trackId]?.getFusedEmbedding()
+    }
+
+    /**
+     * Invalidates and clears embedding history for a specific track (e.g. on spoof detection or identity lock reset).
+     */
+    fun invalidateTrackEmbeddings(trackId: Int) {
+        activeTracks[trackId]?.clearEmbeddingHistory()
     }
 
     /**

@@ -22,7 +22,9 @@ import java.util.UUID
  * of transient in-memory events and asynchronous blockchain minting.
  */
 class AttendanceService(
-    private val database: AppDatabase
+    private val database: AppDatabase? = null,
+    private val attendanceDao: com.omniface.ai.data.local.dao.AttendanceDao = database!!.attendanceDao(),
+    private val aegisOutboxDao: com.omniface.ai.data.local.dao.AegisOutboxDao = database!!.aegisOutboxDao()
 ) {
     companion object {
         private const val TAG = "AttendanceService"
@@ -36,20 +38,18 @@ class AttendanceService(
         val sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
         val recordId = UUID.randomUUID().toString()
 
-        try {
-            database.withTransaction {
-                // Check if already checked in today (duplicate prevention)
-                val existing = database.attendanceDao().getRecordForStudentOnDate(sessionDate, verified.identityId)
-                if (existing != null) {
-                    Log.i(TAG, "Skipping duplicate attendance for ${verified.identityId} on $sessionDate")
-                    return@withTransaction false
-                }
-
+        val executeBlock: suspend () -> Boolean = {
+            // Check if already checked in today (duplicate prevention)
+            val existing = attendanceDao.getRecordForStudentOnDate(sessionDate, verified.identityId)
+            if (existing != null) {
+                Log.i(TAG, "Skipping duplicate attendance for ${verified.identityId} on $sessionDate")
+                false
+            } else {
                 // 1. Determine Authoritative Aegis Leaf Hash
                 val effectiveHash = if (verified.leafHash.isNotBlank()) {
                     verified.leafHash
                 } else {
-                    val prevHash = database.attendanceDao().getLatestHash() ?: AegisLedgerHasher.GENESIS_HASH
+                    val prevHash = attendanceDao.getLatestHash() ?: AegisLedgerHasher.GENESIS_HASH
                     AegisLedgerHasher.computeBlockHash(
                         previousHash = prevHash,
                         studentRoll = verified.identityId,
@@ -70,7 +70,7 @@ class AttendanceService(
                     sha256Hash = effectiveHash,
                     isSynced = false
                 )
-                database.attendanceDao().insertRecord(record)
+                attendanceDao.insertRecord(record)
 
                 // 3. Persist Aegis Outbox Entry (Atomic Durability Guarantee)
                 val outbox = AegisOutboxEntity(
@@ -83,13 +83,53 @@ class AttendanceService(
                     retryCount = 0,
                     createdAt = timestamp
                 )
-                database.aegisOutboxDao().insertOutbox(outbox)
+                aegisOutboxDao.insertOutbox(outbox)
                 Log.i(TAG, "Atomically persisted attendance & outbox for ${verified.identityId} ($recordId)")
                 true
+            }
+        }
+
+        try {
+            if (database != null) {
+                database.withTransaction { executeBlock() }
+            } else {
+                executeBlock()
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to persist attendance for ${verified.identityId}: ${t.message}", t)
             false
         }
+    }
+
+    /**
+     * Resolves the latest authoritative blockchain hash in the ledger.
+     */
+    suspend fun getLatestHash(): String = withContext(Dispatchers.IO) {
+        attendanceDao.getLatestHash() ?: AegisLedgerHasher.GENESIS_HASH
+    }
+
+    /**
+     * Checks if a student is already checked in today.
+     */
+    suspend fun isAlreadyCheckedInToday(
+        studentRoll: String,
+        timestamp: Long = System.currentTimeMillis()
+    ): Boolean = withContext(Dispatchers.IO) {
+        val sessionDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
+        attendanceDao.getRecordForStudentOnDate(sessionDate, studentRoll) != null
+    }
+
+    /**
+     * Returns the total historical attendance count for a student.
+     */
+    suspend fun getAttendanceCountForStudent(studentRoll: String): Int = withContext(Dispatchers.IO) {
+        attendanceDao.getAttendanceCountForStudent(studentRoll)
+    }
+
+    /**
+     * Observes attendance records for a student reactively.
+     */
+    fun getRecordsForStudentFlow(studentRoll: String): kotlinx.coroutines.flow.Flow<List<AttendanceRecordEntity>> {
+        return attendanceDao.getRecordsForStudentFlow(studentRoll)
     }
 }

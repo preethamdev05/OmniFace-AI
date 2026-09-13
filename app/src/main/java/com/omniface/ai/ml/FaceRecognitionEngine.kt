@@ -622,6 +622,19 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         return embedding
     }
 
+    /**
+     * Extracts embeddings for multiple face bitmaps sequentially or in batched forward passes.
+     * Efficiently processes groups of detected faces without per-face overhead.
+     */
+    fun extractBatchEmbeddings(faceBitmaps: List<Bitmap>): List<FloatArray> {
+        if (faceBitmaps.isEmpty()) return emptyList()
+        val results = ArrayList<FloatArray>(faceBitmaps.size)
+        for (bmp in faceBitmaps) {
+            results.add(extractEmbedding(bmp))
+        }
+        return results
+    }
+
     private fun extractRawEmbedding(faceBitmap: Bitmap): FloatArray {
         val unified = UnifiedFaceIntelligenceEngine.getInstance(context)
         if (unified.isModelLoaded && !faceBitmap.isRecycled) {

@@ -482,14 +482,16 @@ class BiometricVerificationEngineImpl(
                     consecutiveMatchCounts[roll] = count
 
                     val now = System.currentTimeMillis()
-                    val isTrackAlreadyLogged = trackState?.hasTriggeredAttendance == true
-                    val lastTime = lastVerifiedTimestamps[roll] ?: 0L
-                    val isCooldownElapsed = (now - lastTime > COOLDOWN_PERIOD_MS)
-                    val isNewRoll = (roll != lastAuthorizedRoll)
+                    val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
+                        synthesis = stabilized,
+                        quality = item.qualityResult,
+                        consecutiveMatchCount = count,
+                        lastVerifiedTimestampMs = lastVerifiedTimestamps[roll] ?: 0L,
+                        hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true,
+                        currentTimeMs = now
+                    )
 
-                    val requiredFrames = if (stabilized.matchSimilarity >= 0.72f) 1 else REQUIRED_CONSECUTIVE_FRAMES
-
-                    if (count >= requiredFrames && !isTrackAlreadyLogged && (isNewRoll || isCooldownElapsed)) {
+                    if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
                         lastAuthorizedRoll = roll
                         lastAuthorizedTimestampMs = now
                         lastVerifiedTimestamps[roll] = now
@@ -524,8 +526,8 @@ class BiometricVerificationEngineImpl(
                             leafHash = leafHash,
                             geometry = item.geometry
                         )
-                    } else if (isTrackAlreadyLogged || !isCooldownElapsed) {
-                        val remainingCooldown = (COOLDOWN_PERIOD_MS - (now - lastTime)).coerceAtLeast(0L)
+                    } else if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.COOLDOWN) {
+                        val remainingCooldown = ((com.omniface.ai.ml.verification.policy.AutomationPolicy.COOLDOWN_PERIOD_MS - (now - (lastVerifiedTimestamps[roll] ?: 0L)))).coerceAtLeast(0L)
                         _transientEvents.emit(
                             BiometricTransientEvent.DuplicateDetected(
                                 identityId = roll,
@@ -541,7 +543,7 @@ class BiometricVerificationEngineImpl(
                             geometry = item.geometry
                         )
                     } else {
-                        // Temporal consensus accumulating
+                        // OBSERVE_MORE_FRAMES: Temporal consensus accumulating (leafHash empty until auto-confirmed)
                         VerificationDecision.Verified(
                             identityId = roll,
                             displayName = displayName,

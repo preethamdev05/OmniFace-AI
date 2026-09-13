@@ -8,31 +8,36 @@ enum class DeviceCapacityTier(
     val label: String,
     val badgeTitle: String,
     val description: String,
-    val maxRecommendedAuxiliaryModels: Int
+    val maxRecommendedAuxiliaryModels: Int,
+    val maxConcurrentFaces: Int
 ) {
     ULTRA(
         label = "Ultra Neural Silicon",
         badgeTitle = "Tier 1: Ultra Flagship",
         description = "Snapdragon 8 Gen 3/Elite or Dimensity 9300. Fully capable of concurrent real-time CavaFace, 3DMM, Mesh & HRNet at 120 FPS.",
-        maxRecommendedAuxiliaryModels = 6
+        maxRecommendedAuxiliaryModels = 6,
+        maxConcurrentFaces = 4
     ),
     FLAGSHIP(
         label = "Flagship Accelerator",
         badgeTitle = "Tier 2: Flagship",
         description = "Snapdragon 8 Gen 1/2, Google Tensor G2-G4, or Dimensity 9000. Smooth real-time MobileFaceNet, 3DMM, Eye Gaze & MediaPipe Mesh.",
-        maxRecommendedAuxiliaryModels = 4
+        maxRecommendedAuxiliaryModels = 4,
+        maxConcurrentFaces = 2
     ),
     BALANCED(
         label = "Balanced Neural Engine",
         badgeTitle = "Tier 3: Mid-Range",
         description = "Snapdragon 7/6 series, Dimensity 7000/8000, Exynos. Optimized for Bundled MobileFaceNet INT8 + MediaPipe Mesh + Passive PAD.",
-        maxRecommendedAuxiliaryModels = 2
+        maxRecommendedAuxiliaryModels = 2,
+        maxConcurrentFaces = 1
     ),
     ENTRY(
         label = "Lightweight CPU / NNAPI",
         badgeTitle = "Tier 4: Entry-Level",
         description = "Budget SoC or low RAM (<6GB). Running Bundled MobileFaceNet INT8/FP32 baseline. Large auxiliary model downloads are discouraged to prevent thermal lag.",
-        maxRecommendedAuxiliaryModels = 1
+        maxRecommendedAuxiliaryModels = 1,
+        maxConcurrentFaces = 1
     )
 }
 
@@ -109,6 +114,23 @@ object DeviceCapacityGovernor {
             isSnapdragonFlagship = isSnapdragon,
             summaryRecommendation = summary
         )
+    }
+
+    /**
+     * Dynamically resolves the maximum number of concurrent face verifications permitted.
+     * Throttles concurrency during elevated thermal states (ThermalState.WARM / CRITICAL)
+     * to prevent CPU/GPU thermal stalls while keeping camera fast-path responsive.
+     */
+    fun getMaxConcurrentFaces(context: Context? = null): Int {
+        val thermal = ThermalGovernor.thermalState.value
+        if (thermal == ThermalState.CRITICAL) return 1
+        if (context == null) return DeviceCapacityTier.BALANCED.maxConcurrentFaces
+        val profile = evaluateDeviceCapacity(context)
+        return if (thermal == ThermalState.WARM) {
+            maxOf(1, profile.tier.maxConcurrentFaces - 1)
+        } else {
+            profile.tier.maxConcurrentFaces
+        }
     }
 
     fun getModelRequirements(context: Context): List<ModelHardwareRequirement> {

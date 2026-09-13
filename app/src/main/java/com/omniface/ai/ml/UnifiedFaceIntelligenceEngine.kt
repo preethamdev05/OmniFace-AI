@@ -63,6 +63,16 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
         private const val TAG = "UnifiedFaceEngine"
         const val MODEL_ASSET = "unified_omniface.tflite"
 
+        /**
+         * SAFETY INVARIANT (Stage 11 ADR: UNIFIED_MODEL_ARCHITECTURE_DECISION.md):
+         * The unverified merged flatbuffer unified_omniface.tflite contains randomly initialized weights
+         * (as proven by empirical audit OMNIFACE_ML_QUALITY_AUDIT.md). Production MUST route through verified
+         * standalone models (CavaFace, MobileFaceNet INT8, MiniFASNet, FaceMap 3DMM).
+         * This flag gates unified loading for experimental developer research only.
+         */
+        @Volatile
+        var ALLOW_UNVERIFIED_UNIFIED_ENGINE: Boolean = false
+
         @Volatile
         private var INSTANCE: UnifiedFaceIntelligenceEngine? = null
 
@@ -154,6 +164,12 @@ class UnifiedFaceIntelligenceEngine private constructor(private val context: Con
     }
 
     private fun loadUnifiedModel() {
+        if (!ALLOW_UNVERIFIED_UNIFIED_ENGINE) {
+            Log.w(TAG, "🛡️ [STAGE 11 INVARIANT] Unified model loading bypassed. Using production verified standalone models (ADR: UNIFIED_MODEL_ARCHITECTURE_DECISION.md).")
+            isModelLoaded = false
+            _isModelLoadedState.value = false
+            return
+        }
         try {
             val candidates = listOfNotNull(
                 context.getExternalFilesDir(null)?.let { File(it, "models/$MODEL_ASSET") },
