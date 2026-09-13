@@ -22,6 +22,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -247,6 +248,7 @@ fun IOSCard(
     borderBrush: Brush? = null,
     backgroundBrush: Brush? = null,
     elevation: Dp? = null,
+    contentPadding: PaddingValues = PaddingValues(18.dp),
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -317,7 +319,7 @@ fun IOSCard(
                     .background(topSpecularSheen)
             )
             Column(
-                modifier = Modifier.padding(18.dp),
+                modifier = Modifier.padding(contentPadding),
                 content = content
             )
         }
@@ -817,91 +819,89 @@ fun CupertinoMetricTile(
     IOSCard(
         modifier = modifier,
         cornerRadius = 18.dp,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
         onClick = onClick
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            // Subtle ambient radial glow behind icon
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                accentColor.copy(alpha = if (isDark) 0.16f else 0.09f),
-                                Color.Transparent
-                            ),
-                            center = Offset(240f, 0f),
-                            radius = 280f
-                        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title.uppercase(),
+                    color = omniTextMuted(isDark),
+                    fontSize = if (title.length > 5) 8.sp else 8.8.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .drawBehind {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        accentColor.copy(alpha = if (isDark) 0.35f else 0.22f),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = 24.dp.toPx()
+                                ),
+                                radius = 24.dp.toPx(),
+                                center = center
+                            )
+                        }
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = if (isDark) 0.20f else 0.12f))
+                        .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(15.dp)
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = value,
+                color = omniTextPrimary(isDark),
+                fontSize = if (value.length > 8) 20.sp else 25.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.6).sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = title.uppercase(),
-                        color = omniTextMuted(isDark),
-                        fontSize = if (title.length > 12) 8.5.sp else 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = if (title.length > 12) 0.sp else 0.15.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(accentColor.copy(alpha = if (isDark) 0.20f else 0.12f))
-                            .border(0.5.dp, accentColor.copy(alpha = if (isDark) 0.40f else 0.25f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
+            Spacer(modifier = Modifier.height(4.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
-
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = value,
-                    color = omniTextPrimary(isDark),
-                    fontSize = if (value.length > 8) 20.sp else 25.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.6).sp,
+                    text = subtitle,
+                    color = accentColor,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.1).sp,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(accentColor)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = subtitle,
-                        color = accentColor,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-0.1).sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
             }
         }
     }
@@ -1148,90 +1148,88 @@ fun CupertinoMetricDisc(
                     }
                 } else Modifier
             ),
-        cornerRadius = 20.dp
+        cornerRadius = 20.dp,
+        contentPadding = PaddingValues(14.dp)
     ) {
-        Box(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-            // Ambient radial glow behind the disc
-            Box(
-                modifier = Modifier
-                    .size(90.dp)
-                    .align(Alignment.TopEnd)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                accentColor.copy(alpha = if (isDark) 0.20f else 0.12f),
-                                Color.Transparent
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title.uppercase(),
+                    color = omniTextMuted(isDark),
+                    fontSize = if (title.length > 13) 7.5.sp else if (title.length > 10) 8.2.sp else 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = if (title.length > 10) (-0.3).sp else 0.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .drawBehind {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        accentColor.copy(alpha = if (isDark) 0.35f else 0.22f),
+                                        Color.Transparent
+                                    ),
+                                    center = center,
+                                    radius = 24.dp.toPx()
+                                ),
+                                radius = 24.dp.toPx(),
+                                center = center
                             )
-                        )
+                        }
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.10f))
+                        .border(1.dp, accentColor.copy(alpha = if (isDark) 0.45f else 0.30f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(15.dp)
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = value,
+                color = omniTextPrimary(isDark),
+                fontSize = if (value.length > 8) 20.sp else 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.8).sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                maxLines = 1
             )
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = title.uppercase(),
-                        color = omniTextMuted(isDark),
-                        fontSize = if (title.length > 13) 7.5.sp else if (title.length > 10) 8.2.sp else 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = if (title.length > 10) (-0.3).sp else 0.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(accentColor.copy(alpha = if (isDark) 0.18f else 0.10f))
-                            .border(1.dp, accentColor.copy(alpha = if (isDark) 0.45f else 0.30f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
+            Spacer(modifier = Modifier.height(4.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = value,
-                    color = omniTextPrimary(isDark),
-                    fontSize = if (value.length > 8) 20.sp else 26.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.8).sp,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    maxLines = 1
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(accentColor)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = subtitle,
-                        color = omniTextMuted(isDark),
-                        fontSize = if (subtitle.length > 14) 10.sp else 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = (-0.2).sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = subtitle,
+                    color = omniTextMuted(isDark),
+                    fontSize = if (subtitle.length > 14) 10.sp else 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = (-0.2).sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
             }
         }
     }
