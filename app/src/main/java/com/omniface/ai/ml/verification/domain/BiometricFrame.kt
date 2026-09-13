@@ -61,6 +61,9 @@ class ImageProxyBiometricFrame(
     }
 
     override fun close() {
+        cachedBitmap?.let {
+            if (!it.isRecycled) it.recycle()
+        }
         cachedBitmap = null
         try {
             imageProxy.close()

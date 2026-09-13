@@ -868,6 +868,10 @@ class BiometricVerificationEngineImpl(
         matcher.clear()
         temporalLivenessEngine.clearAll()
         tracker.clear()
+        identityMap.clear()
+        consecutiveMatchCounts.clear()
+        lastVerifiedTimestamps.clear()
+        enrolledTemplates = emptyList()
         Log.i(TAG, "BiometricVerificationEngine closed successfully")
     }
 }
