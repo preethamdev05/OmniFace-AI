@@ -33,7 +33,7 @@ class AegisMintingWorker(
             for (entry in pendingList) {
                 try {
                     // Compute block hash and update outbox row
-                    val blockHash = AndroidSecurityUtils.computeAegisBlockHash(
+                    val blockHash = AegisLedgerHasher.computeBlockHash(
                         previousHash = null, // Will use genesis or continuous chain
                         studentRoll = entry.studentRoll,
                         timestamp = entry.timestamp,

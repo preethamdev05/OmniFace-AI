@@ -45,7 +45,20 @@ class AttendanceService(
                     return@withTransaction false
                 }
 
-                // 1. Persist Attendance Record
+                // 1. Determine Authoritative Aegis Leaf Hash
+                val effectiveHash = if (verified.leafHash.isNotBlank()) {
+                    verified.leafHash
+                } else {
+                    val prevHash = database.attendanceDao().getLatestHash() ?: AegisLedgerHasher.GENESIS_HASH
+                    AegisLedgerHasher.computeBlockHash(
+                        previousHash = prevHash,
+                        studentRoll = verified.identityId,
+                        timestamp = timestamp,
+                        confidencePct = verified.confidence * 100f
+                    )
+                }
+
+                // 2. Persist Attendance Record
                 val record = AttendanceRecordEntity(
                     recordId = recordId,
                     studentRoll = verified.identityId,
@@ -54,18 +67,18 @@ class AttendanceService(
                     timestamp = timestamp,
                     confidencePct = verified.confidence * 100f,
                     securityTier = securityTier,
-                    sha256Hash = verified.leafHash,
+                    sha256Hash = effectiveHash,
                     isSynced = false
                 )
                 database.attendanceDao().insertRecord(record)
 
-                // 2. Persist Aegis Outbox Entry (Atomic Durability Guarantee)
+                // 3. Persist Aegis Outbox Entry (Atomic Durability Guarantee)
                 val outbox = AegisOutboxEntity(
                     recordId = recordId,
                     studentRoll = verified.identityId,
                     timestamp = timestamp,
                     confidencePct = verified.confidence * 100f,
-                    leafHash = verified.leafHash,
+                    leafHash = effectiveHash,
                     status = AegisOutboxEntity.STATUS_PENDING_MINT,
                     retryCount = 0,
                     createdAt = timestamp

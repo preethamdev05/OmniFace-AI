@@ -154,11 +154,11 @@ interface AttendanceDao {
     suspend fun recordAttendanceIfNotExists(record: AttendanceRecordEntity): Boolean {
         val existing = getRecordForStudentOnDate(record.sessionDate, record.studentRoll)
         if (existing == null) {
-            val prevHash = getLatestHash() ?: com.omniface.ai.security.AndroidSecurityUtils.AEGIS_GENESIS_HASH
+            val prevHash = getLatestHash() ?: com.omniface.ai.attendance.AegisLedgerHasher.GENESIS_HASH
             val finalRecord = if (record.sha256Hash.isNotBlank() && record.sha256Hash != prevHash) {
                 record
             } else {
-                val blockHash = com.omniface.ai.security.AndroidSecurityUtils.computeAegisBlockHash(
+                val blockHash = com.omniface.ai.attendance.AegisLedgerHasher.computeBlockHash(
                     previousHash = prevHash,
                     studentRoll = record.studentRoll,
                     timestamp = record.timestamp,
@@ -174,8 +174,8 @@ interface AttendanceDao {
 
     @Transaction
     suspend fun insertWithAegisChaining(record: AttendanceRecordEntity): Long {
-        val prevHash = getLatestHash() ?: com.omniface.ai.security.AndroidSecurityUtils.AEGIS_GENESIS_HASH
-        val blockHash = com.omniface.ai.security.AndroidSecurityUtils.computeAegisBlockHash(
+        val prevHash = getLatestHash() ?: com.omniface.ai.attendance.AegisLedgerHasher.GENESIS_HASH
+        val blockHash = com.omniface.ai.attendance.AegisLedgerHasher.computeBlockHash(
             previousHash = prevHash,
             studentRoll = record.studentRoll,
             timestamp = record.timestamp,
