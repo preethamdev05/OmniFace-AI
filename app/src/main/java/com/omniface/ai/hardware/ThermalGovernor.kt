@@ -112,6 +112,8 @@ object ThermalGovernor {
         _simulatedThermalOverride.value = override
         if (override != null) {
             _thermalState.value = override
+        } else {
+            _thermalState.value = ThermalState.NOMINAL
         }
     }
 
