@@ -92,16 +92,63 @@ object BiometricDecisionEngine {
         val isPassiveLive = passivePad?.isLive ?: true
         val isTemporalLive = temporalLiveness.isLive
         val multiStageScore = multiStageLiveness?.overallLivenessScore ?: (passivePad?.livenessScore ?: 0.90f)
-        val livenessScore = multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
 
-        // Robust spoof rejection:
-        // 1. Passive PAD detected presentation attack with high confidence (spoof >= 70% AND failed liveness)
-        // 2. OR Multi-stage + temporal consensus failure
-        // 3. OR Explicit static attack with zero micro-motion
-        val isConfirmedSpoof = (!isPassiveLive && passivePad.spoofProbability >= 0.70f) ||
-                               (!isMultiStageLive && !isTemporalLive && livenessScore < 0.45f) ||
-                               (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.35f) ||
-                               (!isTemporalLive && temporalLiveness.explanation.contains("Static"))
+        // 3D Physical Topography from FaceMap 3DMM
+        val has3DDepth = faceMap3DMM?.let { it.depthVariance > 0.0015f } ?: temporalLiveness.stable3DDepth
+        val isPlanarSurface = faceMap3DMM?.let { it.depthVariance <= 0.0015f } ?: (!temporalLiveness.stable3DDepth)
+        val depthScore = when {
+            faceMap3DMM != null -> if (faceMap3DMM.depthVariance > 0.0015f) 1.0f else (faceMap3DMM.depthVariance / 0.0015f).coerceIn(0f, 1f)
+            temporalLiveness.stable3DDepth -> 1.0f
+            else -> 0.2f
+        }
+
+        // Multi-modal consensus fusion score:
+        // When faceMap3DMM is present, combine 2D texture (40%), 3D geometry (30%), and temporal dynamics (30%)
+        val livenessScore = if (faceMap3DMM != null) {
+            (multiStageScore * 0.40f + depthScore * 0.30f + temporalLiveness.temporalConfidence * 0.30f).coerceIn(0f, 1f)
+        } else {
+            multiStageScore * 0.6f + temporalLiveness.temporalConfidence * 0.4f
+        }
+
+        // Multi-Modal Anti-Spoofing Consensus & Threat Classification:
+        // 1. High-confidence passive PAD attack (spoof >= 70% AND failed liveness)
+        val isHighConfidencePadSpoof = (!isPassiveLive && passivePad.spoofProbability >= 0.70f)
+
+        // 2. Planar attack consensus (2D photo / screen replay):
+        // Physical 3D surface is planar (depthVariance <= 0.0015) AND (passive PAD failed OR temporal static OR multi-stage flagged)
+        val isPlanarAttack = isPlanarSurface && (
+            !isPassiveLive ||
+            !isMultiStageLive ||
+            !isTemporalLive ||
+            (multiStageLiveness?.stageBreakdown?.hasUnnaturalPaperFlatness == true) ||
+            (multiStageLiveness?.stageBreakdown?.hasSpecularScreenHotspots == true) ||
+            (multiStageLiveness?.stageBreakdown?.hasPeriodicDisplayGrid == true)
+        )
+
+        // 3. Screen Replay Display Attack
+        val isScreenReplay = (multiStageLiveness?.stageBreakdown?.hasSpecularScreenHotspots == true || multiStageLiveness?.stageBreakdown?.hasPeriodicDisplayGrid == true) && (!isPassiveLive || isPlanarSurface)
+
+        // 4. 2D Printed Paper Photo Attack
+        val isPaperPrintAttack = (multiStageLiveness?.stageBreakdown?.hasUnnaturalPaperFlatness == true) && (!isPassiveLive || isPlanarSurface)
+
+        // 5. 3D Mask / Prosthetic Attack: Artificial material lacking physiological blood pulse
+        val is3DMaskAttack = has3DDepth &&
+            (multiStageLiveness?.stageBreakdown?.chromaticScore ?: 1.0f) < 0.30f &&
+            (temporalLiveness.rppgVitality != null && !temporalLiveness.rppgVitality.isLive)
+
+        // 6. Explicit static attack with zero micro-motion
+        val isStaticReplay = (!isTemporalLive && temporalLiveness.explanation.contains("Static", ignoreCase = true))
+
+        // 7. Multi-modal consensus failure
+        val isConsensusFailure = (!isMultiStageLive && !isTemporalLive && livenessScore < 0.45f) ||
+                                 (multiStageLiveness?.primaryAttackVector != null && livenessScore < 0.35f)
+
+        // Genuine 3D Face Protection (High-ISO / sensor noise immunity):
+        // If genuine 3D depth (depthVariance > 0.0015) AND temporal micro-motion detected AND no hard attack,
+        // prevent false rejections when passive 2D PAD is noisy in dim lighting
+        val isGenuine3DProtected = has3DDepth && temporalLiveness.microMotionDetected && !isHighConfidencePadSpoof && !isPlanarSurface && !is3DMaskAttack && !isScreenReplay && !isPaperPrintAttack && multiStageScore >= 0.35f
+
+        val isConfirmedSpoof = (isHighConfidencePadSpoof || isPlanarAttack || isScreenReplay || isPaperPrintAttack || is3DMaskAttack || isStaticReplay || isConsensusFailure) && !isGenuine3DProtected
 
         if (isConfirmedSpoof) {
             val titleText = when (temporalLiveness.requiredAction) {
@@ -113,9 +160,15 @@ object BiometricDecisionEngine {
                 com.omniface.ai.ml.antispoof.LivenessChallengeType.SMILE -> "PLEASE SMILE"
                 null -> if (multiStageLiveness?.primaryAttackVector != null) "SPOOF ATTACK DETECTED" else "LIVENESS CHECK FAILED"
             }
-            val attackDesc = multiStageLiveness?.primaryAttackVector
-                ?: passivePad?.attackTypeDescription
-                ?: temporalLiveness.explanation
+            val attackDesc = when {
+                isScreenReplay -> multiStageLiveness.primaryAttackVector ?: "Electronic Screen Replay Detected"
+                isPaperPrintAttack -> multiStageLiveness.primaryAttackVector ?: "2D Printed Photo Spoof Attack"
+                isPlanarAttack && faceMap3DMM != null && faceMap3DMM.depthVariance <= 0.0015f -> "Planar 2D Surface Detected (Depth Variance <= 0.0015)"
+                is3DMaskAttack -> "Artificial 3D Mask / Prosthetic Attack (No Cardiovascular Pulse)"
+                multiStageLiveness?.primaryAttackVector != null -> multiStageLiveness.primaryAttackVector
+                passivePad?.attackTypeDescription?.isNotBlank() == true -> passivePad.attackTypeDescription
+                else -> temporalLiveness.explanation
+            }
             return BiometricSynthesisDecision(
                 gateState = PipelineGateState.REJECT_SPOOF_ATTACK,
                 isAttendanceAuthorized = false,

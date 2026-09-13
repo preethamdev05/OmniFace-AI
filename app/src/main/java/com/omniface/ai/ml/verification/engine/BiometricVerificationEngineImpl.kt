@@ -509,6 +509,16 @@ class BiometricVerificationEngineImpl(
                 )
             }
 
+            // ── Multi-Stage Liveness Evaluation (Prior to recycling faceCrop) ──
+            val multiStageResult: MultiStageLivenessResult? = if (config.isMultiStageLivenessEnabled && faceCrop != null && !faceCrop.isRecycled) {
+                try {
+                    multiStageLivenessEngine.evaluate(faceCrop, passivePadResult)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "MultiStageLiveness error: ${t.message}")
+                    null
+                }
+            } else null
+
             if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
                 alignedFaceBitmap.recycle()
             }
@@ -521,7 +531,7 @@ class BiometricVerificationEngineImpl(
                 temporalLiveness = temporalResult,
                 matchResult = matchResult,
                 securityTier = securityTier,
-                multiStageLiveness = null,
+                multiStageLiveness = multiStageResult,
                 faceMap3DMM = map3dResult
             )
 
@@ -533,7 +543,7 @@ class BiometricVerificationEngineImpl(
                     domainGeometry = domainGeometry,
                     qualityResult = qualityResult,
                     passivePadResult = passivePadResult,
-                    multiStageLivenessResult = null,
+                    multiStageLivenessResult = multiStageResult,
                     temporalResult = temporalResult,
                     map3dResult = map3dResult,
                     gazeResult = gazeResult,
@@ -702,9 +712,16 @@ class BiometricVerificationEngineImpl(
                         )
                     )
                 } else if (stabilized.gateState == PipelineGateState.REJECT_SPOOF_ATTACK) {
+                    val spoofReason = if (item.map3dResult != null && item.map3dResult.depthVariance <= 0.0015f) {
+                        com.omniface.ai.ml.verification.domain.SpoofReason.DEPTH_VARIANCE_FLAT
+                    } else if (item.temporalResult != null && !item.temporalResult.isLive) {
+                        com.omniface.ai.ml.verification.domain.SpoofReason.TEMPORAL_JITTER
+                    } else {
+                        com.omniface.ai.ml.verification.domain.SpoofReason.TEXTURE_ANOMALY
+                    }
                     _transientEvents.emit(
                         BiometricTransientEvent.SpoofAttemptBlocked(
-                            reason = com.omniface.ai.ml.verification.domain.SpoofReason.TEXTURE_ANOMALY,
+                            reason = spoofReason,
                             confidence = (100f - stabilized.livenessScore) / 100f
                         )
                     )
@@ -803,7 +820,7 @@ class BiometricVerificationEngineImpl(
                 )
             }
             PipelineGateState.REJECT_SPOOF_ATTACK -> {
-                val reason = if (candidate.map3dResult != null && candidate.map3dResult.depthVariance < 0.0010f) {
+                val reason = if (candidate.map3dResult != null && candidate.map3dResult.depthVariance <= 0.0015f) {
                     SpoofReason.DEPTH_VARIANCE_FLAT
                 } else if (candidate.temporalResult != null && !candidate.temporalResult.isLive) {
                     SpoofReason.TEMPORAL_JITTER

@@ -82,7 +82,7 @@ class MultiStageLivenessEngine(
      * @param faceCrop High-resolution cropped face bitmap
      * @return MultiStageLivenessResult containing overall verdict and detailed per-stage telemetry
      */
-    suspend fun evaluate(faceCrop: Bitmap): MultiStageLivenessResult {
+    suspend fun evaluate(faceCrop: Bitmap, existingPassivePad: PassivePadResult? = null): MultiStageLivenessResult {
         val t0 = SystemClock.elapsedRealtimeNanos()
 
         if (faceCrop.isRecycled || faceCrop.width < 32 || faceCrop.height < 32) {
@@ -128,7 +128,7 @@ class MultiStageLivenessEngine(
         val chromaticAnalysis = analyzeChromaticDispersion(pixels, width, height)
 
         // ── STAGE 4: Neural MiniFASNet Passive PAD ──
-        val neuralResult = try {
+        val neuralResult = existingPassivePad ?: try {
             internalPassivePad.run(faceCrop)
         } catch (t: Throwable) {
             Log.w(TAG, "Neural PAD fallback: ${t.message}")
