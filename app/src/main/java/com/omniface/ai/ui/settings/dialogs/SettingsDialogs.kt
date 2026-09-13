@@ -44,7 +44,7 @@ fun SettingsMasterDialogs(
 
     // Diagnostics Self-Test Modal
     if (state.showSelfTestModal && state.selfTestReport != null) {
-        val report = state.selfTestReport!!
+        val report = state.selfTestReport
         AlertDialog(
             onDismissRequest = { viewModel.dismissSelfTestModal() },
             containerColor = if (isDark) Color(0xFF0F172A) else Color(0xFFFFFFFF),

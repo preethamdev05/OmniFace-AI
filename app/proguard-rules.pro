@@ -27,8 +27,6 @@
 -dontwarn okio.**
 -keep class okhttp3.** { *; }
 
-# ── AndroidX Security (EncryptedSharedPreferences) ───────────────────────────
--keep class androidx.security.crypto.** { *; }
 
 # ── WorkManager ───────────────────────────────────────────────────────────────
 -keep class * extends androidx.work.Worker

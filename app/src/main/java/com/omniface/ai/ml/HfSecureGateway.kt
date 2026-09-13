@@ -3,8 +3,7 @@ package com.omniface.ai.ml
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import com.omniface.ai.security.AndroidSecurityUtils
 import java.security.SecureRandom
 
 /**
@@ -33,21 +32,7 @@ object HfSecureGateway {
     private val OBFUSCATED_TOKEN_BYTES = byteArrayOf()
 
     private fun getSecurePrefs(context: Context): SharedPreferences {
-        return try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                PREFS_FILE,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (t: Throwable) {
-            android.util.Log.w("HfSecureGateway", "EncryptedSharedPreferences unavailable, using plain prefs: ${t.message}")
-            context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        }
+        return AndroidSecurityUtils.getEncryptedPrefs(context, PREFS_FILE)
     }
 
     /**

@@ -218,18 +218,7 @@ object KioskLockController {
     }
 
     private fun encryptedPrefs(context: Context): android.content.SharedPreferences {
-        return try {
-            val masterKey = androidx.security.crypto.MasterKey.Builder(context)
-                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            androidx.security.crypto.EncryptedSharedPreferences.create(
-                context, PREFS_FILE, masterKey,
-                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (_: Throwable) {
-            context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        }
+        return com.omniface.ai.security.AndroidSecurityUtils.getEncryptedPrefs(context, PREFS_FILE)
     }
 
     private fun encryptedPrefsOrNull(): android.content.SharedPreferences? {

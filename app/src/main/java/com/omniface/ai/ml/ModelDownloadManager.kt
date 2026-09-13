@@ -222,11 +222,6 @@ class ModelDownloadManager(private val context: Context) {
                 }
 
                 val body = response.body
-                if (body == null) {
-                    _downloadState.value = ModelDownloadState.Error("Empty response body from Model CDN.", canRetry = true)
-                    return@launch
-                }
-
                 val contentLength = body.contentLength()
                 val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 362.6f
 

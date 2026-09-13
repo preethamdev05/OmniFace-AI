@@ -163,8 +163,6 @@ dependencies {
     // Secure Network & Model Downloader
     implementation(libs.okhttp)
 
-    // EncryptedSharedPreferences for HMAC secrets & HF token vault
-    implementation(libs.androidx.security.crypto)
 
     // AndroidX Biometric Prompt for Device Inbuilt Fingerprint / Face / Screen Lock
     implementation(libs.androidx.biometric)

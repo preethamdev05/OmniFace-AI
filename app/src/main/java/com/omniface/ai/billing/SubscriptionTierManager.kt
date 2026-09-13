@@ -3,8 +3,7 @@ package com.omniface.ai.billing
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import com.omniface.ai.security.AndroidSecurityUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -146,21 +145,7 @@ object SubscriptionTierManager {
     private var prefs: SharedPreferences? = null
 
     fun initialize(context: Context) {
-        prefs = try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Falling back to standard SharedPreferences: ${e.message}")
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        }
+        prefs = AndroidSecurityUtils.getEncryptedPrefs(context, PREFS_NAME)
 
         evaluateCurrentTier()
         PlayBillingManager.pullSubscriptionFromBackend()

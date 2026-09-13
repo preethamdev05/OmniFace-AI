@@ -67,7 +67,7 @@ object GoogleDriveAppDataService {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: ""
+                val body = response.body.string()
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Drive upload failed (HTTP ${response.code}): $body")
                     return@withContext Result.failure(Exception("Drive error (HTTP ${response.code}): $body"))
@@ -109,7 +109,7 @@ object GoogleDriveAppDataService {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: ""
+                val body = response.body.string()
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(Exception("Drive list error: HTTP ${response.code}"))
                 }
@@ -154,7 +154,7 @@ object GoogleDriveAppDataService {
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(Exception("Drive download error: HTTP ${response.code}"))
                 }
-                val bytes = response.body?.bytes() ?: ByteArray(0)
+                val bytes = response.body.bytes()
                 Result.success(bytes)
             }
         } catch (e: Exception) {

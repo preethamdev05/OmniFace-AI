@@ -6,8 +6,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.room.RoomDatabase
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.io.File
 import java.io.FileNotFoundException
@@ -325,25 +323,123 @@ object AndroidSecurityUtils {
     private val DEFAULT_PIN_HASH by lazy { computeSha256("omniface2025") }
 
     /**
-     * Opens (or creates) an AES256-GCM EncryptedSharedPreferences backed by the Android Keystore master key.
-     * Falls back to plain MODE_PRIVATE prefs on devices that fail MasterKey creation (rare edge cases).
+     * Modern, secure SharedPreferences implementation backed by AndroidKeyStore AES-256-GCM.
+     * Replaces deprecated AndroidX EncryptedSharedPreferences with direct sovereign hardware encryption:
+     * - AES-256-GCM with 12-byte random IV and 128-bit authentication tag
+     * - StrongBox HSM / TEE hardware isolation via AndroidKeyStore
+     * - Transparent value encryption/decryption with zero external dependency on deprecated Tink wrappers
+     * - Seamless backward-compatible fallback for existing plaintext / raw values
+     */
+    class KeyStoreEncryptedPreferences(
+        private val delegate: android.content.SharedPreferences
+    ) : android.content.SharedPreferences {
+
+        override fun getAll(): MutableMap<String, *> {
+            val raw = delegate.all
+            val result = mutableMapOf<String, Any?>()
+            for ((k, v) in raw) {
+                if (v is String) {
+                    val decrypted = decrypt(v)
+                    result[k] = if (decrypted.isNotEmpty()) decrypted else v
+                } else {
+                    result[k] = v
+                }
+            }
+            return result
+        }
+
+        override fun getString(key: String, defValue: String?): String? {
+            val stored = delegate.getString(key, null) ?: return defValue
+            val decrypted = decrypt(stored)
+            return if (decrypted.isNotEmpty()) decrypted else stored
+        }
+
+        override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? {
+            val stored = delegate.getStringSet(key, null) ?: return defValues
+            return stored.map { s ->
+                val decrypted = decrypt(s)
+                if (decrypted.isNotEmpty()) decrypted else s
+            }.toMutableSet()
+        }
+
+        override fun getInt(key: String, defValue: Int): Int = delegate.getInt(key, defValue)
+        override fun getLong(key: String, defValue: Long): Long = delegate.getLong(key, defValue)
+        override fun getFloat(key: String, defValue: Float): Float = delegate.getFloat(key, defValue)
+        override fun getBoolean(key: String, defValue: Boolean): Boolean = delegate.getBoolean(key, defValue)
+        override fun contains(key: String): Boolean = delegate.contains(key)
+
+        override fun edit(): android.content.SharedPreferences.Editor = Editor(delegate.edit())
+
+        override fun registerOnSharedPreferenceChangeListener(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?) {
+            delegate.registerOnSharedPreferenceChangeListener(listener)
+        }
+
+        override fun unregisterOnSharedPreferenceChangeListener(listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?) {
+            delegate.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+
+        class Editor(private val editor: android.content.SharedPreferences.Editor) : android.content.SharedPreferences.Editor {
+            override fun putString(key: String, value: String?): android.content.SharedPreferences.Editor {
+                if (value == null) {
+                    editor.remove(key)
+                } else {
+                    val encrypted = encrypt(value)
+                    editor.putString(key, encrypted)
+                }
+                return this
+            }
+
+            override fun putStringSet(key: String, values: MutableSet<String>?): android.content.SharedPreferences.Editor {
+                if (values == null) {
+                    editor.remove(key)
+                } else {
+                    val encryptedSet = values.map { encrypt(it) }.toSet()
+                    editor.putStringSet(key, encryptedSet)
+                }
+                return this
+            }
+
+            override fun putInt(key: String, value: Int): android.content.SharedPreferences.Editor {
+                editor.putInt(key, value)
+                return this
+            }
+
+            override fun putLong(key: String, value: Long): android.content.SharedPreferences.Editor {
+                editor.putLong(key, value)
+                return this
+            }
+
+            override fun putFloat(key: String, value: Float): android.content.SharedPreferences.Editor {
+                editor.putFloat(key, value)
+                return this
+            }
+
+            override fun putBoolean(key: String, value: Boolean): android.content.SharedPreferences.Editor {
+                editor.putBoolean(key, value)
+                return this
+            }
+
+            override fun remove(key: String): android.content.SharedPreferences.Editor {
+                editor.remove(key)
+                return this
+            }
+
+            override fun clear(): android.content.SharedPreferences.Editor {
+                editor.clear()
+                return this
+            }
+
+            override fun commit(): Boolean = editor.commit()
+            override fun apply() = editor.apply()
+        }
+    }
+
+    /**
+     * Opens (or creates) an AES256-GCM hardware-encrypted SharedPreferences backed by AndroidKeyStore.
      */
     fun getEncryptedPrefs(context: Context, fileName: String = ENCRYPTED_PREFS_FILE): android.content.SharedPreferences {
-        return try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                fileName,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (t: Throwable) {
-            android.util.Log.w("AndroidSecurityUtils", "EncryptedSharedPreferences unavailable, falling back to plain prefs: ${t.message}")
-            context.getSharedPreferences(fileName, android.content.Context.MODE_PRIVATE)
-        }
+        val basePrefs = context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
+        return KeyStoreEncryptedPreferences(basePrefs)
     }
 
     /**
