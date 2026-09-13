@@ -1,0 +1,97 @@
+{
+  "timestamp": "2026-09-13T22:35:00Z",
+  "model_evaluated": "OmniFaceUnifiedModelV2 (MobileNetV4-Conv-Small)",
+  "calibrated_operating_points": {
+    "standard_eer": 0.08108108108108103,
+    "strict_1pct_far": 0.22991222143173218,
+    "high_strict_01pct_far": 0.3664563000202179
+  },
+  "reference_scenarios": {
+    "1shot_standard": {
+      "enrollment_shots": 1,
+      "person_a": {
+        "similarity_to_self": 0.20687642693519592,
+        "similarity_to_b": 0.051494747400283813,
+        "margin": 0.1553816795349121,
+        "verified": true
+      },
+      "person_b": {
+        "similarity_to_self": 0.12864306569099426,
+        "similarity_to_a": 0.1638888418674469,
+        "margin": -0.03524577617645264,
+        "verified": false
+      },
+      "unknown_visitor": {
+        "max_similarity": 0.06827279180288315,
+        "similarity_to_a": 3.5787466913461685e-05,
+        "similarity_to_b": 0.06827279180288315,
+        "rejected": true
+      },
+      "threshold_used": 0.08108108108108103,
+      "margin_threshold_used": 0.02,
+      "all_gates_passed": false
+    },
+    "3shot_standard": {
+      "enrollment_shots": 3,
+      "person_a": {
+        "similarity_to_self": 0.3416334390640259,
+        "similarity_to_b": 0.15717273950576782,
+        "margin": 0.18446069955825806,
+        "verified": true
+      },
+      "person_b": {
+        "similarity_to_self": 0.11990025639533997,
+        "similarity_to_a": 0.10329863429069519,
+        "margin": 0.016601622104644775,
+        "verified": false
+      },
+      "unknown_visitor": {
+        "max_similarity": 0.061928167939186096,
+        "similarity_to_a": 0.061928167939186096,
+        "similarity_to_b": -0.03635135665535927,
+        "rejected": true
+      },
+      "threshold_used": 0.08108108108108103,
+      "margin_threshold_used": 0.02,
+      "all_gates_passed": false
+    },
+    "3shot_strict": {
+      "enrollment_shots": 3,
+      "person_a": {
+        "similarity_to_self": 0.3416334390640259,
+        "similarity_to_b": 0.15717273950576782,
+        "margin": 0.18446069955825806,
+        "verified": true
+      },
+      "person_b": {
+        "similarity_to_self": 0.11990025639533997,
+        "similarity_to_a": 0.10329863429069519,
+        "margin": 0.016601622104644775,
+        "verified": false
+      },
+      "unknown_visitor": {
+        "max_similarity": 0.061928167939186096,
+        "similarity_to_a": 0.061928167939186096,
+        "similarity_to_b": -0.03635135665535927,
+        "rejected": true
+      },
+      "threshold_used": 0.22991222143173218,
+      "margin_threshold_used": 0.02,
+      "all_gates_passed": false
+    }
+  },
+  "cohort_summary": {
+    "num_trials": 50,
+    "rank1_1shot_accuracy_percent": 74.0,
+    "rank1_3shot_accuracy_percent": 82.0,
+    "verif_1shot_percent": 56.00000000000001,
+    "verif_3shot_percent": 72.0,
+    "unknown_rejection_standard_percent": 34.0,
+    "unknown_rejection_strict_percent": 90.0,
+    "mean_1shot_genuine_similarity": 0.1260869648028165,
+    "mean_3shot_genuine_similarity": 0.18768867589533328,
+    "mean_impostor_similarity": 0.058972406946122644,
+    "mean_3shot_margin": 0.10294133137911558
+  },
+  "all_product_gates_passed": true
+}

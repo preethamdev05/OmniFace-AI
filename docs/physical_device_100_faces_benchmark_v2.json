@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-09-13T22:43:27Z",
+  "device_information": {
+    "device_serial": "10BG4903040030X",
+    "device_model": "V2561 (V2561i)",
+    "android_version": "16",
+    "soc_model": "MediaTek Dimensity 9400 (MT6991)",
+    "board_platform": "mt6991",
+    "npu_name": "MediaTek APU 890 (NeuroPilot GenAI Engine)",
+    "peak_tops": "50.0 TOPS"
+  },
+  "benchmark_workload": {
+    "face_count": 100,
+    "input_resolution": [1, 112, 112, 3],
+    "input_range": "[-1.0, 1.0] RGB",
+    "warmup_passes": 5,
+    "heads_evaluated": [
+      "identity_embedding [1, 512]",
+      "pad_liveness [1, 3]",
+      "face_quality [1, 4]",
+      "dense_mesh [1, 1404]",
+      "shape_3dmm [1, 265]",
+      "gaze_angles [1, 2]",
+      "attributes [1, 5]"
+    ]
+  },
+  "delegates_benchmarked": {
+    "cpu_xnnpack_int8": {
+      "name": "CPU XNNPACK 4-Thread (INT8)",
+      "model_file": "unified_face_v2_int8.tflite",
+      "model_size_bytes": 3749792,
+      "total_100_faces_ms": 682.77,
+      "throughput_fps": 146.5,
+      "latency_mean_ms": 6.83,
+      "latency_min_ms": 4.54,
+      "latency_p50_ms": 6.31,
+      "latency_p95_ms": 10.88,
+      "latency_p99_ms": 15.67,
+      "latency_max_ms": 15.67,
+      "vector_norm_check": 1.0000,
+      "status": "PASSED"
+    },
+    "mobile_gpu_fp16": {
+      "name": "Mobile GPU Delegate (FP16)",
+      "model_file": "unified_face_v2_fp16.tflite",
+      "model_size_bytes": 7023724,
+      "total_100_faces_ms": 837.67,
+      "throughput_fps": 119.4,
+      "latency_mean_ms": 8.37,
+      "latency_min_ms": 5.32,
+      "latency_p50_ms": 7.90,
+      "latency_p95_ms": 10.74,
+      "latency_p99_ms": 12.59,
+      "latency_max_ms": 12.59,
+      "vector_norm_check": 1.0000,
+      "status": "PASSED"
+    },
+    "nnapi_apu890_int8": {
+      "name": "NNAPI / MediaTek APU 890 (INT8)",
+      "model_file": "unified_face_v2_int8.tflite",
+      "model_size_bytes": 3749792,
+      "total_100_faces_ms": 1168.61,
+      "throughput_fps": 85.6,
+      "latency_mean_ms": 11.68,
+      "latency_min_ms": 9.75,
+      "latency_p50_ms": 11.89,
+      "latency_p95_ms": 12.88,
+      "latency_p99_ms": 13.75,
+      "latency_max_ms": 13.75,
+      "vector_norm_check": 1.0000,
+      "status": "PASSED"
+    },
+    "cpu_xnnpack_fp16": {
+      "name": "CPU XNNPACK 4-Thread (FP16)",
+      "model_file": "unified_face_v2_fp16.tflite",
+      "model_size_bytes": 7023724,
+      "total_100_faces_ms": 1301.68,
+      "throughput_fps": 76.8,
+      "latency_mean_ms": 13.01,
+      "latency_min_ms": 12.72,
+      "latency_p50_ms": 12.98,
+      "latency_p95_ms": 13.36,
+      "latency_p99_ms": 13.70,
+      "latency_max_ms": 13.70,
+      "vector_norm_check": 1.0000,
+      "status": "PASSED"
+    }
+  },
+  "workload_contract_verification": {
+    "all_7_heads_valid": true,
+    "nan_detected": false,
+    "inf_detected": false,
+    "active_app_tier": "NPU_NNAPI"
+  }
+}

@@ -67,7 +67,7 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
     companion object {
         private const val TAG = "UnifiedFaceEngine"
         const val MODEL_ID = "OmniFaceUnifiedModel"
-        const val MODEL_VERSION = "UnifiedFaceModel_v1.0"
+        const val MODEL_VERSION = "UnifiedFaceModel_v2.0"
         const val INPUT_WIDTH = 112
         const val INPUT_HEIGHT = 112
         const val INPUT_CHANNELS = 3
@@ -79,8 +79,10 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         const val ATTRIB_DIMS = 5
         const val PAD_CLASSES = 3
 
-        const val PRIMARY_MODEL_FILE = "unified_face_v1_fp16.tflite"
-        const val INT8_MODEL_FILE = "unified_face_v1_int8.tflite"
+        const val PRIMARY_MODEL_FILE = "unified_face_v2_fp16.tflite"
+        const val INT8_MODEL_FILE = "unified_face_v2_int8.tflite"
+        const val V1_PRIMARY_MODEL_FILE = "unified_face_v1_fp16.tflite"
+        const val V1_INT8_MODEL_FILE = "unified_face_v1_int8.tflite"
 
         @Volatile
         private var INSTANCE: UnifiedFaceModelEngine? = null
@@ -172,26 +174,42 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         return allFound
     }
 
+    private fun resolveModelFile(preferInt8: Boolean = false): String {
+        val candidates = if (preferInt8) {
+            listOf(INT8_MODEL_FILE, PRIMARY_MODEL_FILE, V1_INT8_MODEL_FILE, V1_PRIMARY_MODEL_FILE)
+        } else {
+            listOf(PRIMARY_MODEL_FILE, INT8_MODEL_FILE, V1_PRIMARY_MODEL_FILE, V1_INT8_MODEL_FILE)
+        }
+        for (cand in candidates) {
+            try {
+                context.assets.openFd(cand).close()
+                return cand
+            } catch (_: Throwable) {
+                val f = java.io.File(java.io.File(context.filesDir, "models"), cand)
+                if (f.exists()) return cand
+            }
+        }
+        return PRIMARY_MODEL_FILE
+    }
+
     @Synchronized
     fun initializeEngine(): Boolean {
         close()
 
-        // Explicit Model Selection: Select PRIMARY (FP16) or INT8 based on hardware
-        val modelAsset = PRIMARY_MODEL_FILE
-
         // Priority 1: NPU / NNAPI
+        val npuModel = resolveModelFile(preferInt8 = true)
         try {
             val nnapi = NnApiDelegate()
             val options = Interpreter.Options().apply {
                 addDelegate(nnapi)
                 setNumThreads(4)
             }
-            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(npuModel), options)
             if (validateModelContract(interp) && resolveOutputIndices(interp)) {
                 interpreter = interp
                 nnapiDelegate = nnapi
                 activeHardwareTier = HardwareTier.NPU_NNAPI
-                Log.i(TAG, "Initialized UnifiedFaceModel on NPU/NNAPI ($modelAsset)")
+                Log.i(TAG, "Initialized UnifiedFaceModel V2 on NPU/NNAPI ($npuModel)")
                 return true
             } else {
                 interp.close()
@@ -202,18 +220,19 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         }
 
         // Priority 2: Mobile GPU
+        val gpuModel = resolveModelFile(preferInt8 = false)
         try {
             val gpu = GpuDelegate()
             val options = Interpreter.Options().apply {
                 addDelegate(gpu)
                 setNumThreads(4)
             }
-            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(gpuModel), options)
             if (validateModelContract(interp) && resolveOutputIndices(interp)) {
                 interpreter = interp
                 gpuDelegate = gpu
                 activeHardwareTier = HardwareTier.GPU_DELEGATE
-                Log.i(TAG, "Initialized UnifiedFaceModel on GPU ($modelAsset)")
+                Log.i(TAG, "Initialized UnifiedFaceModel V2 on GPU ($gpuModel)")
                 return true
             } else {
                 interp.close()
@@ -224,26 +243,27 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
         }
 
         // Priority 3: Multi-Core CPU XNNPACK
+        val cpuModel = resolveModelFile(preferInt8 = false)
         try {
             val options = Interpreter.Options().apply {
                 setNumThreads(4)
                 setUseXNNPACK(true)
             }
-            val interp = Interpreter(loadModelBuffer(modelAsset), options)
+            val interp = Interpreter(loadModelBuffer(cpuModel), options)
             if (validateModelContract(interp) && resolveOutputIndices(interp)) {
                 interpreter = interp
                 activeHardwareTier = HardwareTier.CPU_XNNPACK
-                Log.i(TAG, "Initialized UnifiedFaceModel on CPU XNNPACK ($modelAsset)")
+                Log.i(TAG, "Initialized UnifiedFaceModel V2 on CPU XNNPACK ($cpuModel)")
                 return true
             } else {
                 interp.close()
                 Log.e(TAG, "Contract validation failed for CPU interpreter.")
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to initialize UnifiedFaceModel on CPU: ${t.message}")
+            Log.e(TAG, "Failed to initialize UnifiedFaceModel V2 on CPU: ${t.message}")
         }
 
-        Log.e(TAG, "FATAL: Failed to initialize UnifiedFaceModel V1 on any hardware tier. Engine disabled.")
+        Log.e(TAG, "FATAL: Failed to initialize UnifiedFaceModel on any hardware tier. Engine disabled.")
         return false
     }
 
@@ -252,12 +272,19 @@ class UnifiedFaceModelEngine(private val context: Context) : AutoCloseable {
     }
 
     private fun loadModelBuffer(modelName: String): ByteBuffer {
-        val fileDescriptor = context.assets.openFd(modelName)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        return try {
+            val fileDescriptor = context.assets.openFd(modelName)
+            val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+            val fileChannel = inputStream.channel
+            val startOffset = fileDescriptor.startOffset
+            val declaredLength = fileDescriptor.declaredLength
+            fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        } catch (_: Throwable) {
+            val f = java.io.File(java.io.File(context.filesDir, "models"), modelName)
+            val inputStream = FileInputStream(f)
+            val fileChannel = inputStream.channel
+            fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, f.length())
+        }
     }
 
     @Synchronized

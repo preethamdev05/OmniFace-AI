@@ -1,0 +1,16 @@
+{
+  "lfw_accuracy_mean": 0.8981666666666666,
+  "lfw_accuracy_std": 0.018003857611325672,
+  "optimal_threshold": 0.30861624065537624,
+  "genuine_mean": 0.48972869135439395,
+  "genuine_std": 0.15688674904013752,
+  "impostor_mean": 0.15920802810788154,
+  "impostor_std": 0.10107707861986323,
+  "d_prime": 2.504590347809614,
+  "tar_at_far_1pct": 0.6783333333333333,
+  "tar_at_far_01pct": 0.43433333333333335,
+  "total_evaluated_pairs": 6000,
+  "total_evaluation_time_seconds": 716.2157475948334,
+  "model_name": "CavaFace (Qualcomm AI Hub IR-SE-100)",
+  "model_path": "models_cache/cavaface.tflite"
+}

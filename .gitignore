@@ -72,6 +72,8 @@ training/kaggle_debug*/
 training/kaggle_unified_output/
 training/*.zip
 training/*.tar.gz
+training/downloads/
+*.npz
 
 training/105_classes_pins_dataset/
 *.pt

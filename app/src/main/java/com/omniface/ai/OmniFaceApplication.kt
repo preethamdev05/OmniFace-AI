@@ -192,6 +192,8 @@ class OmniFaceApplication : Application() {
 
     private fun verifyModelAssetsIntegrity() {
         val candidates = listOf(
+            "unified_face_v2_int8.tflite",
+            "unified_face_v2_fp16.tflite",
             "unified_face_v1_int8.tflite",
             "unified_face_v1_fp16.tflite"
         )

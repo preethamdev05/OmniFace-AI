@@ -1,0 +1,129 @@
+{
+  "timestamp": "2026-09-13T22:29:08Z",
+  "foundation_metrics": {
+    "tier_b": {
+      "genuine_mean": 0.11814463773173177,
+      "genuine_std": 0.10564325682151522,
+      "impostor_mean": 0.0473726616858039,
+      "impostor_std": 0.07948012666107244,
+      "d_prime": 0.7570691822591459,
+      "tar_at_far_1pct": 0.11444444444444445,
+      "tar_at_far_01pct": 0.03333333333333333,
+      "tau_far_1pct": 0.24784500896930695,
+      "tau_far_01pct": 0.3315544128417969,
+      "eer": 0.3579888888888889,
+      "eer_threshold": 0.07357357357357353
+    },
+    "lfw_standard": {
+      "lfw_accuracy_mean": 0.6216666666666667,
+      "lfw_accuracy_std": 0.023213980461973538,
+      "optimal_threshold": 0.11056788686704108,
+      "genuine_mean": 0.13590844419940065,
+      "genuine_std": 0.09457359344940758,
+      "impostor_mean": 0.0824014224788795,
+      "impostor_std": 0.0759709845211074,
+      "d_prime": 0.6237843873813935,
+      "tar_at_far_1pct": 0.08,
+      "tar_at_far_01pct": 0.022333333333333334,
+      "total_evaluated_pairs": 6000
+    },
+    "lfw_tta": {
+      "lfw_accuracy_mean": 0.6428333333333333,
+      "lfw_accuracy_std": 0.017858238061652865,
+      "optimal_threshold": 0.17491120064642346,
+      "genuine_mean": 0.20623401294881477,
+      "genuine_std": 0.11189608608212376,
+      "impostor_mean": 0.12895494151705256,
+      "impostor_std": 0.0911723071360752,
+      "d_prime": 0.7571809813172882,
+      "tar_at_far_1pct": 0.09666666666666666,
+      "tar_at_far_01pct": 0.034666666666666665,
+      "total_evaluated_pairs": 6000
+    },
+    "pad": {
+      "apcer": 0.0,
+      "bpcer": 0.0,
+      "acer": 0.0,
+      "evaluated_spoof_samples": 0,
+      "evaluated_live_samples": 2000
+    },
+    "multishot": {
+      "1_shot": {
+        "mean_probe_similarity": 0.11951205080995957,
+        "std_probe_similarity": 0.10427583162022713,
+        "min_probe_similarity": -0.10940691828727722
+      },
+      "3_shot": {
+        "mean_probe_similarity": 0.19033937546114127,
+        "std_probe_similarity": 0.1111861540940799,
+        "min_probe_similarity": -0.07610571384429932
+      }
+    },
+    "unknown_rejection_rate": 0.9463087248322147,
+    "unknown_sim_mean": 0.08365614573477499
+  },
+  "finetuned_metrics": {
+    "tier_b": {
+      "genuine_mean": 0.11814463773173177,
+      "genuine_std": 0.10564325682151522,
+      "impostor_mean": 0.0473726616858039,
+      "impostor_std": 0.07948012666107244,
+      "d_prime": 0.7570691822591459,
+      "tar_at_far_1pct": 0.11444444444444445,
+      "tar_at_far_01pct": 0.03333333333333333,
+      "tau_far_1pct": 0.24784500896930695,
+      "tau_far_01pct": 0.3315544128417969,
+      "eer": 0.3579888888888889,
+      "eer_threshold": 0.07357357357357353
+    },
+    "lfw_standard": {
+      "lfw_accuracy_mean": 0.6216666666666667,
+      "lfw_accuracy_std": 0.023213980461973538,
+      "optimal_threshold": 0.11056788686704108,
+      "genuine_mean": 0.13590844419940065,
+      "genuine_std": 0.09457359344940758,
+      "impostor_mean": 0.0824014224788795,
+      "impostor_std": 0.0759709845211074,
+      "d_prime": 0.6237843873813935,
+      "tar_at_far_1pct": 0.08,
+      "tar_at_far_01pct": 0.022333333333333334,
+      "total_evaluated_pairs": 6000
+    },
+    "lfw_tta": {
+      "lfw_accuracy_mean": 0.6428333333333333,
+      "lfw_accuracy_std": 0.017858238061652865,
+      "optimal_threshold": 0.17491120064642346,
+      "genuine_mean": 0.20623401294881477,
+      "genuine_std": 0.11189608608212376,
+      "impostor_mean": 0.12895494151705256,
+      "impostor_std": 0.0911723071360752,
+      "d_prime": 0.7571809813172882,
+      "tar_at_far_1pct": 0.09666666666666666,
+      "tar_at_far_01pct": 0.034666666666666665,
+      "total_evaluated_pairs": 6000
+    },
+    "pad": {
+      "apcer": 0.0,
+      "bpcer": 0.0,
+      "acer": 0.0,
+      "evaluated_spoof_samples": 0,
+      "evaluated_live_samples": 2000
+    },
+    "multishot": {
+      "1_shot": {
+        "mean_probe_similarity": 0.11951205080995957,
+        "std_probe_similarity": 0.10427583162022713,
+        "min_probe_similarity": -0.10940691828727722
+      },
+      "3_shot": {
+        "mean_probe_similarity": 0.19033937546114127,
+        "std_probe_similarity": 0.1111861540940799,
+        "min_probe_similarity": -0.07610571384429932
+      }
+    },
+    "unknown_rejection_rate": 0.9463087248322147,
+    "unknown_sim_mean": 0.08365614573477499
+  },
+  "winner_name": "V2 Foundation",
+  "winner_checkpoint": "training/unified/checkpoints/production_winner_unified_v2.pt"
+}

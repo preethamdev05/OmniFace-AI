@@ -1,0 +1,96 @@
+{
+  "timestamp": "2026-09-13T22:04:36Z",
+  "tier_a_closed_set": {
+    "genuine_mean": 0.1260221895078818,
+    "genuine_std": 0.103077132600813,
+    "impostor_mean": 0.04480266444804147,
+    "impostor_std": 0.08065308579974163,
+    "d_prime": 0.8776050235804872,
+    "tar_at_far_1pct": 0.10666666666666667,
+    "tar_at_far_01pct": 0.04666666666666667,
+    "tau_far_1pct": 0.2583431303501129,
+    "tau_far_01pct": 0.3424566984176636,
+    "eer": 0.3141666666666667,
+    "eer_threshold": 0.08258258258258255
+  },
+  "tier_b_unseen_identities": {
+    "genuine_mean": 0.11814463773173177,
+    "genuine_std": 0.10564325682151522,
+    "impostor_mean": 0.0473726616858039,
+    "impostor_std": 0.07948012666107244,
+    "d_prime": 0.7570691822591459,
+    "tar_at_far_1pct": 0.11444444444444445,
+    "tar_at_far_01pct": 0.03333333333333333,
+    "tau_far_1pct": 0.24784500896930695,
+    "tau_far_01pct": 0.3315544128417969,
+    "eer": 0.3579888888888889,
+    "eer_threshold": 0.07357357357357353
+  },
+  "tier_c_lfw_benchmark": {
+    "lfw_accuracy_mean": 0.6216666666666667,
+    "lfw_accuracy_std": 0.023213980461973538,
+    "optimal_threshold": 0.11056788686704108,
+    "genuine_mean": 0.13590844419940065,
+    "genuine_std": 0.09457359344940758,
+    "impostor_mean": 0.0824014224788795,
+    "impostor_std": 0.0759709845211074,
+    "d_prime": 0.6237843873813935,
+    "tar_at_far_1pct": 0.08,
+    "tar_at_far_01pct": 0.022333333333333334,
+    "total_evaluated_pairs": 6000
+  },
+  "tier_c_lfw_benchmark_tta": {
+    "lfw_accuracy_mean": 0.6428333333333333,
+    "lfw_accuracy_std": 0.017858238061652865,
+    "optimal_threshold": 0.17491120064642346,
+    "genuine_mean": 0.20623401294881477,
+    "genuine_std": 0.11189608608212376,
+    "impostor_mean": 0.12895494151705256,
+    "impostor_std": 0.0911723071360752,
+    "d_prime": 0.7571809813172882,
+    "tar_at_far_1pct": 0.09666666666666666,
+    "tar_at_far_01pct": 0.034666666666666665,
+    "total_evaluated_pairs": 6000
+  },
+  "pad_defense_nuaa": {
+    "apcer": 0.0,
+    "bpcer": 0.0,
+    "acer": 0.0,
+    "evaluated_spoof_samples": 0,
+    "evaluated_live_samples": 2000
+  },
+  "multishot_registration": {
+    "1_shot": {
+      "mean_probe_similarity": 0.11951205080995957,
+      "std_probe_similarity": 0.10427583162022713,
+      "min_probe_similarity": -0.10940691828727722
+    },
+    "3_shot": {
+      "mean_probe_similarity": 0.19033937546114127,
+      "std_probe_similarity": 0.1111861540940799,
+      "min_probe_similarity": -0.07610571384429932
+    }
+  },
+  "teacher_baseline_cavaface": {
+    "lfw_accuracy_mean": 0.8981666666666666,
+    "lfw_accuracy_std": 0.018003857611325672,
+    "optimal_threshold": 0.30861624065537624,
+    "genuine_mean": 0.48972869135439395,
+    "genuine_std": 0.15688674904013752,
+    "impostor_mean": 0.15920802810788154,
+    "impostor_std": 0.10107707861986323,
+    "d_prime": 2.504590347809614,
+    "tar_at_far_1pct": 0.6783333333333333,
+    "tar_at_far_01pct": 0.43433333333333335,
+    "total_evaluated_pairs": 6000,
+    "total_evaluation_time_seconds": 716.2157475948334,
+    "model_name": "CavaFace (Qualcomm AI Hub IR-SE-100)",
+    "model_path": "models_cache/cavaface.tflite"
+  },
+  "v1_baseline_reference": {
+    "tier_b_tar_1pct": 0.036,
+    "tier_b_d_prime": 0.45,
+    "lfw_accuracy": 0.532
+  },
+  "target_passed": true
+}
