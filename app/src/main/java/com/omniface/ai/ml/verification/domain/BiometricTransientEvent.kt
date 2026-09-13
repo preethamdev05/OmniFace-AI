@@ -26,4 +26,11 @@ sealed interface BiometricTransientEvent {
         val reason: SpoofReason,
         val confidence: Float
     ) : BiometricTransientEvent
+
+    data class ReviewRequired(
+        val identityId: String,
+        val displayName: String,
+        val reason: String,
+        val margin: Float
+    ) : BiometricTransientEvent
 }

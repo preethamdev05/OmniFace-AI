@@ -200,7 +200,6 @@ class GroupRecognitionHardeningTest {
         ) { id ->
             val c = concurrentCount.incrementAndGet()
             maxObserved.updateAndGet { curr -> maxOf(curr, c) }
-            c
             concurrentCount.decrementAndGet()
             "face_result_$id"
         }

@@ -1305,6 +1305,13 @@ class ScannerViewModel : ViewModel() {
                                 lastAttendanceRecordTimeMs = currentTimestamp
 
                                 if (batchResult.newlyRecorded.isNotEmpty()) {
+                                    securityPipeline.engine.automationStateMachine.onAttendanceRecorded(
+                                        recordsPersisted = batchResult.newlyRecorded.size,
+                                        proofHash = batchResult.newlyRecorded[0].sha256Hash
+                                    )
+                                    securityPipeline.engine.automationStateMachine.onNotificationQueued(
+                                        outboxId = batchResult.newlyRecorded[0].sha256Hash
+                                    )
                                     scanState = ScannerScanState.ATTENDANCE_RECORDED
                                     if (batchResult.newlyRecorded.size == 1) {
                                         val rec = batchResult.newlyRecorded[0]

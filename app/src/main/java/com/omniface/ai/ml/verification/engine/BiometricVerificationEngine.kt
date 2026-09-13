@@ -56,4 +56,9 @@ interface BiometricVerificationEngine : AutoCloseable {
      * Non-durable transient events for audio cues, UI toasts, and haptic feedback.
      */
     val transientEvents: SharedFlow<BiometricTransientEvent>
+
+    /**
+     * Deterministic Kiosk Automation Lifecycle State Machine (Phase 13).
+     */
+    val automationStateMachine: com.omniface.ai.ml.verification.policy.KioskAutomationStateMachine
 }

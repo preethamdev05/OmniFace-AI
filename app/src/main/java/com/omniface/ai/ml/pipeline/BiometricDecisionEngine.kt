@@ -19,6 +19,7 @@ enum class PipelineGateState {
         val VERIFIED = PASS
         val SPOOF_DETECTED = REJECT_SPOOF_ATTACK
         val QUALITY_REJECTED = REJECT_QUALITY
+        val REVIEW = REVIEW_AMBIGUOUS_MATCH
     }
 }
 

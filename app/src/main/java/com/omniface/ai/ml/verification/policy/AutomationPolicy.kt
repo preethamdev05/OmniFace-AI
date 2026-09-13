@@ -18,7 +18,10 @@ enum class AutomationAction {
     REJECT_OR_WAIT,
 
     /** Student already successfully verified within cooldown period. */
-    COOLDOWN
+    COOLDOWN,
+
+    /** Uncertain/ambiguous match, borderline margin, or supervisor inspection required. */
+    NEEDS_REVIEW
 }
 
 /**
@@ -85,7 +88,41 @@ object AutomationPolicy {
         hasTrackAlreadyTriggered: Boolean,
         currentTimeMs: Long = System.currentTimeMillis()
     ): AutomationDecision {
-        // Gate 1 & 2: Verification and Identity Validity
+        // Gate 0: Poor Quality Gate - Poor quality never forces recognition
+        val qScore = quality?.overallQualityScore ?: synthesis.qualityScore
+        if ((quality != null && !quality.isPassed) || qScore < 30.0f) {
+            return AutomationDecision(
+                action = AutomationAction.REJECT_OR_WAIT,
+                studentRoll = synthesis.matchedStudentRoll,
+                studentName = synthesis.matchedStudentName,
+                confidencePct = synthesis.matchConfidence,
+                livenessScore = synthesis.livenessScore,
+                matchSimilarity = synthesis.matchSimilarity,
+                decisionMargin = synthesis.decisionMargin,
+                requiredFrames = 4,
+                currentFrames = consecutiveMatchCount,
+                reason = "Image quality rejected (score: %.1f < 30.0): %s".format(
+                    qScore, quality?.rejectionReason?.ifBlank { "Low quality capture" } ?: "Low quality capture"
+                )
+            )
+        }
+
+        // Gate 1: Biometric Gate State
+        if (synthesis.gateState == PipelineGateState.REVIEW_AMBIGUOUS_MATCH) {
+            return AutomationDecision(
+                action = AutomationAction.NEEDS_REVIEW,
+                studentRoll = synthesis.matchedStudentRoll,
+                studentName = synthesis.matchedStudentName,
+                confidencePct = synthesis.matchConfidence,
+                livenessScore = synthesis.livenessScore,
+                matchSimilarity = synthesis.matchSimilarity,
+                decisionMargin = synthesis.decisionMargin,
+                requiredFrames = 2,
+                currentFrames = consecutiveMatchCount,
+                reason = "Biometric review required: ${synthesis.technicalExplanation}"
+            )
+        }
+
         if (synthesis.gateState != PipelineGateState.PASS || synthesis.matchedStudentRoll.isBlank()) {
             return AutomationDecision(
                 action = AutomationAction.REJECT_OR_WAIT,
@@ -123,6 +160,22 @@ object AutomationPolicy {
 
         // Gate 4: Decision Margin Verification (Prevent Ambiguous Imposter Matches)
         if (synthesis.decisionMargin < MIN_DECISION_MARGIN && synthesis.decisionMargin > 0f) {
+            if (consecutiveMatchCount >= 4) {
+                return AutomationDecision(
+                    action = AutomationAction.NEEDS_REVIEW,
+                    studentRoll = roll,
+                    studentName = synthesis.matchedStudentName,
+                    confidencePct = synthesis.matchConfidence,
+                    livenessScore = synthesis.livenessScore,
+                    matchSimilarity = synthesis.matchSimilarity,
+                    decisionMargin = synthesis.decisionMargin,
+                    requiredFrames = 4,
+                    currentFrames = consecutiveMatchCount,
+                    reason = "Ambiguous identity match: decision margin (%.3f) below threshold (%.2f) across %d frames".format(
+                        synthesis.decisionMargin, MIN_DECISION_MARGIN, consecutiveMatchCount
+                    )
+                )
+            }
             return AutomationDecision(
                 action = AutomationAction.OBSERVE_MORE_FRAMES,
                 studentRoll = roll,
@@ -140,7 +193,6 @@ object AutomationPolicy {
         }
 
         // Gate 5: Quality-Adaptive Temporal Consensus
-        val qScore = quality?.overallQualityScore ?: synthesis.qualityScore
         val requiredFrames = calculateRequiredFrames(qScore, synthesis.matchSimilarity)
 
         return if (consecutiveMatchCount >= requiredFrames) {

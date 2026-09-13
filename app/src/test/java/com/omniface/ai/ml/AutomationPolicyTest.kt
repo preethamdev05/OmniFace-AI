@@ -198,4 +198,78 @@ class AutomationPolicyTest {
         // Marginal quality (< 40) -> 4 frames
         assertEquals(4, AutomationPolicy.calculateRequiredFrames(qualityScore = 32f, similarity = 0.60f))
     }
+
+    @Test
+    fun testRejectOrWait_whenQualityBelowThreshold() {
+        val synthesis = createPassSynthesis(qualityScore = 25.0f)
+        val quality = createQualityResult(score = 25.0f)
+
+        val decision = AutomationPolicy.evaluate(
+            synthesis = synthesis,
+            quality = quality,
+            consecutiveMatchCount = 3,
+            lastVerifiedTimestampMs = 0L,
+            hasTrackAlreadyTriggered = false
+        )
+
+        assertEquals(AutomationAction.REJECT_OR_WAIT, decision.action)
+        assertTrue(decision.reason.contains("30.0"))
+    }
+
+    @Test
+    fun testNeedsReview_whenBiometricGateReview() {
+        val synthesis = BiometricSynthesisDecision(
+            gateState = PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
+            isAttendanceAuthorized = false,
+            matchedStudentRoll = "ROLL_002",
+            matchedStudentName = "Review Candidate",
+            matchConfidence = 65f,
+            matchSimilarity = 0.65f,
+            decisionMargin = 0.03f,
+            qualityScore = 75f,
+            livenessScore = 80f,
+            title = "MANUAL REVIEW",
+            subtitle = "Supervisor inspection required",
+            technicalExplanation = "Ambiguous identity match in boundary region"
+        )
+        val quality = createQualityResult(score = 75.0f)
+
+        val decision = AutomationPolicy.evaluate(
+            synthesis = synthesis,
+            quality = quality,
+            consecutiveMatchCount = 2,
+            lastVerifiedTimestampMs = 0L,
+            hasTrackAlreadyTriggered = false
+        )
+
+        assertEquals(AutomationAction.NEEDS_REVIEW, decision.action)
+        assertTrue(decision.reason.contains("Biometric review required"))
+    }
+
+    @Test
+    fun testNeedsReview_whenAmbiguousMarginPersistsAcrossFrames() {
+        val synthesis = createPassSynthesis(similarity = 0.72f, margin = 0.02f)
+        val quality = createQualityResult(score = 70.0f)
+
+        // Frames 1-3 yield OBSERVE_MORE_FRAMES
+        val decisionEarly = AutomationPolicy.evaluate(
+            synthesis = synthesis,
+            quality = quality,
+            consecutiveMatchCount = 2,
+            lastVerifiedTimestampMs = 0L,
+            hasTrackAlreadyTriggered = false
+        )
+        assertEquals(AutomationAction.OBSERVE_MORE_FRAMES, decisionEarly.action)
+
+        // Persistent ambiguity on frame 4+ yields NEEDS_REVIEW
+        val decisionPersist = AutomationPolicy.evaluate(
+            synthesis = synthesis,
+            quality = quality,
+            consecutiveMatchCount = 4,
+            lastVerifiedTimestampMs = 0L,
+            hasTrackAlreadyTriggered = false
+        )
+        assertEquals(AutomationAction.NEEDS_REVIEW, decisionPersist.action)
+        assertTrue(decisionPersist.reason.contains("Ambiguous identity match"))
+    }
 }

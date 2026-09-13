@@ -117,6 +117,7 @@ class BiometricVerificationEngineImpl(
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     override val transientEvents: SharedFlow<BiometricTransientEvent> = _transientEvents.asSharedFlow()
+    override val automationStateMachine = com.omniface.ai.ml.verification.policy.KioskAutomationStateMachine()
 
     private var templateObservationJob: Job? = null
     private var thermalObservationJob: Job? = null
@@ -312,6 +313,12 @@ class BiometricVerificationEngineImpl(
         val purgedTrackIds = tracker.onFrameTracksUpdated(detectedTrackIds)
         for (purgedId in purgedTrackIds) {
             scheduler.cancelTrack(purgedId)
+            automationStateMachine.onCycleCompleted(purgedId)
+        }
+        if (faces.isNotEmpty()) {
+            automationStateMachine.onFacesDetected(faces.size, detectedTrackIds)
+        } else {
+            automationStateMachine.onNoFacesDetected()
         }
 
         for (face in faces.take(12)) {
@@ -617,6 +624,8 @@ class BiometricVerificationEngineImpl(
                     currentTimeMs = now
                 )
 
+                automationStateMachine.onPolicyEvaluated(trackId, automation)
+
                 if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
                     thisFaceTriggered = true
                     attendanceTriggered = true
@@ -649,6 +658,18 @@ class BiometricVerificationEngineImpl(
                             timestamp = now
                         )
                     )
+                } else if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.NEEDS_REVIEW) {
+                    trackState?.classification = com.omniface.ai.ml.tracking.IdentityClassification.AMBIGUOUS_REVIEW
+                    val identity = identityMap[roll]
+                    val displayName = identity?.displayName ?: stabilized.matchedStudentName
+                    _transientEvents.emit(
+                        BiometricTransientEvent.ReviewRequired(
+                            identityId = roll,
+                            displayName = displayName,
+                            reason = automation.reason,
+                            margin = stabilized.decisionMargin
+                        )
+                    )
                 } else if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.COOLDOWN) {
                     val identity = identityMap[roll]
                     val displayName = identity?.displayName ?: stabilized.matchedStudentName
@@ -658,6 +679,33 @@ class BiometricVerificationEngineImpl(
                             identityId = roll,
                             displayName = displayName,
                             role = role
+                        )
+                    )
+                }
+            } else {
+                val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
+                    synthesis = stabilized,
+                    quality = item.qualityResult,
+                    consecutiveMatchCount = 0,
+                    lastVerifiedTimestampMs = 0L,
+                    hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true
+                )
+                automationStateMachine.onPolicyEvaluated(trackId, automation)
+                if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.NEEDS_REVIEW) {
+                    trackState?.classification = com.omniface.ai.ml.tracking.IdentityClassification.AMBIGUOUS_REVIEW
+                    _transientEvents.emit(
+                        BiometricTransientEvent.ReviewRequired(
+                            identityId = stabilized.matchedStudentRoll.ifBlank { "UNKNOWN" },
+                            displayName = stabilized.matchedStudentName.ifBlank { "Unknown Subject" },
+                            reason = automation.reason,
+                            margin = stabilized.decisionMargin
+                        )
+                    )
+                } else if (stabilized.gateState == PipelineGateState.REJECT_SPOOF_ATTACK) {
+                    _transientEvents.emit(
+                        BiometricTransientEvent.SpoofAttemptBlocked(
+                            reason = com.omniface.ai.ml.verification.domain.SpoofReason.TEXTURE_ANOMALY,
+                            confidence = (100f - stabilized.livenessScore) / 100f
                         )
                     )
                 }
