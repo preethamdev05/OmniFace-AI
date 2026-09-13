@@ -28,7 +28,6 @@ import kotlin.math.sqrt
 class FaceMatcher {
 
     private val biometricCache = CopyOnWriteArrayList<CachedBiometric>()
-    private val hnswIndex = HnswVectorIndex(dimension = 512)
     private val faissIndex = FaissVectorIndex(
         dimension = 512,
         indexType = FaissVectorIndex.IndexType.HNSW_FLAT,
@@ -40,7 +39,6 @@ class FaceMatcher {
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) = lock.write {
         biometricCache.clear()
-        hnswIndex.clear()
         faissIndex.reset()
         val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
 
@@ -70,12 +68,6 @@ class FaceMatcher {
                     embedding = embedding
                 )
                 biometricCache.add(cached)
-                hnswIndex.insert(
-                    id = entity.id,
-                    studentRoll = entity.studentRoll,
-                    angleType = entity.angleType,
-                    embedding = embedding
-                )
                 faissBatch.add(
                     FaissVectorIndex.FaissIndexItem(
                         id = entity.id,
@@ -94,17 +86,10 @@ class FaceMatcher {
 
     fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) = lock.write {
         biometricCache.clear()
-        hnswIndex.clear()
         faissIndex.reset()
         val faissBatch = mutableListOf<FaissVectorIndex.FaissIndexItem>()
         for (cached in cachedList) {
             biometricCache.add(cached)
-            hnswIndex.insert(
-                id = cached.templateId,
-                studentRoll = cached.studentRoll,
-                angleType = cached.angleType,
-                embedding = cached.embedding
-            )
             faissBatch.add(
                 FaissVectorIndex.FaissIndexItem(
                     id = cached.templateId,
@@ -153,7 +138,6 @@ class FaceMatcher {
 
             // Update in-memory cache, HNSW graph, and FAISS index under write lock
             System.arraycopy(adapted, 0, currentVec, 0, currentVec.size)
-            hnswIndex.updateVector(centroidTemplate.templateId, adapted)
             faissIndex.update(centroidTemplate.templateId, adapted)
 
             val csv = adapted.joinToString(",") { "%.6f".format(java.util.Locale.US, it) }
@@ -194,7 +178,7 @@ class FaceMatcher {
      * Returns top-K nearest templates sorted by cosine similarity in sub-millisecond O(log N) time.
      */
     fun searchAnnTopK(queryEmbedding: FloatArray, k: Int = 10): List<HnswVectorIndex.AnnCandidate> {
-        return hnswIndex.searchTopK(queryEmbedding, k)
+        return faissIndex.searchAnnTopK(queryEmbedding, k)
     }
 
     fun match(
@@ -418,7 +402,6 @@ class FaceMatcher {
             Arrays.fill(cached.embedding, 0.0f)
         }
         biometricCache.clear()
-        hnswIndex.clear()
         faissIndex.reset()
     }
 }

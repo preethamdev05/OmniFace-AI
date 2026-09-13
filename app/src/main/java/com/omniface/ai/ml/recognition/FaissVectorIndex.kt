@@ -272,6 +272,14 @@ class FaissVectorIndex(
     }
 
     /**
+     * Rapid Approximate Nearest Neighbor (ANN) search via internal HNSW graph.
+     */
+    fun searchAnnTopK(query: FloatArray, k: Int = 10): List<HnswVectorIndex.AnnCandidate> {
+        val normalized = l2Normalize(query.copyOf(dimension))
+        return hnswEngine.searchTopK(normalized, k)
+    }
+
+    /**
      * Range Search: Finds all biometric templates with similarity exceeding threshold.
      */
     fun rangeSearch(
