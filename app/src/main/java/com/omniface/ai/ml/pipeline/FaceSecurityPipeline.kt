@@ -324,9 +324,11 @@ class FaceSecurityPipeline(
                 hrnetResult = unifiedResult.hrnet
 
                 if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                    trackState.pushEmbedding(unifiedResult.embedding512, qualityResult.overallQualityScore / 100f)
+                    val effectiveEmbedding = trackState.getFusedEmbedding() ?: unifiedResult.embedding512
                     try {
                         matchResult = matcher.match(
-                            queryEmbedding = unifiedResult.embedding512,
+                            queryEmbedding = effectiveEmbedding,
                             studentMap = studentMap,
                             securityTier = securityTier,
                             activeTier = recognitionEngine.activeHardwareTier
@@ -348,9 +350,11 @@ class FaceSecurityPipeline(
                     if (fallbackEmbedding.isNotEmpty()) {
                         lastExtractedEmbedding = fallbackEmbedding
                         if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                            trackState.pushEmbedding(fallbackEmbedding, qualityResult.overallQualityScore / 100f)
+                            val effectiveEmbedding = trackState.getFusedEmbedding() ?: fallbackEmbedding
                             try {
                                 matchResult = matcher.match(
-                                    queryEmbedding = fallbackEmbedding,
+                                    queryEmbedding = effectiveEmbedding,
                                     studentMap = studentMap,
                                     securityTier = securityTier,
                                     activeTier = recognitionEngine.activeHardwareTier

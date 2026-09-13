@@ -145,14 +145,14 @@ object FaceQualityEngine {
         var count = 0
         var varianceSum = 0.0
 
-        for (y in 1 until h - 1 step step) {
-            for (x in 1 until w - 1 step step) {
-                val idx = y * w + x
-                val center = getLuminance(pixels[idx])
-                val top = getLuminance(pixels[(y - 1) * w + x])
-                val bottom = getLuminance(pixels[(y + 1) * w + x])
-                val left = getLuminance(pixels[y * w + (x - 1)])
-                val right = getLuminance(pixels[y * w + (x + 1)])
+        for (y in 2 until h - 2 step step) {
+            for (x in 2 until w - 2 step step) {
+                // 3x3 Gaussian smoothing pre-filter suppresses high-ISO sensor shot noise
+                val center = computeGaussianSmoothLuminance(pixels, w, h, x, y)
+                val top = computeGaussianSmoothLuminance(pixels, w, h, x, y - 1)
+                val bottom = computeGaussianSmoothLuminance(pixels, w, h, x, y + 1)
+                val left = computeGaussianSmoothLuminance(pixels, w, h, x - 1, y)
+                val right = computeGaussianSmoothLuminance(pixels, w, h, x + 1, y)
 
                 // Laplacian 2nd-order discrete derivative
                 val laplacian = 4.0 * center - top - bottom - left - right
@@ -167,6 +167,28 @@ object FaceQualityEngine {
         val sharpnessVariance = (varianceSum / safeCount).toFloat()
 
         return Pair(sharpnessVariance, meanLuminance)
+    }
+
+    private fun computeGaussianSmoothLuminance(pixels: IntArray, w: Int, h: Int, x: Int, y: Int): Double {
+        if (x <= 0 || x >= w - 1 || y <= 0 || y >= h - 1) {
+            return getLuminance(pixels[y * w + x])
+        }
+        val p00 = getLuminance(pixels[(y - 1) * w + (x - 1)])
+        val p01 = getLuminance(pixels[(y - 1) * w + x])
+        val p02 = getLuminance(pixels[(y - 1) * w + (x + 1)])
+
+        val p10 = getLuminance(pixels[y * w + (x - 1)])
+        val p11 = getLuminance(pixels[y * w + x])
+        val p12 = getLuminance(pixels[y * w + (x + 1)])
+
+        val p20 = getLuminance(pixels[(y + 1) * w + (x - 1)])
+        val p21 = getLuminance(pixels[(y + 1) * w + x])
+        val p22 = getLuminance(pixels[(y + 1) * w + (x + 1)])
+
+        // 3x3 Gaussian kernel: sum weights = 16
+        return (p00 + 2.0 * p01 + p02 +
+                2.0 * p10 + 4.0 * p11 + 2.0 * p12 +
+                p20 + 2.0 * p21 + p22) / 16.0
     }
 
     private fun getLuminance(pixel: Int): Double {

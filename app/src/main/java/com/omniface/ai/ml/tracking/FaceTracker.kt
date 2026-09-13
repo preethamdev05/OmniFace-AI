@@ -75,10 +75,40 @@ data class TrackedFaceState(
      */
     fun pushEmbedding(embedding: FloatArray, qualityWeight: Float = 1.0f, maxHistory: Int = 5) {
         if (embedding.isEmpty()) return
+
+        // Track-Swap Guard: if the new embedding drastically diverges from the immediate previous frame (sim < 0.60),
+        // a track swap occurred (e.g. occlusion or subject handover). Purge history to prevent identity poisoning.
+        val lastEmb = embeddingHistory.lastOrNull()?.first
+        if (lastEmb != null && lastEmb.isNotEmpty()) {
+            val sim = computeCosineSim(lastEmb, embedding)
+            if (sim < 0.60f) {
+                embeddingHistory.clear()
+                isClassificationLocked = false
+                consecutiveKnownHits = 0
+            }
+        }
+
         if (embeddingHistory.size >= maxHistory) {
             embeddingHistory.removeFirst()
         }
         embeddingHistory.addLast(Pair(embedding.clone(), qualityWeight.coerceAtLeast(0.01f)))
+    }
+
+    private fun computeCosineSim(a: FloatArray, b: FloatArray): Float {
+        val size = minOf(a.size, b.size)
+        if (size == 0) return 0f
+        var sum = 0f
+        var normA = 0f
+        var normB = 0f
+        for (i in 0 until size) {
+            val va = a[i]
+            val vb = b[i]
+            sum += va * vb
+            normA += va * va
+            normB += vb * vb
+        }
+        val denom = sqrt(normA * normB)
+        return if (denom > 1e-7f) (sum / denom).coerceIn(-1f, 1f) else 0f
     }
 
     /**

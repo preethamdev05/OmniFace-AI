@@ -309,15 +309,15 @@ class FaceTrackerDisambiguationTest {
         // Initial state should have null fused embedding
         assertNull(tracker.getFusedTrackEmbedding(777))
 
-        // Create 2 synthetic 512D unit vectors
-        val v1 = FloatArray(512) { 0f }.apply { this[0] = 1.0f } // Direction 0
-        val v2 = FloatArray(512) { 0f }.apply { this[1] = 1.0f } // Direction 1
+        // Create 2 synthetic 512D unit vectors of the same subject (cosine similarity = 0.64 >= 0.60 track-swap threshold)
+        val v1 = FloatArray(512) { 0f }.apply { this[0] = 0.6f; this[2] = 0.8f } // Component 0 + common base
+        val v2 = FloatArray(512) { 0f }.apply { this[1] = 0.6f; this[2] = 0.8f } // Component 1 + common base
 
         // Push frame 1 with low quality (e.g. 0.2f due to slight blur)
         tracker.pushTrackEmbedding(777, v1, qualityWeight = 0.2f)
         val fused1 = tracker.getFusedTrackEmbedding(777)
         assertNotNull(fused1)
-        assertEquals(1.0f, fused1!![0], 1e-4f)
+        assertEquals(0.6f, fused1!![0], 1e-4f)
 
         // Push frame 2 with high quality (e.g. 0.8f crisp frontal)
         tracker.pushTrackEmbedding(777, v2, qualityWeight = 0.8f)
@@ -351,5 +351,28 @@ class FaceTrackerDisambiguationTest {
         )
         tracker.stabilizeDecision(777, spoofDecision)
         assertNull("Embedding history must be purged upon spoof detection", tracker.getFusedTrackEmbedding(777))
+    }
+
+    @Test
+    fun testTemporalFeaturePooling_trackSwapDivergenceResetsHistory() {
+        val rect = Rect(100f, 100f, 250f, 250f)
+        tracker.getOrCreateTrackState(mlKitTrackId = 888, rawRect = rect)
+
+        // Subject A embedding (unit vector along axis 0)
+        val vA = FloatArray(512) { 0f }.apply { this[0] = 1.0f }
+        tracker.pushTrackEmbedding(888, vA, qualityWeight = 0.9f)
+        val fusedA = tracker.getFusedTrackEmbedding(888)
+        assertNotNull(fusedA)
+        assertEquals(1.0f, fusedA!![0], 1e-4f)
+
+        // Subject B steps into the same track with divergent embedding (sim 0.0 < 0.60 track-swap threshold)
+        val vB = FloatArray(512) { 0f }.apply { this[1] = 1.0f }
+        tracker.pushTrackEmbedding(888, vB, qualityWeight = 0.9f)
+        val fusedB = tracker.getFusedTrackEmbedding(888)
+        assertNotNull(fusedB)
+
+        // Track-swap guard purged Subject A from history, so fused vector only contains Subject B
+        assertEquals(0.0f, fusedB!![0], 1e-4f)
+        assertEquals(1.0f, fusedB[1], 1e-4f)
     }
 }

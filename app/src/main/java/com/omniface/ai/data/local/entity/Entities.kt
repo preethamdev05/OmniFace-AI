@@ -79,6 +79,9 @@ data class FaceTemplateEntity(
     @ColumnInfo(name = "consistency_score", defaultValue = "100.0")
     val consistencyScore: Float = 100.0f,
     
+    @ColumnInfo(name = "model_version", defaultValue = "v1.0_mobilefacenet_512d")
+    val modelVersion: String = "v1.0_mobilefacenet_512d",
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()
 )

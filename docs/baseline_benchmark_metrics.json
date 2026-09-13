@@ -1,8 +1,8 @@
 {
   "benchmark_version": "1.0.0",
-  "timestamp_utc": "2026-09-13T08:47:37Z",
+  "timestamp_utc": "2026-09-13T08:54:27Z",
   "git_baseline": {
-    "commit_sha": "e449f1936d2830aaf282efc5018ebc72f8f70804",
+    "commit_sha": "24d3a749b56067bb6873fab17d0de9a73f317833",
     "branch": "main",
     "is_clean": false
   },
@@ -21,9 +21,9 @@
     }
   },
   "unit_test_baseline": {
-    "total_tests": 521,
+    "total_tests": 522,
     "failures": 0,
-    "duration_sec": 4.884,
+    "duration_sec": 4.119,
     "success_rate_percent": 100
   },
   "inference_latency_matrix": {

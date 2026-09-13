@@ -139,7 +139,8 @@ data class CachedBiometric(
     val templateId: String,
     val studentRoll: String,
     val angleType: String,
-    val embedding: FloatArray
+    val embedding: FloatArray,
+    val modelVersion: String = "v1.0_mobilefacenet_512d"
 )
 
 @Suppress("DEPRECATION")

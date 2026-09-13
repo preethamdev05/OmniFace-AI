@@ -65,7 +65,8 @@ class FaceMatcher {
                     templateId = entity.id,
                     studentRoll = entity.studentRoll,
                     angleType = entity.angleType,
-                    embedding = embedding
+                    embedding = embedding,
+                    modelVersion = entity.modelVersion
                 )
                 biometricCache.add(cached)
                 faissBatch.add(
@@ -215,9 +216,9 @@ class FaceMatcher {
             )
         }
 
-        // 1. Candidate Generation: For large template sets (>64), use FAISS / HNSW ANN index to filter top candidate rolls if enabled
+        // 1. Candidate Generation: For large template sets (>2,000), use FAISS / HNSW ANN index to filter top candidate rolls if enabled
         val isFaissEnabled = com.omniface.ai.ml.NeuralModelConfigManager.configState.value.isFaissHnswIndexEnabled
-        val candidateRolls: Set<String>? = if (isFaissEnabled && biometricCache.size > 64) {
+        val candidateRolls: Set<String>? = if (isFaissEnabled && biometricCache.size > 2000) {
             // Scale probe width with gallery size to preserve recall; fall back to a full
             // scan whenever the ANN result set comes back empty (recall safety net).
             val probeK = minOf(200, biometricCache.size)

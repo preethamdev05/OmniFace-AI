@@ -22,7 +22,7 @@ import com.omniface.ai.data.local.entity.AegisOutboxEntity
         AttendanceRecordEntity::class,
         AegisOutboxEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -145,6 +145,12 @@ abstract class AppDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_aegis_outbox_status` ON `aegis_outbox` (`status`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_aegis_outbox_timestamp` ON `aegis_outbox` (`timestamp`)")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `face_templates` ADD COLUMN `model_version` TEXT NOT NULL DEFAULT 'v1.0_mobilefacenet_512d'")
             }
         }
     }
