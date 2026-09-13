@@ -22,6 +22,12 @@ import com.omniface.ai.ml.recognition.FaceMatcher
 import com.omniface.ai.ml.tracking.FaceTracker
 import com.omniface.ai.security.AndroidSecurityUtils
 import com.omniface.ai.ui.components.FaceGeometryVisualData
+import com.omniface.ai.OmniFaceApplication
+import com.omniface.ai.ml.verification.domain.IdentityStore
+import com.omniface.ai.ml.verification.domain.IdentityTemplate
+import com.omniface.ai.ml.verification.domain.BitmapBiometricFrame
+import com.omniface.ai.ml.verification.engine.BiometricVerificationEngineImpl
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,27 +65,55 @@ data class PipelineFrameOutput(
 )
 
 /**
- * Sovereign Master Multi-Stage Biometric Security Pipeline.
+ * Sovereign Master Multi-Stage Biometric Security Pipeline Presentation Adapter.
  *
- * Implements the 3-Gate Biometric Verification Architecture:
- * 1. Tracking: Smooths bounding box jitter via Kalman / EMA.
- * 2. Gate 1 (Quality): Evaluates blur, exposure, head pose, and face scale.
- * 3. Gate 2 (Anti-Spoof): Executes PassivePadEngine (MiniFASNetV2) + FaceMap 3DMM + Temporal Liveness.
- * 4. Gate 3 (Identity): Extracts 512-D L2 embedding + Best-Angle FAISS-equivalent matching.
- * 5. Temporal Consensus: Requires 3 consecutive frame agreements before authorized attendance.
+ * Wraps the authoritative [BiometricVerificationEngineImpl] and provides screen-space
+ * visual coordinate mapping and viewport projection for CameraX Compose surfaces.
+ * Eliminates duplicate neural inference graphs, delegates, and tracker instances.
  */
 class FaceSecurityPipeline(
     private val context: Context,
-    val recognitionEngine: FaceRecognitionEngine,
-    val omniFaceEngine: OmniFaceIntelligenceEngine?,
-    val tracker: FaceTracker = FaceTracker()
+    val engine: BiometricVerificationEngineImpl
 ) : Closeable {
 
-    val qualcommEngine: OmniFaceIntelligenceEngine? get() = omniFaceEngine
+    constructor(
+        context: Context,
+        recognitionEngine: FaceRecognitionEngine,
+        omniFaceEngine: OmniFaceIntelligenceEngine?,
+        tracker: FaceTracker = FaceTracker()
+    ) : this(
+        context,
+        try {
+            (OmniFaceApplication.instance.verificationEngine as? BiometricVerificationEngineImpl)
+                ?: BiometricVerificationEngineImpl(
+                    context = context.applicationContext,
+                    identityStore = OmniFaceApplication.instance.identityStore,
+                    recognitionEngine = recognitionEngine,
+                    omniFaceEngine = omniFaceEngine,
+                    tracker = tracker
+                )
+        } catch (_: Throwable) {
+            BiometricVerificationEngineImpl(
+                context = context.applicationContext,
+                identityStore = EmptyIdentityStore(),
+                recognitionEngine = recognitionEngine,
+                omniFaceEngine = omniFaceEngine,
+                tracker = tracker
+            )
+        }
+    )
+
+    val recognitionEngine: FaceRecognitionEngine get() = engine.recognitionEngine
+    val omniFaceEngine: OmniFaceIntelligenceEngine? get() = engine.omniFaceEngine
+    val qualcommEngine: OmniFaceIntelligenceEngine? get() = engine.omniFaceEngine
+    val tracker: FaceTracker get() = engine.tracker
+    val passivePadEngine: PassivePadEngine get() = engine.passivePadEngine
+    val multiStageLivenessEngine: MultiStageLivenessEngine get() = engine.multiStageLivenessEngine
+    val temporalLivenessEngine: TemporalLivenessEngine get() = engine.temporalLivenessEngine
+    val matcher: FaceMatcher get() = engine.matcher
 
     companion object {
         private const val TAG = "FaceSecurityPipeline"
-        private const val REQUIRED_CONSECUTIVE_FRAMES = 2
 
         @Volatile
         private var INSTANCE: FaceSecurityPipeline? = null
@@ -88,85 +122,76 @@ class FaceSecurityPipeline(
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: run {
                     val appContext = context.applicationContext
-                    val recEngine = FaceRecognitionEngine.getInstance(appContext)
-                    val intelEngine = try {
-                        OmniFaceIntelligenceEngine.getInstance(appContext)
+                    val app = appContext as? OmniFaceApplication
+                    val verificationEngine = try {
+                        if (app != null) {
+                            app.verificationEngine as BiometricVerificationEngineImpl
+                        } else {
+                            val recEngine = FaceRecognitionEngine.getInstance(appContext)
+                            val intelEngine = try {
+                                OmniFaceIntelligenceEngine.getInstance(appContext)
+                            } catch (_: Throwable) {
+                                null
+                            }
+                            BiometricVerificationEngineImpl(
+                                context = appContext,
+                                identityStore = EmptyIdentityStore(),
+                                recognitionEngine = recEngine,
+                                omniFaceEngine = intelEngine
+                            )
+                        }
                     } catch (_: Throwable) {
-                        null
+                        val recEngine = FaceRecognitionEngine.getInstance(appContext)
+                        val intelEngine = try {
+                            OmniFaceIntelligenceEngine.getInstance(appContext)
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        BiometricVerificationEngineImpl(
+                            context = appContext,
+                            identityStore = EmptyIdentityStore(),
+                            recognitionEngine = recEngine,
+                            omniFaceEngine = intelEngine
+                        )
                     }
-                    FaceSecurityPipeline(appContext, recEngine, intelEngine).also { INSTANCE = it }
+                    FaceSecurityPipeline(appContext, verificationEngine).also { INSTANCE = it }
                 }
             }
     }
-    val passivePadEngine = PassivePadEngine(context)
-    val multiStageLivenessEngine = MultiStageLivenessEngine(context, passivePadEngine)
-    val temporalLivenessEngine = TemporalLivenessEngine()
-    val matcher = FaceMatcher()
 
-    // Sliding agreement counter: studentRoll -> consecutiveCount
-    private val consecutiveMatchCounts = ConcurrentHashMap<String, Int>()
-    private val lastVerifiedTimestamps = ConcurrentHashMap<String, Long>()
-    private var lastAuthorizedRoll = ""
-    private var lastAuthorizedTimestampMs = 0L
+    private class EmptyIdentityStore : IdentityStore {
+        override fun observeTemplates() = emptyFlow<List<IdentityTemplate>>()
+        override suspend fun getTemplateCount(): Int = 0
+    }
 
     fun preloadTemplates(templates: List<FaceTemplateEntity>) {
-        if (templates.isEmpty()) {
-            matcher.preloadTemplates(emptyList())
-            recognitionEngine.preloadTemplates(emptyList())
-            return
-        }
-        val cachedList = mutableListOf<CachedBiometric>()
-        for (entity in templates) {
-            val decryptedCsv = try {
-                if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
-                else entity.embeddingEncryptedCsv
-            } catch (t: Throwable) {
-                Log.e(TAG, "Skipping corrupt template ${entity.id}: ${t.message}")
-                continue
-            }
-            if (decryptedCsv.isBlank()) continue
-            val emb = parseEmbeddingCsv(decryptedCsv)
-            if (emb.isNotEmpty()) {
-                l2Normalize(emb)
-                cachedList.add(
-                    CachedBiometric(
-                        templateId = entity.id,
-                        studentRoll = entity.studentRoll,
-                        angleType = entity.angleType,
-                        embedding = emb
-                    )
-                )
-            }
-        }
-        matcher.preloadCachedBiometrics(cachedList)
-        recognitionEngine.preloadCachedBiometrics(cachedList)
+        engine.preloadTemplates(templates)
     }
 
     fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) {
-        matcher.preloadCachedBiometrics(cachedList)
-        recognitionEngine.preloadCachedBiometrics(cachedList)
+        engine.preloadCachedBiometrics(cachedList)
     }
 
-    private fun parseEmbeddingCsv(csv: String): FloatArray {
-        return try {
-            csv.split(",").map { it.trim().toFloat() }.toFloatArray()
-        } catch (_: Exception) {
-            FloatArray(0)
-        }
-    }
-
-    private fun l2Normalize(vec: FloatArray): FloatArray {
-        var sumSquares = 0.0f
-        for (v in vec) sumSquares += v * v
-        val norm = kotlin.math.sqrt(sumSquares)
-        if (norm > 1e-6f) {
-            val invNorm = 1.0f / norm
-            for (i in vec.indices) vec[i] *= invNorm
-        } else {
-            java.util.Arrays.fill(vec, 0.0f)
-        }
-        return vec
-    }
+    /**
+     * Presentation adapter delegates face feature extraction and inference directly to
+     * [BiometricVerificationEngineImpl], which executes `unifiedEngine.processScannerFace`
+     * under bounded concurrency control without dynamic tensor resizing.
+     */
+    fun processScannerFace(
+        faceCrop: Bitmap,
+        headYaw: Float,
+        headPitch: Float,
+        leftEyeOpenProb: Float?,
+        rightEyeOpenProb: Float?,
+        alignedFace: Bitmap?
+    ) = engine.unifiedEngine.processScannerFace(
+        faceCrop = faceCrop,
+        headYaw = headYaw,
+        headPitch = headPitch,
+        leftEyeOpenProb = leftEyeOpenProb,
+        rightEyeOpenProb = rightEyeOpenProb,
+        alignedFace = alignedFace
+    )
 
     suspend fun processFrame(
         faces: List<Face>,
@@ -178,10 +203,8 @@ class FaceSecurityPipeline(
         securityTier: SecurityTier,
         downscaleFactor: Float = 1.0f
     ): PipelineFrameOutput = withContext(Dispatchers.Default) {
-        val t0 = SystemClock.elapsedRealtimeNanos()
-
         if (faces.isEmpty() || fullBitmap.isRecycled) {
-            tracker.purgeOldTracks()
+            engine.tracker.purgeOldTracks()
             return@withContext PipelineFrameOutput(
                 visualGeometries = emptyList(),
                 topDecision = BiometricSynthesisDecision(
@@ -204,234 +227,45 @@ class FaceSecurityPipeline(
             )
         }
 
-        val scale = maxOf(previewWidth / fullBitmap.width, previewHeight / fullBitmap.height)
+        val frame = BitmapBiometricFrame(
+            bitmap = fullBitmap,
+            rotationDegrees = 0,
+            isFrontFacing = isFrontCamera,
+            detectedFaces = faces
+        )
+
+        val batch = engine.evaluateFrame(
+            frame = frame,
+            studentMap = studentMap,
+            securityTier = securityTier,
+            downscaleFactor = downscaleFactor
+        )
+
+        val scale = maxOf(
+            previewWidth / fullBitmap.width.coerceAtLeast(1).toFloat(),
+            previewHeight / fullBitmap.height.coerceAtLeast(1).toFloat()
+        )
         val dx = (previewWidth - fullBitmap.width * scale) / 2f
         val dy = (previewHeight - fullBitmap.height * scale) / 2f
 
-        val intermediateFaces = mutableListOf<ProcessedFaceData>()
-        val config = NeuralModelConfigManager.configState.value
+        fun mapPoint(pt: PointF?): PointF? {
+            if (pt == null) return null
+            val x = if (isFrontCamera) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
+            val y = pt.y * scale + dy
+            return PointF(x, y)
+        }
 
-        val claimedTrackIds = mutableSetOf<Int>()
-
-        for (face in faces.take(12)) {
-            val rawBox = face.boundingBox
-            val box = if (downscaleFactor < 0.99f) {
-                android.graphics.Rect(
-                    (rawBox.left * downscaleFactor).toInt().coerceIn(0, fullBitmap.width),
-                    (rawBox.top * downscaleFactor).toInt().coerceIn(0, fullBitmap.height),
-                    (rawBox.right * downscaleFactor).toInt().coerceIn(0, fullBitmap.width),
-                    (rawBox.bottom * downscaleFactor).toInt().coerceIn(0, fullBitmap.height)
-                )
-            } else {
-                rawBox
-            }
-            val trackId = face.trackingId ?: 0
-
-            // 1. Map coordinates to preview coordinates
-            val rawRect = if (isFrontCamera) {
-                Rect(
-                    left = (fullBitmap.width - box.right) * scale + dx,
-                    top = box.top * scale + dy,
-                    right = (fullBitmap.width - box.left) * scale + dx,
-                    bottom = box.bottom * scale + dy
-                )
-            } else {
-                Rect(
-                    left = box.left * scale + dx,
-                    top = box.top * scale + dy,
-                    right = box.right * scale + dx,
-                    bottom = box.bottom * scale + dy
-                )
-            }
-
-            val trackState = tracker.getOrCreateTrackState(trackId, rawRect, claimedTrackIds)
-            val smoothedRect = trackState.smoothedRect
-            val persistentTrackId = trackState.trackId
-            val faceCrop = BiometricCropUtils.extractDirectFaceCrop(fullBitmap, box, targetSize = 192, marginMultiplier = 1.25f)
-                ?: BiometricCropUtils.extractSquareFaceCrop(fullBitmap, box, 1.25f)
-
-            // Extract ML Kit canonical 5 landmarks from frame (adapted to scaled frame if downscale active)
-            val leftEyeRaw = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
-            val rightEyeRaw = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
-            val noseRaw = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
-            val mouthLRaw = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position
-            val mouthRRaw = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
-
-            val leftEye = leftEyeRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val rightEye = rightEyeRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val nose = noseRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val mouthL = mouthLRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val mouthR = mouthRRaw?.let { if (downscaleFactor < 0.99f) android.graphics.PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-
-            // ── GATE 1: Multi-Factor Quality Gate ──
-            val qualityResult = FaceQualityEngine.evaluateFaceQuality(
-                face = face,
-                fullFrameWidth = fullBitmap.width,
-                fullFrameHeight = fullBitmap.height,
-                faceCrop = faceCrop,
-                faceBox = box
-            )
-
-            // Canonical ArcFace 5-Point Umeyama Alignment
-            val raw5Pts = if (leftEye != null && rightEye != null && nose != null && mouthL != null && mouthR != null) {
-                arrayOf(rightEye, leftEye, nose, mouthR, mouthL)
-            } else null
-
-            var alignedFaceBitmap: Bitmap? = null
-            var isTemporaryAligned = false
-
-            if (raw5Pts != null) {
-                val alignmentResult = com.omniface.ai.ml.UmeyamaSimilarityTransform.alignFace5Points(fullBitmap, raw5Pts, 112, 112)
-                if (alignmentResult != null && alignmentResult.alignmentError < 18.0f) {
-                    alignedFaceBitmap = alignmentResult.alignedBitmap
-                    isTemporaryAligned = true
-                }
-            }
-
-            val unifiedEngine = com.omniface.ai.ml.UnifiedFaceIntelligenceEngine.getInstance(context)
-            val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
-                unifiedEngine.processScannerFace(
-                    faceCrop = faceCrop,
-                    headYaw = face.headEulerAngleY,
-                    headPitch = face.headEulerAngleX,
-                    leftEyeOpenProb = face.leftEyeOpenProbability,
-                    rightEyeOpenProb = face.rightEyeOpenProbability,
-                    alignedFace = alignedFaceBitmap
-                )
-            } else null
-
-            if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
-                alignedFaceBitmap.recycle()
-            }
-
-            var matchResult: MatchResult? = null
-            var lastExtractedEmbedding: FloatArray? = null
-            var multiStageResult: MultiStageLivenessResult? = null
-            var passivePadResult: PassivePadResult? = null
-            var map3dResult: FaceMap3DMMResult? = null
-            var gazeResult: EyeGazeResult? = null
-            var attrResult: FaceAttributesResult? = null
-            var meshResult: MediaPipeMeshResult? = null
-            var hrnetResult: HRNetFaceResult? = null
-
-            if (unifiedResult != null) {
-                lastExtractedEmbedding = unifiedResult.embedding512
-                passivePadResult = unifiedResult.passivePad
-                map3dResult = unifiedResult.map3d
-                attrResult = unifiedResult.attributes
-                gazeResult = unifiedResult.gaze
-                meshResult = unifiedResult.mesh
-                hrnetResult = unifiedResult.hrnet
-
-                if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
-                    trackState.pushEmbedding(unifiedResult.embedding512, qualityResult.overallQualityScore / 100f)
-                    val effectiveEmbedding = trackState.getFusedEmbedding() ?: unifiedResult.embedding512
-                    try {
-                        matchResult = matcher.match(
-                            queryEmbedding = effectiveEmbedding,
-                            studentMap = studentMap,
-                            securityTier = securityTier,
-                            activeTier = recognitionEngine.activeHardwareTier
-                        )
-                    } catch (t: Throwable) {
-                        Log.e("OmniFacePipeline", "Gate 3 Match Exception", t)
-                    }
-                }
-            } else {
-                // Unified model is not yet loaded / missing — fallback to recognitionEngine & passivePadEngine
-                if (faceCrop != null && !faceCrop.isRecycled) {
-                    val fallbackEmbedding = try {
-                        val alignedOrCrop = alignedFaceBitmap ?: faceCrop
-                        recognitionEngine.extractEmbedding(alignedOrCrop)
-                    } catch (t: Throwable) {
-                        Log.w("OmniFacePipeline", "Fallback embedding error: ${t.message}")
-                        FloatArray(0)
-                    }
-                    if (fallbackEmbedding.isNotEmpty()) {
-                        lastExtractedEmbedding = fallbackEmbedding
-                        if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
-                            trackState.pushEmbedding(fallbackEmbedding, qualityResult.overallQualityScore / 100f)
-                            val effectiveEmbedding = trackState.getFusedEmbedding() ?: fallbackEmbedding
-                            try {
-                                matchResult = matcher.match(
-                                    queryEmbedding = effectiveEmbedding,
-                                    studentMap = studentMap,
-                                    securityTier = securityTier,
-                                    activeTier = recognitionEngine.activeHardwareTier
-                                )
-                            } catch (t: Throwable) {
-                                Log.e("OmniFacePipeline", "Gate 3 Match Exception (fallback)", t)
-                            }
-                        }
-                    }
-                    try {
-                        passivePadResult = passivePadEngine.run(faceCrop)
-                    } catch (_: Throwable) {}
-                }
-            }
-
-            // 3. Temporal Anti-Spoofing Gate
-            val avgEyeProb = if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
-                ((face.leftEyeOpenProbability ?: 1.0f) + (face.rightEyeOpenProbability ?: 1.0f)) / 2.0f
-            } else null
-
-            val temporalResult = if (config.isTemporalLivenessEnabled) {
-                if (faceCrop != null && !faceCrop.isRecycled) {
-                    temporalLivenessEngine.recordRppgSample(faceCrop, android.graphics.Rect(0, 0, faceCrop.width, faceCrop.height))
-                }
-                temporalLivenessEngine.recordSample(
-                    trackId = trackId,
-                    yaw = face.headEulerAngleY,
-                    pitch = face.headEulerAngleX,
-                    roll = face.headEulerAngleZ,
-                    attributes = attrResult,
-                    faceMap3DMM = map3dResult,
-                    passivePad = passivePadResult,
-                    eyeOpenProbability = avgEyeProb
-                )
-                temporalLivenessEngine.evaluateTemporalLiveness(trackId)
-            } else {
-                com.omniface.ai.ml.antispoof.TemporalLivenessResult(
-                    isLive = true,
-                    temporalConfidence = 1.0f,
-                    microMotionDetected = true,
-                    naturalBlinkDetected = true,
-                    headTurnDetected = true,
-                    stable3DDepth = true,
-                    requiredAction = null,
-                    explanation = "Temporal Liveness Bypassed (User Setting)"
-                )
-            }
-
-            faceCrop?.recycle()
-
-            // ── Synthesize Multi-Gate Decision ──
-            val decision = BiometricDecisionEngine.evaluate(
-                quality = qualityResult,
-                passivePad = passivePadResult,
-                temporalLiveness = temporalResult,
-                matchResult = matchResult,
-                securityTier = securityTier,
-                multiStageLiveness = multiStageResult,
-                faceMap3DMM = map3dResult
-            )
-
-            fun mapPoint(pt: PointF?): PointF? {
-                if (pt == null) return null
-                val x = if (isFrontCamera) (fullBitmap.width - pt.x) * scale + dx else pt.x * scale + dx
-                val y = pt.y * scale + dy
-                return PointF(x, y)
-            }
-
+        val visualItems = mutableListOf<FaceGeometryVisualData>()
+        for (candidate in batch.candidateEvaluations) {
+            val face = candidate.face
             val pts5List = listOfNotNull(
-                mapPoint(leftEye),
-                mapPoint(rightEye),
-                mapPoint(nose),
-                mapPoint(mouthL),
-                mapPoint(mouthR)
+                mapPoint(candidate.leftEye),
+                mapPoint(candidate.rightEye),
+                mapPoint(candidate.nose),
+                mapPoint(candidate.mouthL),
+                mapPoint(candidate.mouthR)
             )
 
-            // Map ML Kit dense 133-point facial contours to preview coordinate space
             val contoursMap = HashMap<Int, List<Offset>>()
             for (contour in face.allContours) {
                 val pts = contour.points.map { p ->
@@ -442,143 +276,23 @@ class FaceSecurityPipeline(
                 contoursMap[contour.faceContourType] = pts
             }
 
-            intermediateFaces.add(
-                ProcessedFaceData(
-                    face = face,
-                    trackId = persistentTrackId,
-                    smoothedRect = smoothedRect,
-                    qualityResult = qualityResult,
-                    passivePadResult = passivePadResult,
-                    multiStageLivenessResult = multiStageResult,
-                    gazeResult = gazeResult,
-                    map3dResult = map3dResult,
-                    attrResult = attrResult,
-                    meshResult = meshResult,
-                    hrnetResult = hrnetResult,
-                    pts5List = pts5List,
-                    contours = contoursMap,
-                    matchResult = matchResult,
-                    lastExtractedEmbedding = lastExtractedEmbedding,
-                    decision = decision,
-                    temporalResult = temporalResult
+            val projectedRect = if (isFrontCamera) {
+                Rect(
+                    left = (fullBitmap.width - candidate.smoothedRect.right) * scale + dx,
+                    top = candidate.smoothedRect.top * scale + dy,
+                    right = (fullBitmap.width - candidate.smoothedRect.left) * scale + dx,
+                    bottom = candidate.smoothedRect.bottom * scale + dy
                 )
-            )
-        }
-
-        // ── MULTI-FACE IDENTITY COLLISION & DUPLICATE RESOLUTION ──
-        // If multiple faces in the same frame match to the same enrolled identity,
-        // assign the identity to the face with highest similarity and demote the duplicate.
-        val assignedRolls = mutableSetOf<String>()
-        // Sort descending by match similarity so highest confidence match claims the roll first
-        val sortedIndices = intermediateFaces.indices.sortedByDescending { intermediateFaces[it].decision.matchSimilarity }
-        val resolvedDecisions = Array(intermediateFaces.size) { intermediateFaces[it].decision }
-
-        for (idx in sortedIndices) {
-            val item = intermediateFaces[idx]
-            val origDecision = item.decision
-            if (origDecision.isAttendanceAuthorized && origDecision.matchedStudentRoll.isNotBlank()) {
-                val roll = origDecision.matchedStudentRoll
-                if (assignedRolls.contains(roll)) {
-                    // Duplicate identity collision detected in current frame!
-                    resolvedDecisions[idx] = BiometricSynthesisDecision(
-                        gateState = PipelineGateState.REVIEW_AMBIGUOUS_MATCH,
-                        isAttendanceAuthorized = false,
-                        matchedStudentRoll = "GUEST",
-                        matchedStudentName = "Duplicate Identity Conflict",
-                        matchConfidence = 0f,
-                        matchSimilarity = origDecision.matchSimilarity,
-                        decisionMargin = 0f,
-                        qualityScore = origDecision.qualityScore,
-                        livenessScore = origDecision.livenessScore,
-                        title = "DUPLICATE IDENTITY CONFLICT",
-                        subtitle = "Roll $roll already assigned to another face in view",
-                        technicalExplanation = "Multi-face collision: Identity $roll claimed by multiple faces in the same frame"
-                    )
-                } else {
-                    assignedRolls.add(roll)
-                }
-            }
-        }
-
-        val visualItems = mutableListOf<FaceGeometryVisualData>()
-        var primaryDecision: BiometricSynthesisDecision? = null
-        var attendanceTriggered = false
-        val allDecisions = mutableListOf<BiometricSynthesisDecision>()
-        val triggeredDecisions = mutableListOf<BiometricSynthesisDecision>()
-
-        for (i in intermediateFaces.indices) {
-            val item = intermediateFaces[i]
-            val resolvedDecision = resolvedDecisions[i]
-            val trackId = item.trackId
-            val decision = tracker.stabilizeDecision(trackId, resolvedDecision)
-            allDecisions.add(decision)
-            val matchResult = item.matchResult
-            val lastExtractedEmbedding = item.lastExtractedEmbedding
-
-            // Update auxiliary telemetry in tracker for seamless 60 FPS fast-path rendering
-            tracker.updateAuxiliaryFeatures(
-                trackId = trackId,
-                meshResult = item.meshResult,
-                map3dResult = item.map3dResult,
-                gazeResult = item.gazeResult,
-                attrResult = item.attrResult,
-                qualityResult = item.qualityResult
-            )
-
-            // ── Multi-Frame Temporal Consensus Voting ──
-            var thisFaceAttendanceTriggered = false
-            val trackState = tracker.getTrackState(trackId)
-            val roll = decision.matchedStudentRoll
-            if (decision.isAttendanceAuthorized && roll.isNotBlank()) {
-                val count = (consecutiveMatchCounts[roll] ?: 0) + 1
-                consecutiveMatchCounts[roll] = count
-
-                val now = System.currentTimeMillis()
-                val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
-                    synthesis = decision,
-                    quality = item.qualityResult,
-                    consecutiveMatchCount = count,
-                    lastVerifiedTimestampMs = lastVerifiedTimestamps[roll] ?: 0L,
-                    hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true,
-                    currentTimeMs = now
+            } else {
+                Rect(
+                    left = candidate.smoothedRect.left * scale + dx,
+                    top = candidate.smoothedRect.top * scale + dy,
+                    right = candidate.smoothedRect.right * scale + dx,
+                    bottom = candidate.smoothedRect.bottom * scale + dy
                 )
-
-                if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
-                    thisFaceAttendanceTriggered = true
-                    attendanceTriggered = true
-                    lastAuthorizedRoll = roll
-                    lastAuthorizedTimestampMs = now
-                    lastVerifiedTimestamps[roll] = now
-                    consecutiveMatchCounts[roll] = 0
-                    trackState?.hasTriggeredAttendance = true
-                    triggeredDecisions.add(decision)
-                }
             }
 
-            // Dynamic Centroid Adaptation (Continuous Learning) — persisted on IO dispatcher ONLY when THIS face's attendance is verified
-            if (config.isDynamicCentroidAdaptationEnabled && thisFaceAttendanceTriggered && decision.isAttendanceAuthorized && decision.matchedStudentRoll.isNotBlank() && lastExtractedEmbedding != null) {
-                val adaptedPair = matcher.adaptCentroidIfHighConfidence(
-                    studentRoll = decision.matchedStudentRoll,
-                    liveEmbedding = lastExtractedEmbedding,
-                    similarityScore = decision.matchSimilarity
-                )
-                if (adaptedPair != null) {
-                    val (tplId, newEncryptedCsv) = adaptedPair
-                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            com.omniface.ai.OmniFaceApplication.instance.database.studentDao().updateTemplateEmbedding(tplId, newEncryptedCsv)
-                            Log.d(TAG, "🧠 [DYNAMIC CENTROID] Adapted and persisted template $tplId for ${decision.matchedStudentRoll}")
-                        } catch (t: Throwable) {
-                            Log.w(TAG, "Failed to persist adapted centroid: ${t.message}")
-                        }
-                    }
-                }
-            }
-
-            if (primaryDecision == null || (decision.isAttendanceAuthorized && !primaryDecision.isAttendanceAuthorized)) {
-                primaryDecision = decision
-            }
-
+            val decision = candidate.synthesis
             val zone = if (decision.isAttendanceAuthorized) {
                 ConfidenceZone.ACCEPT
             } else if (decision.gateState == PipelineGateState.REVIEW_AMBIGUOUS_MATCH) {
@@ -588,63 +302,43 @@ class FaceSecurityPipeline(
             }
 
             val visualItem = FaceGeometryVisualData(
-                bounds = item.smoothedRect,
-                yaw = if (isFrontCamera) -item.face.headEulerAngleY else item.face.headEulerAngleY,
-                pitch = item.face.headEulerAngleX,
-                roll = item.face.headEulerAngleZ,
-                landmarks5Pts = if (item.pts5List.isNotEmpty()) item.pts5List.toTypedArray() else null,
-                contours = item.contours,
-                gazeResult = item.gazeResult,
-                faceMap3DMM = item.map3dResult,
-                attributes = item.attrResult,
-                meshResult = item.meshResult,
-                hrnetResult = item.hrnetResult,
-                qualityResult = item.qualityResult,
+                bounds = projectedRect,
+                yaw = if (isFrontCamera) -face.headEulerAngleY else face.headEulerAngleY,
+                pitch = face.headEulerAngleX,
+                roll = face.headEulerAngleZ,
+                landmarks5Pts = if (pts5List.isNotEmpty()) pts5List.toTypedArray() else null,
+                contours = contoursMap,
+                gazeResult = candidate.gazeResult,
+                faceMap3DMM = candidate.map3dResult,
+                attributes = candidate.attrResult,
+                meshResult = candidate.meshResult,
+                hrnetResult = candidate.hrnetResult,
+                qualityResult = candidate.qualityResult,
                 confidenceZone = zone,
                 decisionMargin = decision.decisionMargin,
                 similarityScore = decision.matchSimilarity,
                 studentName = decision.matchedStudentName,
                 studentRoll = decision.matchedStudentRoll,
                 isLive = decision.gateState != PipelineGateState.REJECT_SPOOF_ATTACK,
-                activeHardwareNpu = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
+                activeHardwareNpu = batch.activeHardwareTier,
                 isFrontCamera = isFrontCamera
             )
             visualItems.add(visualItem)
         }
 
-
-
-        val elapsedMs = ((SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000L).coerceAtLeast(1L)
-
-        return@withContext PipelineFrameOutput(
+        PipelineFrameOutput(
             visualGeometries = visualItems,
-            topDecision = primaryDecision ?: BiometricSynthesisDecision(
-                gateState = PipelineGateState.REJECT_QUALITY,
-                isAttendanceAuthorized = false,
-                matchedStudentRoll = "",
-                matchedStudentName = "",
-                matchConfidence = 0f,
-                matchSimilarity = 0f,
-                decisionMargin = 0f,
-                qualityScore = 0f,
-                livenessScore = 0f,
-                title = "ANALYZING...",
-                subtitle = "Align face in frame",
-                technicalExplanation = "Processing multi-stage biometric gates"
-            ),
-            isAttendanceTriggered = attendanceTriggered,
-            executionLatencyMs = elapsedMs,
-            activeHardwareTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo),
-            allDecisions = allDecisions,
-            triggeredDecisions = triggeredDecisions
+            topDecision = batch.topDecision,
+            isAttendanceTriggered = batch.isAttendanceTriggered,
+            executionLatencyMs = batch.executionLatencyMs,
+            activeHardwareTier = batch.activeHardwareTier,
+            allDecisions = batch.allDecisions,
+            triggeredDecisions = batch.triggeredDecisions
         )
     }
 
     override fun close() {
-        passivePadEngine.close()
-        matcher.clear()
-        temporalLivenessEngine.clearAll()
-        tracker.clear()
+        engine.close()
         synchronized(FaceSecurityPipeline::class.java) {
             if (INSTANCE === this) {
                 INSTANCE = null
@@ -652,3 +346,4 @@ class FaceSecurityPipeline(
         }
     }
 }
+

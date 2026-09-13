@@ -177,42 +177,145 @@ class BiometricVerificationEngineImpl(
         Log.i(TAG, "BiometricVerificationEngine reloaded ${templates.size} volatile identity templates")
     }
 
-    override suspend fun verifyFrame(
+    override fun preloadTemplates(templates: List<com.omniface.ai.data.local.entity.FaceTemplateEntity>) {
+        if (templates.isEmpty()) {
+            matcher.preloadTemplates(emptyList())
+            recognitionEngine.preloadTemplates(emptyList())
+            return
+        }
+        val cachedList = mutableListOf<CachedBiometric>()
+        for (entity in templates) {
+            val decryptedCsv = try {
+                if (entity.isEncrypted) AndroidSecurityUtils.decrypt(entity.embeddingEncryptedCsv)
+                else entity.embeddingEncryptedCsv
+            } catch (t: Throwable) {
+                Log.e(TAG, "Skipping corrupt template ${entity.id}: ${t.message}")
+                continue
+            }
+            if (decryptedCsv.isBlank()) continue
+            val emb = parseEmbeddingCsv(decryptedCsv)
+            if (emb.isNotEmpty()) {
+                l2Normalize(emb)
+                cachedList.add(
+                    CachedBiometric(
+                        templateId = entity.id,
+                        studentRoll = entity.studentRoll,
+                        angleType = entity.angleType,
+                        embedding = emb
+                    )
+                )
+            }
+        }
+        matcher.preloadCachedBiometrics(cachedList)
+        recognitionEngine.preloadCachedBiometrics(cachedList)
+    }
+
+    override fun preloadCachedBiometrics(cachedList: List<CachedBiometric>) {
+        matcher.preloadCachedBiometrics(cachedList)
+        recognitionEngine.preloadCachedBiometrics(cachedList)
+    }
+
+    private fun parseEmbeddingCsv(csv: String): FloatArray {
+        return try {
+            csv.split(",").map { it.trim().toFloat() }.toFloatArray()
+        } catch (_: Exception) {
+            FloatArray(0)
+        }
+    }
+
+    private fun l2Normalize(vec: FloatArray): FloatArray {
+        var sumSquares = 0.0f
+        for (v in vec) sumSquares += v * v
+        val norm = kotlin.math.sqrt(sumSquares)
+        if (norm > 1e-6f) {
+            val invNorm = 1.0f / norm
+            for (i in vec.indices) vec[i] *= invNorm
+        } else {
+            java.util.Arrays.fill(vec, 0.0f)
+        }
+        return vec
+    }
+
+    override suspend fun evaluateFrame(
         frame: BiometricFrame,
-        securityTier: SecurityTier
-    ): VerificationDecision = withContext(Dispatchers.Default) {
+        studentMap: Map<String, String>,
+        securityTier: SecurityTier,
+        downscaleFactor: Float
+    ): BiometricBatchEvaluation = withContext(Dispatchers.Default) {
         val t0 = SystemClock.elapsedRealtimeNanos()
         val bitmap = frame.toBitmap()
 
         if (bitmap == null || bitmap.isRecycled) {
             tracker.purgeOldTracks()
-            return@withContext VerificationDecision.Idle
+            return@withContext BiometricBatchEvaluation(
+                topDecision = BiometricSynthesisDecision(
+                    gateState = PipelineGateState.REJECT_QUALITY,
+                    isAttendanceAuthorized = false,
+                    matchedStudentRoll = "",
+                    matchedStudentName = "",
+                    matchConfidence = 0f,
+                    matchSimilarity = 0f,
+                    decisionMargin = 0f,
+                    qualityScore = 0f,
+                    livenessScore = 0f,
+                    title = "READY TO SCAN",
+                    subtitle = "Align face in camera frame",
+                    technicalExplanation = "No frame or bitmap is recycled"
+                ),
+                allDecisions = emptyList(),
+                triggeredDecisions = emptyList(),
+                isAttendanceTriggered = false,
+                executionLatencyMs = 0L,
+                activeHardwareTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
+            )
         }
 
         val faces = frame.detectedFaces
         if (faces.isEmpty()) {
             tracker.purgeOldTracks()
-            return@withContext VerificationDecision.Idle
+            return@withContext BiometricBatchEvaluation(
+                topDecision = BiometricSynthesisDecision(
+                    gateState = PipelineGateState.REJECT_QUALITY,
+                    isAttendanceAuthorized = false,
+                    matchedStudentRoll = "",
+                    matchedStudentName = "",
+                    matchConfidence = 0f,
+                    matchSimilarity = 0f,
+                    decisionMargin = 0f,
+                    qualityScore = 0f,
+                    livenessScore = 0f,
+                    title = "READY TO SCAN",
+                    subtitle = "Align face in camera frame",
+                    technicalExplanation = "No faces detected in current frame"
+                ),
+                allDecisions = emptyList(),
+                triggeredDecisions = emptyList(),
+                isAttendanceTriggered = false,
+                executionLatencyMs = 0L,
+                activeHardwareTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
+            )
         }
 
-        val downscaleFactor = if (ThermalGovernor.isAutoScalingEnabled.value) {
-            ThermalGovernor.thermalState.value.downscaleFactor
-        } else 1.0f
+        val effectiveDownscale = if (ThermalGovernor.isAutoScalingEnabled.value) {
+            ThermalGovernor.thermalState.value.downscaleFactor.coerceAtMost(downscaleFactor)
+        } else downscaleFactor
 
         val claimedTrackIds = mutableSetOf<Int>()
         val intermediateDecisions = mutableListOf<CandidateFaceEvaluation>()
 
-        val studentMap = identityMap.mapValues { it.value.displayName }
+        val effectiveStudentMap = if (studentMap.isNotEmpty()) studentMap else identityMap.mapValues { it.value.displayName }
         val config = NeuralModelConfigManager.configState.value
+        val scheduler = com.omniface.ai.ml.concurrency.BoundedGroupInferenceScheduler.getDefault()
+        scheduler.adaptToThermalState(ThermalGovernor.thermalState.value)
 
-        for (face in faces.take(6)) {
+        for (face in faces.take(12)) {
             val rawBox = face.boundingBox
-            val box = if (downscaleFactor < 0.99f) {
+            val box = if (effectiveDownscale < 0.99f) {
                 android.graphics.Rect(
-                    (rawBox.left * downscaleFactor).toInt().coerceIn(0, bitmap.width),
-                    (rawBox.top * downscaleFactor).toInt().coerceIn(0, bitmap.height),
-                    (rawBox.right * downscaleFactor).toInt().coerceIn(0, bitmap.width),
-                    (rawBox.bottom * downscaleFactor).toInt().coerceIn(0, bitmap.height)
+                    (rawBox.left * effectiveDownscale).toInt().coerceIn(0, bitmap.width),
+                    (rawBox.top * effectiveDownscale).toInt().coerceIn(0, bitmap.height),
+                    (rawBox.right * effectiveDownscale).toInt().coerceIn(0, bitmap.width),
+                    (rawBox.bottom * effectiveDownscale).toInt().coerceIn(0, bitmap.height)
                 )
             } else {
                 rawBox
@@ -248,11 +351,11 @@ class BiometricVerificationEngineImpl(
             val mouthLRaw = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position
             val mouthRRaw = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position
 
-            val leftEye = leftEyeRaw?.let { if (downscaleFactor < 0.99f) PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val rightEye = rightEyeRaw?.let { if (downscaleFactor < 0.99f) PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val nose = noseRaw?.let { if (downscaleFactor < 0.99f) PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val mouthL = mouthLRaw?.let { if (downscaleFactor < 0.99f) PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
-            val mouthR = mouthRRaw?.let { if (downscaleFactor < 0.99f) PointF(it.x * downscaleFactor, it.y * downscaleFactor) else it }
+            val leftEye = leftEyeRaw?.let { if (effectiveDownscale < 0.99f) PointF(it.x * effectiveDownscale, it.y * effectiveDownscale) else it }
+            val rightEye = rightEyeRaw?.let { if (effectiveDownscale < 0.99f) PointF(it.x * effectiveDownscale, it.y * effectiveDownscale) else it }
+            val nose = noseRaw?.let { if (effectiveDownscale < 0.99f) PointF(it.x * effectiveDownscale, it.y * effectiveDownscale) else it }
+            val mouthL = mouthLRaw?.let { if (effectiveDownscale < 0.99f) PointF(it.x * effectiveDownscale, it.y * effectiveDownscale) else it }
+            val mouthR = mouthRRaw?.let { if (effectiveDownscale < 0.99f) PointF(it.x * effectiveDownscale, it.y * effectiveDownscale) else it }
 
             // ── GATE 1: Multi-Factor Quality Gate ──
             val qualityResult = FaceQualityEngine.evaluateFaceQuality(
@@ -279,14 +382,16 @@ class BiometricVerificationEngineImpl(
             }
 
             val unifiedResult = if (unifiedEngine.isModelLoaded && faceCrop != null && !faceCrop.isRecycled) {
-                unifiedEngine.processScannerFace(
-                    faceCrop = faceCrop,
-                    headYaw = face.headEulerAngleY,
-                    headPitch = face.headEulerAngleX,
-                    leftEyeOpenProb = face.leftEyeOpenProbability,
-                    rightEyeOpenProb = face.rightEyeOpenProbability,
-                    alignedFace = alignedFaceBitmap
-                )
+                scheduler.execute {
+                    unifiedEngine.processScannerFace(
+                        faceCrop = faceCrop,
+                        headYaw = face.headEulerAngleY,
+                        headPitch = face.headEulerAngleX,
+                        leftEyeOpenProb = face.leftEyeOpenProbability,
+                        rightEyeOpenProb = face.rightEyeOpenProbability,
+                        alignedFace = alignedFaceBitmap
+                    )
+                }
             } else null
 
             if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
@@ -312,10 +417,12 @@ class BiometricVerificationEngineImpl(
                 hrnetResult = unifiedResult.hrnet
 
                 if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                    trackState.pushEmbedding(unifiedResult.embedding512, qualityResult.overallQualityScore / 100f)
+                    val effectiveEmbedding = trackState.getFusedEmbedding() ?: unifiedResult.embedding512
                     try {
                         matchResult = matcher.match(
-                            queryEmbedding = unifiedResult.embedding512,
-                            studentMap = studentMap,
+                            queryEmbedding = effectiveEmbedding,
+                            studentMap = effectiveStudentMap,
                             securityTier = securityTier,
                             activeTier = recognitionEngine.activeHardwareTier
                         )
@@ -327,7 +434,9 @@ class BiometricVerificationEngineImpl(
                 if (faceCrop != null && !faceCrop.isRecycled) {
                     val fallbackEmbedding = try {
                         val alignedOrCrop = alignedFaceBitmap ?: faceCrop
-                        recognitionEngine.extractEmbedding(alignedOrCrop)
+                        scheduler.execute {
+                            recognitionEngine.extractEmbedding(alignedOrCrop)
+                        }
                     } catch (t: Throwable) {
                         Log.w(TAG, "Fallback embedding error: ${t.message}")
                         FloatArray(0)
@@ -335,10 +444,12 @@ class BiometricVerificationEngineImpl(
                     if (fallbackEmbedding.isNotEmpty()) {
                         lastExtractedEmbedding = fallbackEmbedding
                         if (qualityResult.isPassed || qualityResult.overallQualityScore >= 35.0f) {
+                            trackState.pushEmbedding(fallbackEmbedding, qualityResult.overallQualityScore / 100f)
+                            val effectiveEmbedding = trackState.getFusedEmbedding() ?: fallbackEmbedding
                             try {
                                 matchResult = matcher.match(
-                                    queryEmbedding = fallbackEmbedding,
-                                    studentMap = studentMap,
+                                    queryEmbedding = effectiveEmbedding,
+                                    studentMap = effectiveStudentMap,
                                     securityTier = securityTier,
                                     activeTier = recognitionEngine.activeHardwareTier
                                 )
@@ -403,9 +514,11 @@ class BiometricVerificationEngineImpl(
                 CandidateFaceEvaluation(
                     face = face,
                     trackId = trackState.trackId,
-                    geometry = domainGeometry,
+                    smoothedRect = smoothedRect,
+                    domainGeometry = domainGeometry,
                     qualityResult = qualityResult,
                     passivePadResult = passivePadResult,
+                    multiStageLivenessResult = null,
                     temporalResult = temporalResult,
                     map3dResult = map3dResult,
                     gazeResult = gazeResult,
@@ -414,12 +527,17 @@ class BiometricVerificationEngineImpl(
                     hrnetResult = hrnetResult,
                     matchResult = matchResult,
                     lastExtractedEmbedding = lastExtractedEmbedding,
-                    synthesis = synthesis
+                    synthesis = synthesis,
+                    leftEye = leftEye,
+                    rightEye = rightEye,
+                    nose = nose,
+                    mouthL = mouthL,
+                    mouthR = mouthR
                 )
             )
         }
 
-        // Multi-Face Identity Collision Resolution
+        // ── MULTI-FACE IDENTITY COLLISION & DUPLICATE RESOLUTION ──
         val assignedRolls = mutableSetOf<String>()
         val sortedIndices = intermediateDecisions.indices.sortedByDescending { intermediateDecisions[it].synthesis.matchSimilarity }
         val resolvedDecisions = Array(intermediateDecisions.size) { intermediateDecisions[it].synthesis }
@@ -450,7 +568,11 @@ class BiometricVerificationEngineImpl(
             }
         }
 
-        var primaryDomainDecision: VerificationDecision? = null
+        val allDecisions = mutableListOf<BiometricSynthesisDecision>()
+        val triggeredDecisions = mutableListOf<BiometricSynthesisDecision>()
+        val candidateEvaluations = mutableListOf<CandidateFaceEvaluation>()
+        var primaryDecision: BiometricSynthesisDecision? = null
+        var attendanceTriggered = false
 
         for (i in intermediateDecisions.indices) {
             val item = intermediateDecisions[i]
@@ -458,6 +580,7 @@ class BiometricVerificationEngineImpl(
             val trackId = item.trackId
             val stabilized = tracker.stabilizeDecision(trackId, resolved)
             val trackState = tracker.getTrackState(trackId)
+            allDecisions.add(stabilized)
 
             // Update auxiliary telemetry in tracker
             tracker.updateAuxiliaryFeatures(
@@ -469,148 +592,199 @@ class BiometricVerificationEngineImpl(
                 qualityResult = item.qualityResult
             )
 
-            val faceDecision: VerificationDecision = when (stabilized.gateState) {
-                PipelineGateState.PASS -> {
-                    val roll = stabilized.matchedStudentRoll
+            // Multi-Frame Temporal Consensus Voting & Automation Policy
+            val roll = stabilized.matchedStudentRoll
+            var thisFaceTriggered = false
+            if (stabilized.isAttendanceAuthorized && roll.isNotBlank()) {
+                val count = (consecutiveMatchCounts[roll] ?: 0) + 1
+                consecutiveMatchCounts[roll] = count
+
+                val now = System.currentTimeMillis()
+                val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
+                    synthesis = stabilized,
+                    quality = item.qualityResult,
+                    consecutiveMatchCount = count,
+                    lastVerifiedTimestampMs = lastVerifiedTimestamps[roll] ?: 0L,
+                    hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true,
+                    currentTimeMs = now
+                )
+
+                if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
+                    thisFaceTriggered = true
+                    attendanceTriggered = true
+                    lastAuthorizedRoll = roll
+                    lastAuthorizedTimestampMs = now
+                    lastVerifiedTimestamps[roll] = now
+                    consecutiveMatchCounts[roll] = 0
+                    trackState?.hasTriggeredAttendance = true
+                    triggeredDecisions.add(stabilized)
+
+                    val prevHash = AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                    val leafHash = AndroidSecurityUtils.computeAegisBlockHash(
+                        previousHash = prevHash,
+                        studentRoll = roll,
+                        timestamp = now,
+                        confidencePct = stabilized.matchConfidence
+                    )
+
                     val identity = identityMap[roll]
                     val displayName = identity?.displayName ?: stabilized.matchedStudentName
                     val role = identity?.role ?: "STUDENT"
-                    val confidence = stabilized.matchConfidence / 100f
-                    val liveness = stabilized.livenessScore / 100f
 
-                    val count = (consecutiveMatchCounts[roll] ?: 0) + 1
-                    consecutiveMatchCounts[roll] = count
-
-                    val now = System.currentTimeMillis()
-                    val automation = com.omniface.ai.ml.verification.policy.AutomationPolicy.evaluate(
-                        synthesis = stabilized,
-                        quality = item.qualityResult,
-                        consecutiveMatchCount = count,
-                        lastVerifiedTimestampMs = lastVerifiedTimestamps[roll] ?: 0L,
-                        hasTrackAlreadyTriggered = trackState?.hasTriggeredAttendance == true,
-                        currentTimeMs = now
-                    )
-
-                    if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.AUTO_CONFIRM) {
-                        lastAuthorizedRoll = roll
-                        lastAuthorizedTimestampMs = now
-                        lastVerifiedTimestamps[roll] = now
-                        consecutiveMatchCounts[roll] = 0
-                        trackState?.hasTriggeredAttendance = true
-
-                        val prevHash = AndroidSecurityUtils.AEGIS_GENESIS_HASH
-                        val leafHash = AndroidSecurityUtils.computeAegisBlockHash(
-                            previousHash = prevHash,
-                            studentRoll = roll,
-                            timestamp = now,
-                            confidencePct = stabilized.matchConfidence
-                        )
-
-                        _transientEvents.emit(
-                            BiometricTransientEvent.AttendanceConfirmed(
-                                identityId = roll,
-                                displayName = displayName,
-                                role = role,
-                                confidence = confidence,
-                                leafHash = leafHash,
-                                timestamp = now
-                            )
-                        )
-
-                        VerificationDecision.Verified(
-                            identityId = roll,
-                            displayName = displayName,
-                            role = role,
-                            confidence = confidence,
-                            liveness = liveness,
-                            leafHash = leafHash,
-                            geometry = item.geometry
-                        )
-                    } else if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.COOLDOWN) {
-                        val remainingCooldown = ((com.omniface.ai.ml.verification.policy.AutomationPolicy.COOLDOWN_PERIOD_MS - (now - (lastVerifiedTimestamps[roll] ?: 0L)))).coerceAtLeast(0L)
-                        _transientEvents.emit(
-                            BiometricTransientEvent.DuplicateDetected(
-                                identityId = roll,
-                                displayName = displayName,
-                                role = role
-                            )
-                        )
-                        VerificationDecision.Duplicate(
-                            identityId = roll,
-                            displayName = displayName,
-                            role = role,
-                            remainingCooldownMs = remainingCooldown,
-                            geometry = item.geometry
-                        )
-                    } else {
-                        // OBSERVE_MORE_FRAMES: Temporal consensus accumulating (leafHash empty until auto-confirmed)
-                        VerificationDecision.Verified(
-                            identityId = roll,
-                            displayName = displayName,
-                            role = role,
-                            confidence = confidence,
-                            liveness = liveness,
-                            leafHash = "",
-                            geometry = item.geometry
-                        )
-                    }
-                }
-                PipelineGateState.REJECT_SPOOF_ATTACK -> {
-                    val reason = if (item.map3dResult != null && item.map3dResult.depthVariance < 0.0010f) {
-                        SpoofReason.DEPTH_VARIANCE_FLAT
-                    } else if (item.temporalResult != null && !item.temporalResult.isLive) {
-                        SpoofReason.TEMPORAL_JITTER
-                    } else {
-                        SpoofReason.TEXTURE_ANOMALY
-                    }
-                    val spoofScore = (100f - stabilized.livenessScore) / 100f
                     _transientEvents.emit(
-                        BiometricTransientEvent.SpoofAttemptBlocked(
-                            reason = reason,
-                            confidence = spoofScore
+                        BiometricTransientEvent.AttendanceConfirmed(
+                            identityId = roll,
+                            displayName = displayName,
+                            role = role,
+                            confidence = stabilized.matchConfidence / 100f,
+                            leafHash = leafHash,
+                            timestamp = now
                         )
                     )
-                    VerificationDecision.SpoofRejected(
-                        reason = reason,
-                        confidence = spoofScore,
-                        geometry = item.geometry
-                    )
-                }
-                PipelineGateState.REJECT_QUALITY -> {
-                    val qReason = item.qualityResult.rejectionReason
-                    val reason = when {
-                        qReason.contains("blurry", ignoreCase = true) || item.qualityResult.sharpnessScore < 32f -> QualityReason.BLURRY
-                        qReason.contains("lighting", ignoreCase = true) -> {
-                            if (item.qualityResult.meanLuminance > 195f) QualityReason.OVEREXPOSED else QualityReason.UNDEREXPOSED
-                        }
-                        qReason.contains("level", ignoreCase = true) || item.qualityResult.poseScore < 40f -> {
-                            if (abs(item.face.headEulerAngleX) > 20f) QualityReason.POSE_PITCH_EXCEEDED else QualityReason.POSE_YAW_EXCEEDED
-                        }
-                        else -> QualityReason.FACE_TOO_SMALL
-                    }
-                    VerificationDecision.PoorQuality(
-                        reason = reason,
-                        geometry = item.geometry
-                    )
-                }
-                PipelineGateState.REJECT_UNKNOWN_IDENTITY,
-                PipelineGateState.REVIEW_AMBIGUOUS_MATCH -> {
-                    VerificationDecision.Unknown(
-                        confidence = stabilized.matchConfidence / 100f,
-                        geometry = item.geometry
+                } else if (automation.action == com.omniface.ai.ml.verification.policy.AutomationAction.COOLDOWN) {
+                    val identity = identityMap[roll]
+                    val displayName = identity?.displayName ?: stabilized.matchedStudentName
+                    val role = identity?.role ?: "STUDENT"
+                    _transientEvents.emit(
+                        BiometricTransientEvent.DuplicateDetected(
+                            identityId = roll,
+                            displayName = displayName,
+                            role = role
+                        )
                     )
                 }
             }
 
-            if (primaryDomainDecision == null || (faceDecision is VerificationDecision.Verified && primaryDomainDecision !is VerificationDecision.Verified)) {
-                primaryDomainDecision = faceDecision
+            // Dynamic Centroid Adaptation
+            if (config.isDynamicCentroidAdaptationEnabled && thisFaceTriggered && stabilized.isAttendanceAuthorized && stabilized.matchedStudentRoll.isNotBlank() && item.lastExtractedEmbedding != null) {
+                val adaptedPair = matcher.adaptCentroidIfHighConfidence(
+                    studentRoll = stabilized.matchedStudentRoll,
+                    liveEmbedding = item.lastExtractedEmbedding,
+                    similarityScore = stabilized.matchSimilarity
+                )
+                if (adaptedPair != null) {
+                    val (tplId, newEncryptedCsv) = adaptedPair
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            com.omniface.ai.OmniFaceApplication.instance.database.studentDao().updateTemplateEmbedding(tplId, newEncryptedCsv)
+                            Log.d(TAG, "🧠 [DYNAMIC CENTROID] Adapted and persisted template $tplId for ${stabilized.matchedStudentRoll}")
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "Failed to persist adapted centroid: ${t.message}")
+                        }
+                    }
+                }
             }
+
+            if (primaryDecision == null || (stabilized.isAttendanceAuthorized && !primaryDecision.isAttendanceAuthorized)) {
+                primaryDecision = stabilized
+            }
+
+            candidateEvaluations.add(
+                item.copy(synthesis = stabilized)
+            )
         }
 
         val elapsedMs = ((SystemClock.elapsedRealtimeNanos() - t0) / 1_000_000L).coerceAtLeast(1L)
+        val activeTier = recognitionEngine.activeHardwareTier.getResolvedLabel(recognitionEngine.npuHardwareInfo)
         _telemetry.update { it.copy(latencyMs = elapsedMs) }
 
-        primaryDomainDecision ?: VerificationDecision.Idle
+        BiometricBatchEvaluation(
+            topDecision = primaryDecision ?: BiometricSynthesisDecision(
+                gateState = PipelineGateState.REJECT_QUALITY,
+                isAttendanceAuthorized = false,
+                matchedStudentRoll = "",
+                matchedStudentName = "",
+                matchConfidence = 0f,
+                matchSimilarity = 0f,
+                decisionMargin = 0f,
+                qualityScore = 0f,
+                livenessScore = 0f,
+                title = "ANALYZING...",
+                subtitle = "Align face in frame",
+                technicalExplanation = "Processing multi-stage biometric gates"
+            ),
+            allDecisions = allDecisions,
+            triggeredDecisions = triggeredDecisions,
+            isAttendanceTriggered = attendanceTriggered,
+            executionLatencyMs = elapsedMs,
+            activeHardwareTier = activeTier,
+            candidateEvaluations = candidateEvaluations
+        )
+    }
+
+    override suspend fun verifyFrame(
+        frame: BiometricFrame,
+        securityTier: SecurityTier
+    ): VerificationDecision {
+        val batch = evaluateFrame(frame, securityTier = securityTier)
+        val candidate = batch.candidateEvaluations.firstOrNull() ?: return VerificationDecision.Idle
+        val top = batch.topDecision
+        return when (top.gateState) {
+            PipelineGateState.PASS -> {
+                val roll = top.matchedStudentRoll
+                val identity = identityMap[roll]
+                val displayName = identity?.displayName ?: top.matchedStudentName
+                val role = identity?.role ?: "STUDENT"
+                val confidence = top.matchConfidence / 100f
+                val liveness = top.livenessScore / 100f
+                val leafHash = if (batch.isAttendanceTriggered) {
+                    val prevHash = AndroidSecurityUtils.AEGIS_GENESIS_HASH
+                    AndroidSecurityUtils.computeAegisBlockHash(
+                        previousHash = prevHash,
+                        studentRoll = roll,
+                        timestamp = System.currentTimeMillis(),
+                        confidencePct = top.matchConfidence
+                    )
+                } else ""
+                VerificationDecision.Verified(
+                    identityId = roll,
+                    displayName = displayName,
+                    role = role,
+                    confidence = confidence,
+                    liveness = liveness,
+                    leafHash = leafHash,
+                    geometry = candidate.domainGeometry
+                )
+            }
+            PipelineGateState.REJECT_SPOOF_ATTACK -> {
+                val reason = if (candidate.map3dResult != null && candidate.map3dResult.depthVariance < 0.0010f) {
+                    SpoofReason.DEPTH_VARIANCE_FLAT
+                } else if (candidate.temporalResult != null && !candidate.temporalResult.isLive) {
+                    SpoofReason.TEMPORAL_JITTER
+                } else {
+                    SpoofReason.TEXTURE_ANOMALY
+                }
+                VerificationDecision.SpoofRejected(
+                    reason = reason,
+                    confidence = (100f - top.livenessScore) / 100f,
+                    geometry = candidate.domainGeometry
+                )
+            }
+            PipelineGateState.REJECT_QUALITY -> {
+                val qReason = candidate.qualityResult.rejectionReason
+                val reason = when {
+                    qReason.contains("blurry", ignoreCase = true) || candidate.qualityResult.sharpnessScore < 32f -> QualityReason.BLURRY
+                    qReason.contains("lighting", ignoreCase = true) -> {
+                        if (candidate.qualityResult.meanLuminance > 195f) QualityReason.OVEREXPOSED else QualityReason.UNDEREXPOSED
+                    }
+                    qReason.contains("level", ignoreCase = true) || candidate.qualityResult.poseScore < 40f -> {
+                        if (abs(candidate.face.headEulerAngleX) > 20f) QualityReason.POSE_PITCH_EXCEEDED else QualityReason.POSE_YAW_EXCEEDED
+                    }
+                    else -> QualityReason.FACE_TOO_SMALL
+                }
+                VerificationDecision.PoorQuality(
+                    reason = reason,
+                    geometry = candidate.domainGeometry
+                )
+            }
+            PipelineGateState.REJECT_UNKNOWN_IDENTITY,
+            PipelineGateState.REVIEW_AMBIGUOUS_MATCH -> {
+                VerificationDecision.Unknown(
+                    confidence = top.matchConfidence / 100f,
+                    geometry = candidate.domainGeometry
+                )
+            }
+        }
     }
 
     override fun close() {
@@ -623,21 +797,4 @@ class BiometricVerificationEngineImpl(
         tracker.clear()
         Log.i(TAG, "BiometricVerificationEngine closed successfully")
     }
-
-    private data class CandidateFaceEvaluation(
-        val face: Face,
-        val trackId: Int,
-        val geometry: DomainFaceGeometry,
-        val qualityResult: QualityGateResult,
-        val passivePadResult: PassivePadResult?,
-        val temporalResult: com.omniface.ai.ml.antispoof.TemporalLivenessResult?,
-        val map3dResult: FaceMap3DMMResult?,
-        val gazeResult: EyeGazeResult?,
-        val attrResult: FaceAttributesResult?,
-        val meshResult: MediaPipeMeshResult?,
-        val hrnetResult: HRNetFaceResult?,
-        val matchResult: MatchResult?,
-        val lastExtractedEmbedding: FloatArray?,
-        val synthesis: BiometricSynthesisDecision
-    )
 }

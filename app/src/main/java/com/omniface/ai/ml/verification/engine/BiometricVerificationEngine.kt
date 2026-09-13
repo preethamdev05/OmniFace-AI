@@ -27,6 +27,27 @@ interface BiometricVerificationEngine : AutoCloseable {
     ): VerificationDecision
 
     /**
+     * Evaluates a visual frame containing 1 to 100 faces against enrolled identities.
+     * Returns a rich batch evaluation preserving all individual face decisions.
+     */
+    suspend fun evaluateFrame(
+        frame: BiometricFrame,
+        studentMap: Map<String, String> = emptyMap(),
+        securityTier: SecurityTier = SecurityTier.STANDARD,
+        downscaleFactor: Float = 1.0f
+    ): com.omniface.ai.ml.verification.domain.BiometricBatchEvaluation
+
+    /**
+     * Preloads persistent database templates into in-memory matching structures.
+     */
+    fun preloadTemplates(templates: List<com.omniface.ai.data.local.entity.FaceTemplateEntity>)
+
+    /**
+     * Preloads cached biometric embeddings into in-memory matching structures.
+     */
+    fun preloadCachedBiometrics(cachedList: List<com.omniface.ai.ml.CachedBiometric>)
+
+    /**
      * Reactive hardware and neural execution telemetry.
      */
     val telemetry: StateFlow<HardwareTelemetry>
