@@ -188,7 +188,8 @@ object PlayBillingManager : PurchasesUpdatedListener, BillingClientStateListener
             .setProductList(productList)
             .build()
 
-        client.queryProductDetailsAsync(params) { billingResult, productDetailsList ->
+        client.queryProductDetailsAsync(params) { billingResult, queryResult ->
+            val productDetailsList = queryResult.productDetailsList
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && !productDetailsList.isNullOrEmpty()) {
                 val premiumDetails = productDetailsList.firstOrNull {
                     it.productId == PRODUCT_ID_PREMIUM_MONTHLY

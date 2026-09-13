@@ -37,12 +37,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import android.app.Activity
+import androidx.activity.result.IntentSenderRequest
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.auth.api.identity.GetSignInIntentRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.SignInCredential
 import com.google.android.gms.common.api.ApiException
 import com.omniface.ai.ui.components.BiometricEnergyOrb
 import com.omniface.ai.ui.components.IOSCard
@@ -66,7 +69,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
 
-    // Google Sign-In Client & Launcher with real Web Client ID for Firebase Auth token exchange
+    // Google Identity Client & Launcher with real Web Client ID for Firebase Auth token exchange
     val defaultWebClientId = remember(context) {
         val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
         if (resId != 0) {
@@ -75,29 +78,24 @@ fun LoginScreen(
             "323760410829-sdff0g8kcgd1nqdjgkp87q56hkplvii7.apps.googleusercontent.com"
         }
     }
-    val gso = remember(defaultWebClientId) {
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(defaultWebClientId)
-            .requestEmail()
-            .build()
-    }
-    val googleSignInClient = remember(context, gso) { GoogleSignIn.getClient(context, gso) }
+    val oneTapClient = remember(context) { Identity.getSignInClient(context) }
 
     val googleLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
+        contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-        try {
-            val account = task.getResult(ApiException::class.java)
-            val idToken = account?.idToken
-            if (!idToken.isNullOrEmpty()) {
-                viewModel.signInWithGoogle(idToken, onLoginSuccess)
-            } else {
-                viewModel.showError("Google Sign-In did not return an ID token. Please verify Google Play Services.")
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            try {
+                val credential = oneTapClient.getSignInCredentialFromIntent(result.data)
+                val idToken = credential.googleIdToken
+                if (!idToken.isNullOrEmpty()) {
+                    viewModel.signInWithGoogle(idToken, onLoginSuccess)
+                } else {
+                    viewModel.showError("Google Sign-In did not return an ID token. Please verify Google Play Services.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Google Sign-In error: ${e.message}", e)
+                viewModel.showError(e.localizedMessage ?: "Google Sign-In failed.")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Google Sign-In error: ${e.message}", e)
-            viewModel.showError(e.localizedMessage ?: "Google Sign-In failed.")
         }
     }
 
@@ -410,8 +408,19 @@ fun LoginScreen(
                         // Hero CTA: CONTINUE WITH GOOGLE
                         Button(
                             onClick = {
-                                val signInIntent = googleSignInClient.signInIntent
-                                googleLauncher.launch(signInIntent)
+                                val request = GetSignInIntentRequest.builder()
+                                    .setServerClientId(defaultWebClientId)
+                                    .build()
+                                oneTapClient.getSignInIntent(request)
+                                    .addOnSuccessListener { pendingIntent ->
+                                        googleLauncher.launch(
+                                            IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                                        )
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Log.e(TAG, "Google Sign-In failed to get intent: ${e.message}", e)
+                                        viewModel.showError(e.localizedMessage ?: "Failed to initialize Google Sign-In")
+                                    }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()

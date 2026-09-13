@@ -42,8 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.UserRecoverableAuthException
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import com.omniface.ai.sync.BackupArchiveMetadata
 import com.omniface.ai.sync.GoogleDriveAppDataService
@@ -92,15 +90,6 @@ fun GoogleDriveBackupScreen(
     var showPinPromptForImport by remember { mutableStateOf(false) }
     var shouldTriggerBackupAfterPicker by remember { mutableStateOf(false) }
 
-    // Google Sign-In Launcher configured for user's personal Google Drive appDataFolder
-    val driveScope = Scope("https://www.googleapis.com/auth/drive.appdata")
-    val gso = remember {
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(driveScope)
-            .build()
-    }
-
     var pendingActionAfterAuth by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val authRecoveryLauncher = rememberLauncherForActivityResult(
@@ -126,24 +115,6 @@ fun GoogleDriveBackupScreen(
                 prefs.edit().putString("CONNECTED_GOOGLE_ACCOUNT", accountName).apply()
                 Toast.makeText(context, "Connected Google Account: $accountName", Toast.LENGTH_SHORT).show()
                 shouldTriggerBackupAfterPicker = true
-            }
-        }
-    }
-
-    val signInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.result
-                val email = account.email ?: ""
-                connectedEmail = email
-                prefs.edit().putString("CONNECTED_GOOGLE_ACCOUNT", email).apply()
-                Toast.makeText(context, "Connected Google Account: $email", Toast.LENGTH_SHORT).show()
-                shouldTriggerBackupAfterPicker = true
-            } catch (e: Exception) {
-                Toast.makeText(context, "Sign-in failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -231,9 +202,8 @@ fun GoogleDriveBackupScreen(
                 null
             )
             accountPickerLauncher.launch(intent)
-        } catch (_: Exception) {
-            val client = GoogleSignIn.getClient(context, gso)
-            signInLauncher.launch(client.signInIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Account picker error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
