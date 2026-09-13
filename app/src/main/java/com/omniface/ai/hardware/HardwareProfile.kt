@@ -166,4 +166,124 @@ object CapabilityNormalizer {
         cachedProfile = profile
         return profile
     }
+
+    fun resetCache() {
+        cachedProfile = null
+    }
+
+    /**
+     * Resolves a custom HardwareProfile without relying on ambient Android context.
+     * Useful for synthetic device profiling and regression testing across heterogeneous SoC targets.
+     */
+    fun profileCustom(
+        npuInfo: NpuHardwareInfo,
+        cpuCores: Int = 8,
+        ramMb: Long = 8192L,
+        apiLevel: Int = 34,
+        cpuArch: String = "ARM64-v8a"
+    ): HardwareProfile {
+        val caps = mutableSetOf<HardwareCapability>(
+            HardwareCapability.XNNPACK_THREADING
+        )
+        val features = npuInfo.armFeatures.map { it.lowercase() }
+        if (features.contains("asimddp") || features.contains("dotprod")) caps.add(HardwareCapability.DOT_PROD)
+        if (features.contains("i8mm")) caps.add(HardwareCapability.I8MM)
+        if (features.contains("bf16")) caps.add(HardwareCapability.BF16)
+
+        if (apiLevel >= 26) {
+            caps.add(HardwareCapability.GPU_DELEGATE)
+            caps.add(HardwareCapability.FP16_PRECISION)
+        }
+
+        val accType: AcceleratorType
+        val hasAcc: Boolean
+        if (npuInfo.isGenuineNpuDetected) {
+            hasAcc = true
+            caps.add(HardwareCapability.NNAPI_ACCELERATION)
+            caps.add(HardwareCapability.INT8_PRECISION)
+            accType = if (npuInfo.npuName.contains("APU", ignoreCase = true) || npuInfo.npuName.contains("NeuroPilot", ignoreCase = true)) {
+                AcceleratorType.INTEGRATED_APU
+            } else {
+                AcceleratorType.DEDICATED_NPU
+            }
+        } else if (caps.contains(HardwareCapability.GPU_DELEGATE)) {
+            hasAcc = true
+            accType = AcceleratorType.MOBILE_GPU
+        } else {
+            hasAcc = false
+            accType = AcceleratorType.CPU_FALLBACK
+        }
+
+        val perfTier = when {
+            hasAcc && npuInfo.isGenuineNpuDetected && (caps.contains(HardwareCapability.I8MM) || npuInfo.peakTops.contains("TOPS")) -> PerformanceTier.VERY_HIGH
+            hasAcc && npuInfo.isGenuineNpuDetected -> PerformanceTier.HIGH
+            caps.contains(HardwareCapability.GPU_DELEGATE) -> PerformanceTier.BALANCED
+            else -> PerformanceTier.STANDARD
+        }
+
+        val gpuName = if (npuInfo.socManufacturer.contains("Qualcomm", ignoreCase = true)) {
+            "Qualcomm Adreno GPU"
+        } else if (npuInfo.socManufacturer.contains("MediaTek", ignoreCase = true)) {
+            "ARM Mali / Immortalis GPU"
+        } else if (npuInfo.socManufacturer.contains("Samsung", ignoreCase = true)) {
+            "Samsung Xclipse / Mali GPU"
+        } else {
+            "Mobile Hardware GPU"
+        }
+
+        return HardwareProfile(
+            soc = npuInfo.socModel,
+            socManufacturer = npuInfo.socManufacturer,
+            cpuCores = cpuCores,
+            cpuArchitecture = cpuArch,
+            gpuRenderer = gpuName,
+            hasAccelerator = hasAcc,
+            acceleratorType = accType,
+            acceleratorName = npuInfo.shortNpuLabel,
+            totalRamMb = ramMb,
+            androidApiLevel = apiLevel,
+            capabilities = caps,
+            performanceTier = perfTier
+        )
+    }
+
+    data class DynamicBenchmarkResult(
+        val vectorThroughputMflops: Double,
+        val estimatedInferenceLatencyMs: Float,
+        val measuredTier: PerformanceTier
+    )
+
+    /**
+     * Executes a fast, lightweight on-device SIMD vector dot-product micro-benchmark
+     * across 512-D float vectors to quantify effective arithmetic throughput and dynamic performance tier.
+     */
+    fun runDynamicBenchmark(iterations: Int = 1000): DynamicBenchmarkResult {
+        val a = FloatArray(512) { 0.05f }
+        val b = FloatArray(512) { 0.08f }
+        val startNanos = System.nanoTime()
+        var acc = 0.0f
+        for (i in 0 until iterations) {
+            var dot = 0.0f
+            for (j in 0 until 512) {
+                dot += a[j] * b[j]
+            }
+            acc += dot
+        }
+        val elapsedNanos = (System.nanoTime() - startNanos).coerceAtLeast(1L)
+        val totalOps = iterations.toLong() * 512L * 2L
+        val mflops = (totalOps.toDouble() / (elapsedNanos.toDouble() / 1e9)) / 1e6
+
+        val estLatency = (512f * 112f * 112f * 3f / (mflops.toFloat() * 1e6f) * 1000f).coerceIn(1.5f, 45.0f)
+        val tier = when {
+            mflops >= 2500.0 -> PerformanceTier.VERY_HIGH
+            mflops >= 1200.0 -> PerformanceTier.HIGH
+            mflops >= 400.0 -> PerformanceTier.BALANCED
+            else -> PerformanceTier.STANDARD
+        }
+        return DynamicBenchmarkResult(
+            vectorThroughputMflops = mflops,
+            estimatedInferenceLatencyMs = estLatency,
+            measuredTier = tier
+        )
+    }
 }
