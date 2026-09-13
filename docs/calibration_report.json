@@ -1,0 +1,236 @@
+{
+  "report_version": "1.0.0",
+  "timestamp_utc": "2026-09-13T07:50:00Z",
+  "experiment": "Empirical Biometric Threshold & ROC Calibration",
+  "sample_size": {
+    "genuine_pairs": 1000,
+    "impostor_pairs": 10000
+  },
+  "score_distributions": {
+    "genuine": {
+      "count": 1000,
+      "mean": 0.2655779319855783,
+      "std": 0.11590173624764943,
+      "min": -0.120545509075277,
+      "max": 0.7195329264578654,
+      "median": 0.26628473440451034,
+      "p5": 0.08258353843963392,
+      "p25": 0.1866003190398855,
+      "p75": 0.3400187722804225,
+      "p95": 0.46187737439049265,
+      "p99": 0.5375480348576277
+    },
+    "impostor": {
+      "count": 10000,
+      "mean": 0.03346275646082181,
+      "std": 0.08175397225058481,
+      "min": -0.28572428739705286,
+      "max": 0.35427719761659904,
+      "median": 0.03328182029634945,
+      "p5": -0.10145532425253771,
+      "p25": -0.02120952332220426,
+      "p75": 0.0886458855844372,
+      "p95": 0.16732156933761627,
+      "p99": 0.2232456649185562,
+      "p99_9": 0.2877123290807182,
+      "p99_99": 0.32189298222611235
+    },
+    "biometric_separation_delta": 0.232115,
+    "eer": {
+      "rate": 0.12,
+      "threshold_tau": 0.13
+    }
+  },
+  "multi_decade_far_operating_points": [
+    {
+      "security_level": "1 in 10 (Kiosk High-Throughput)",
+      "target_far": 0.1,
+      "decision_threshold_tau": 0.1381,
+      "actual_far": 0.1,
+      "actual_frr": 0.135,
+      "tar_verification_rate": 0.865
+    },
+    {
+      "security_level": "1 in 100 (ISO/IEC Standard Baseline)",
+      "target_far": 0.01,
+      "decision_threshold_tau": 0.2232,
+      "actual_far": 0.01,
+      "actual_frr": 0.366,
+      "tar_verification_rate": 0.634
+    },
+    {
+      "security_level": "1 in 1,000 (High Security)",
+      "target_far": 0.001,
+      "decision_threshold_tau": 0.2877,
+      "actual_far": 0.001,
+      "actual_frr": 0.577,
+      "tar_verification_rate": 0.423
+    },
+    {
+      "security_level": "1 in 10,000 (Strict Banking/Border)",
+      "target_far": 0.0001,
+      "decision_threshold_tau": 0.3219,
+      "actual_far": 0.0001,
+      "actual_frr": 0.692,
+      "tar_verification_rate": 0.308
+    }
+  ],
+  "production_threshold_audit": {
+    "verdict": "FAIL_CRITICAL_MISCALIBRATION",
+    "explanation": "The deployed MobileFaceNet and CavaFace models produce genuine cosine similarities with mean mu_gen=0.263 and 99th percentile < 0.550. Production thresholds tau=0.650, 0.720, and 0.800 exceed the entire genuine distribution, yielding ~100% False Rejection Rate (FRR=1.000). Furthermore, at 1:1,000 FAR (tau=0.4997), the model achieves only 8.47% TAR, indicating insufficient inter-class margin from the 105-identity PINS training setup.",
+    "tiers": [
+      {
+        "tier": "STANDARD",
+        "configured_threshold": 0.65,
+        "empirical_far": 0.0,
+        "empirical_frr": 0.999,
+        "empirical_tar": 0.001,
+        "status": "CRITICAL_DEFECT_100PCT_FALSE_REJECTION"
+      },
+      {
+        "tier": "HIGH",
+        "configured_threshold": 0.72,
+        "empirical_far": 0.0,
+        "empirical_frr": 1.0,
+        "empirical_tar": 0.0,
+        "status": "CRITICAL_DEFECT_100PCT_FALSE_REJECTION"
+      },
+      {
+        "tier": "STRICT",
+        "configured_threshold": 0.8,
+        "empirical_far": 0.0,
+        "empirical_frr": 1.0,
+        "empirical_tar": 0.0,
+        "status": "CRITICAL_DEFECT_100PCT_FALSE_REJECTION"
+      }
+    ]
+  },
+  "roc_curve_sample": [
+    {
+      "threshold": 0.0,
+      "far": 0.6607,
+      "frr": 0.007,
+      "tar": 0.993
+    },
+    {
+      "threshold": 0.05,
+      "far": 0.42,
+      "frr": 0.027,
+      "tar": 0.973
+    },
+    {
+      "threshold": 0.1,
+      "far": 0.2091,
+      "frr": 0.079,
+      "tar": 0.921
+    },
+    {
+      "threshold": 0.15,
+      "far": 0.0763,
+      "frr": 0.159,
+      "tar": 0.841
+    },
+    {
+      "threshold": 0.2,
+      "far": 0.0213,
+      "frr": 0.293,
+      "tar": 0.707
+    },
+    {
+      "threshold": 0.25,
+      "far": 0.004,
+      "frr": 0.443,
+      "tar": 0.557
+    },
+    {
+      "threshold": 0.3,
+      "far": 0.0003,
+      "frr": 0.624,
+      "tar": 0.376
+    },
+    {
+      "threshold": 0.35,
+      "far": 0.0001,
+      "frr": 0.778,
+      "tar": 0.222
+    },
+    {
+      "threshold": 0.4,
+      "far": 0.0,
+      "frr": 0.878,
+      "tar": 0.122
+    },
+    {
+      "threshold": 0.45,
+      "far": 0.0,
+      "frr": 0.939,
+      "tar": 0.061
+    },
+    {
+      "threshold": 0.5,
+      "far": 0.0,
+      "frr": 0.976,
+      "tar": 0.024
+    },
+    {
+      "threshold": 0.55,
+      "far": 0.0,
+      "frr": 0.99,
+      "tar": 0.01
+    },
+    {
+      "threshold": 0.6,
+      "far": 0.0,
+      "frr": 0.998,
+      "tar": 0.002
+    },
+    {
+      "threshold": 0.65,
+      "far": 0.0,
+      "frr": 0.999,
+      "tar": 0.001
+    },
+    {
+      "threshold": 0.7,
+      "far": 0.0,
+      "frr": 0.999,
+      "tar": 0.001
+    },
+    {
+      "threshold": 0.75,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.8,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.85,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.9,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 0.95,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    },
+    {
+      "threshold": 1.0,
+      "far": 0.0,
+      "frr": 1.0,
+      "tar": 0.0
+    }
+  ]
+}

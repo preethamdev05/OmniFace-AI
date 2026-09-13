@@ -64,8 +64,60 @@ data class TrackedFaceState(
     var lastMap3dResult: FaceMap3DMMResult? = null,
     var lastGazeResult: EyeGazeResult? = null,
     var lastAttrResult: FaceAttributesResult? = null,
-    var lastQualityResult: QualityGateResult? = null
-)
+    var lastQualityResult: QualityGateResult? = null,
+
+    // Multi-Frame Quality-Weighted Temporal Feature Pooling (Stage 7)
+    val embeddingHistory: ArrayDeque<Pair<FloatArray, Float>> = ArrayDeque(5)
+) {
+    /**
+     * Pushes a new feature embedding with associated capture quality weight (0.0 .. 1.0).
+     * Maintains a sliding window of the most recent [maxHistory] frames.
+     */
+    fun pushEmbedding(embedding: FloatArray, qualityWeight: Float = 1.0f, maxHistory: Int = 5) {
+        if (embedding.isEmpty()) return
+        if (embeddingHistory.size >= maxHistory) {
+            embeddingHistory.removeFirst()
+        }
+        embeddingHistory.addLast(Pair(embedding.clone(), qualityWeight.coerceAtLeast(0.01f)))
+    }
+
+    /**
+     * Computes quality-weighted temporal mean embedding:
+     * \bar{e} = L2Normalize(\sum_{i=1}^k Q_i \cdot e_i)
+     */
+    fun getFusedEmbedding(): FloatArray? {
+        if (embeddingHistory.isEmpty()) return null
+        val dim = embeddingHistory.first().first.size
+        val fused = FloatArray(dim)
+        var totalWeight = 0f
+
+        for ((emb, weight) in embeddingHistory) {
+            totalWeight += weight
+            for (i in 0 until dim) {
+                fused[i] += emb[i] * weight
+            }
+        }
+
+        if (totalWeight <= 0f) return null
+
+        var sumSq = 0f
+        for (x in fused) sumSq += x * x
+        val norm = sqrt(sumSq)
+        if (norm > 1e-7f) {
+            for (i in fused.indices) {
+                fused[i] /= norm
+            }
+        }
+        return fused
+    }
+
+    /**
+     * Clears cached temporal embeddings when identity lock is invalidated or track is reset.
+     */
+    fun clearEmbeddingHistory() {
+        embeddingHistory.clear()
+    }
+}
 
 /**
  * High-Precision Face Tracker with Persistent Spatial-Temporal Association.
@@ -264,6 +316,7 @@ class FaceTracker {
         if (rawDecision.isAttendanceAuthorized && rawDecision.matchedStudentRoll.isNotBlank()) {
             if (state.studentRoll.isNotBlank() && state.studentRoll != rawDecision.matchedStudentRoll) {
                 state.isClassificationLocked = false
+                state.clearEmbeddingHistory()
                 state.consecutiveKnownHits = 1
                 state.consecutiveUnknownHits = 0
                 state.consecutiveSpoofHits = 0
@@ -314,6 +367,7 @@ class FaceTracker {
             state.consecutiveSpoofHits++
             state.consecutiveKnownHits = 0
             state.isClassificationLocked = false
+            state.clearEmbeddingHistory()
             state.studentRoll = ""
             state.studentName = ""
             state.classification = IdentityClassification.SPOOF_ATTACK
@@ -326,6 +380,7 @@ class FaceTracker {
             state.consecutiveUnknownHits++
             state.consecutiveKnownHits = 0
             state.isClassificationLocked = false
+            state.clearEmbeddingHistory()
             state.studentRoll = ""
             state.studentName = ""
             state.classification = IdentityClassification.UNKNOWN
@@ -338,6 +393,7 @@ class FaceTracker {
             if (state.isClassificationLocked && state.classification == IdentityClassification.KNOWN) {
                 if (rawDecision.matchedStudentRoll.isNotBlank() && rawDecision.matchedStudentRoll != state.studentRoll) {
                     state.isClassificationLocked = false
+                    state.clearEmbeddingHistory()
                     state.studentRoll = ""
                     state.studentName = ""
                     state.classification = IdentityClassification.AMBIGUOUS_REVIEW
@@ -356,6 +412,20 @@ class FaceTracker {
      */
     fun getTrackState(trackId: Int): TrackedFaceState? {
         return activeTracks[trackId]
+    }
+
+    /**
+     * Records an extracted embedding and quality weight for the specified track.
+     */
+    fun pushTrackEmbedding(trackId: Int, embedding: FloatArray, qualityWeight: Float = 1.0f) {
+        activeTracks[trackId]?.pushEmbedding(embedding, qualityWeight)
+    }
+
+    /**
+     * Returns the fused temporal embedding for the specified track, or null if insufficient history.
+     */
+    fun getFusedTrackEmbedding(trackId: Int): FloatArray? {
+        return activeTracks[trackId]?.getFusedEmbedding()
     }
 
     /**

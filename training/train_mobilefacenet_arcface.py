@@ -516,10 +516,10 @@ with open("class_labels.json", "w") as f:
 
 geometric_aug = tf.keras.Sequential([
     layers.RandomFlip("horizontal"),
-    layers.RandomRotation(0.02),
-    layers.RandomTranslation(0.03, 0.03),
-    layers.RandomBrightness(0.08),
-    layers.RandomContrast(0.08)
+    layers.RandomRotation(0.04),
+    layers.RandomTranslation(0.04, 0.04),
+    layers.RandomBrightness(0.12),
+    layers.RandomContrast(0.12)
 ], name="geom_aug")
 
 def random_cutout(image, patch_size=14):
@@ -530,11 +530,71 @@ def random_cutout(image, patch_size=14):
     mask = tf.pad(mask, [[top, h - top - patch_size], [left, w - left - patch_size], [0, 0]])
     return image * (1.0 - mask)
 
+def random_downsample_upsample(image, min_scale=0.35, max_scale=0.85):
+    """Simulates low-resolution distant face capture on smartphone cameras."""
+    scale = tf.random.uniform([], min_scale, max_scale, dtype=tf.float32)
+    new_size = tf.cast(tf.round(112.0 * scale), tf.int32)
+    down = tf.image.resize(image, [new_size, new_size], method="bilinear")
+    return tf.image.resize(down, [112, 112], method="bilinear")
+
+def random_sensor_noise(image, max_stddev=6.0):
+    """Simulates smartphone CMOS sensor ISO noise in low-light environments."""
+    stddev = tf.random.uniform([], 0.0, max_stddev)
+    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=stddev)
+    return tf.clip_by_value(image + noise, 0.0, 255.0)
+
+def random_motion_defocus_blur(image):
+    """Simulates slight camera shake or subject motion blur."""
+    img_4d = tf.expand_dims(image, 0)
+    blurred = tf.nn.avg_pool2d(img_4d, ksize=[1, 3, 3, 1], strides=[1, 1, 1, 1], padding="SAME")[0]
+    return blurred
+
+def random_illumination_gradient(image):
+    """Simulates lateral glare, window backlight, or uneven facial illumination."""
+    grad = tf.linspace(-0.25, 0.25, 112)
+    direction = tf.random.uniform([])
+    ramp = tf.reshape(grad, [1, 112, 1]) if direction > 0.5 else tf.reshape(grad, [112, 1, 1])
+    factor = tf.random.uniform([], -1.0, 1.0)
+    gradient_mask = 1.0 + ramp * factor
+    return tf.clip_by_value(image * gradient_mask, 0.0, 255.0)
+
+def random_jpeg_compression(image):
+    """Simulates lossy camera compression artifacts."""
+    img_uint8 = tf.cast(image, tf.uint8)
+    quality = tf.random.uniform([], minval=35, maxval=80, dtype=tf.int32)
+    compressed = tf.image.adjust_jpeg_quality(img_uint8, quality)
+    return tf.cast(compressed, tf.float32)
+
 def augment_image_tupled(x, y):
+    # 1. Geometric & color perturbations
     x = geometric_aug(x)
     x = tf.cast(x, tf.float32)
-    if tf.random.uniform([]) > 0.5:
+
+    # 2. Smartphone Camera Degradations (applied stochastically)
+    # Downsample / distance simulation (35% probability)
+    if tf.random.uniform([]) < 0.35:
+        x = random_downsample_upsample(x)
+
+    # Motion / defocus blur (30% probability)
+    if tf.random.uniform([]) < 0.30:
+        x = random_motion_defocus_blur(x)
+
+    # Sensor ISO noise (35% probability)
+    if tf.random.uniform([]) < 0.35:
+        x = random_sensor_noise(x)
+
+    # Asymmetric illumination / glare (30% probability)
+    if tf.random.uniform([]) < 0.30:
+        x = random_illumination_gradient(x)
+
+    # JPEG artifacts (25% probability)
+    if tf.random.uniform([]) < 0.25:
+        x = random_jpeg_compression(x)
+
+    # Random Cutout / partial occlusion (40% probability)
+    if tf.random.uniform([]) < 0.40:
         x = random_cutout(x, patch_size=14)
+
     return (x, y), y
 
 def pass_raw_image_tupled(x, y):
@@ -604,6 +664,8 @@ class BiometricTelemetryCallback(callbacks.Callback):
         self.initial_s = initial_s
         self.target_s = target_s
         self.best_delta = -1.0
+        self.best_composite_score = -1.0
+        self.best_epoch = -1
         self.csv_file = "training_metrics.csv"
         self.telemetry_history = []
         
@@ -688,9 +750,25 @@ class BiometricTelemetryCallback(callbacks.Callback):
             writer = csv.writer(f)
             writer.writerow([epoch+1, current_lr, self.current_m, self.current_s, logs.get('val_loss', 0.0), logs.get('categorical_accuracy', logs.get('accuracy', 0.0)), logs.get('top5_accuracy', 0.0), mean_gen, mean_imp, delta, best_acc])
 
-        if delta > self.best_delta:
+        # Checkpoint Selection Guardrails (Stage 4 Fix):
+        # 1. Warmup Guard: Do not save during initial margin ramp-up when weights are unstable.
+        # 2. Accuracy Gating: Classification top1 accuracy must be >= 90% (or epoch >= 16) to guarantee convergence.
+        # 3. Composite Biometric Score: Balance TAR at FAR 10^-2 (1:100), overall pairwise accuracy, and separation.
+        tar_at_1e2 = 0.0
+        if len(impostor_sims) > 0 and len(genuine_sims) > 0:
+            tau_1e2 = float(np.percentile(impostor_sims, 99.0))
+            tar_at_1e2 = float(np.mean(np.array(genuine_sims) >= tau_1e2))
+
+        top1 = float(logs.get('categorical_accuracy', logs.get('accuracy', 0.0)))
+        composite_score = (tar_at_1e2 * 0.5) + (best_acc * 0.3) + (delta * 0.2)
+
+        is_eligible = (epoch + 1 >= self.warmup_epochs) and (top1 >= 0.90 or epoch + 1 >= 16)
+
+        if is_eligible and composite_score > self.best_composite_score:
+            self.best_composite_score = composite_score
             self.best_delta = delta
-            print(f"           🏆 New Best Separation Δ achieved: {delta:.4f} -> Saving Dual Checkpoints...")
+            self.best_epoch = epoch + 1
+            print(f"           🏆 New Best Biometric Model (Epoch {epoch+1:02d})! Composite: {composite_score:.4f} (TAR@1%: {tar_at_1e2*100:.1f}%, Acc: {best_acc*100:.1f}%, Δ: {delta:.4f}, Top-1: {top1*100:.1f}%) -> Saving Dual Checkpoints...")
             self.embedding_model.save("best_mobilefacenet_arcface.keras")
             self.full_train_model.save("best_mobilefacenet_full_trainer.keras")
 

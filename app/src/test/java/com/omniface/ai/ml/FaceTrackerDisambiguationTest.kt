@@ -300,4 +300,56 @@ class FaceTrackerDisambiguationTest {
         assertEquals(ConfidenceZone.REJECT, result.confidenceZone)
         assertEquals(0.0f, result.confidence, 0.001f)
     }
+
+    @Test
+    fun testTemporalFeaturePooling_qualityWeightedFusion() {
+        val rect = Rect(100f, 100f, 250f, 250f)
+        val state = tracker.getOrCreateTrackState(mlKitTrackId = 777, rawRect = rect)
+
+        // Initial state should have null fused embedding
+        assertNull(tracker.getFusedTrackEmbedding(777))
+
+        // Create 2 synthetic 512D unit vectors
+        val v1 = FloatArray(512) { 0f }.apply { this[0] = 1.0f } // Direction 0
+        val v2 = FloatArray(512) { 0f }.apply { this[1] = 1.0f } // Direction 1
+
+        // Push frame 1 with low quality (e.g. 0.2f due to slight blur)
+        tracker.pushTrackEmbedding(777, v1, qualityWeight = 0.2f)
+        val fused1 = tracker.getFusedTrackEmbedding(777)
+        assertNotNull(fused1)
+        assertEquals(1.0f, fused1!![0], 1e-4f)
+
+        // Push frame 2 with high quality (e.g. 0.8f crisp frontal)
+        tracker.pushTrackEmbedding(777, v2, qualityWeight = 0.8f)
+        val fused2 = tracker.getFusedTrackEmbedding(777)
+        assertNotNull(fused2)
+
+        // Verify L2 norm is 1.0
+        var sumSq = 0f
+        for (x in fused2!!) sumSq += x * x
+        assertEquals(1.0f, kotlin.math.sqrt(sumSq), 1e-4f)
+
+        // Component 1 should have 4x the weight of component 0 before normalization
+        // Since weight2 = 0.8 and weight1 = 0.2: ratio fused2[1] / fused2[0] == 4.0
+        val ratio = fused2[1] / fused2[0]
+        assertEquals(4.0f, ratio, 1e-2f)
+
+        // Now trigger an UNKNOWN or SPOOF decision -> embedding history must be wiped
+        val spoofDecision = BiometricSynthesisDecision(
+            gateState = PipelineGateState.REJECT_SPOOF_ATTACK,
+            isAttendanceAuthorized = false,
+            matchedStudentRoll = "",
+            matchedStudentName = "",
+            matchConfidence = 0f,
+            matchSimilarity = 0f,
+            decisionMargin = 0f,
+            qualityScore = 50f,
+            livenessScore = 0.05f,
+            title = "SPOOF DETECTED",
+            subtitle = "Attack",
+            technicalExplanation = "2D screen detected"
+        )
+        tracker.stabilizeDecision(777, spoofDecision)
+        assertNull("Embedding history must be purged upon spoof detection", tracker.getFusedTrackEmbedding(777))
+    }
 }
