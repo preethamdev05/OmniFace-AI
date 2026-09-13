@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "com.omniface.ai"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.omniface.ai"
