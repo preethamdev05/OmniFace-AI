@@ -315,9 +315,24 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
                     continue
                 }
 
-                // Inspect input and output tensor quantization parameters
+                // Inspect input and output tensor quantization parameters and shapes
                 val inTensor = interp.getInputTensor(0)
                 val outTensor = interp.getOutputTensor(0)
+
+                val inShape = inTensor.shape()
+                val outShape = outTensor.shape()
+                // Strict validation: input must be [1, 112, 112, 3] and output must be [1, 512]
+                if (inShape.size != 4 || inShape[1] != 112 || inShape[2] != 112 || inShape[3] != 3) {
+                    Log.w(TAG, "Rejecting incompatible model $mName: input shape ${inShape.contentToString()} is not [1, 112, 112, 3]")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+                if (outShape.size != 2 || outShape[1] != 512) {
+                    Log.w(TAG, "Rejecting incompatible model $mName: output shape ${outShape.contentToString()} is not [1, 512]")
+                    closeQuietly(interp, gpu, nnapi)
+                    continue
+                }
+
                 val isInt8 = inTensor.dataType() == DataType.INT8 || inTensor.dataType() == DataType.UINT8
                 isModelQuantizedInt8 = isInt8
 
@@ -448,9 +463,9 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         // Priority 1: Check for verified downloaded model in private app storage
         val downloadManager = ModelDownloadManager.getInstance(context)
         val localFile = downloadManager.getLocalModelFile()
-        if (localFile.exists() && (localFile.name == modelName || modelName.contains("omniface", ignoreCase = true) || modelName.contains("neural", ignoreCase = true) || modelName.contains("cavaface", ignoreCase = true) || modelName.contains("mobilefacenet", ignoreCase = true)) && downloadManager.verifyModelIntegrity(localFile)) {
-            Log.i(TAG, "📂 Loading verified private Hugging Face model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
-            activeBackbone = NeuralBackbone.MOBILEFACENET
+        if (localFile.exists() && localFile.name == modelName && downloadManager.verifyModelIntegrity(localFile)) {
+            Log.i(TAG, "📂 Loading verified private model from: ${localFile.absolutePath} (${localFile.length()} bytes)")
+            activeBackbone = if (modelName.contains("cavaface", ignoreCase = true)) NeuralBackbone.QUALCOMM_CAVAFACE else NeuralBackbone.MOBILEFACENET
             return mapFileChannel(localFile)
         }
 
@@ -590,6 +605,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
      */
     fun extractEmbeddingWithFlipAugmentation(faceBitmap: Bitmap): FloatArray {
         val embOriginal = extractRawEmbedding(faceBitmap)
+        if (embOriginal.isEmpty()) return embOriginal
         val flipMatrix = Matrix().apply { preScale(-1.0f, 1.0f) }
         val flipped = try {
             Bitmap.createBitmap(faceBitmap, 0, 0, faceBitmap.width, faceBitmap.height, flipMatrix, true)
@@ -598,6 +614,7 @@ class FaceRecognitionEngine(private val context: Context) : AutoCloseable {
         if (flipped != null) {
             val embFlipped = extractRawEmbedding(flipped)
             if (flipped != faceBitmap) flipped.recycle()
+            if (embFlipped.isEmpty()) return embOriginal
             val fused = FloatArray(embeddingDim)
             for (i in 0 until embeddingDim) fused[i] = (embOriginal[i] + embFlipped[i]) * 0.5f
             return l2Normalize(fused)

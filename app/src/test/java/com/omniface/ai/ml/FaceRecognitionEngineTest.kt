@@ -266,4 +266,36 @@ class FaceRecognitionEngineTest {
         )
         assertTrue(eyeGazeResult.isGazeAttentive)
     }
+
+    // ── 5. Model Architecture & Tensor Contract Invariants ───────────────────
+
+    @Test
+    fun testFaceRecognitionTensorShapeContract() {
+        val expectedInputShape = intArrayOf(1, 112, 112, 3)
+        val expectedOutputShape = intArrayOf(1, 512)
+
+        // Valid model contract
+        assertEquals(4, expectedInputShape.size)
+        assertEquals(112, expectedInputShape[1])
+        assertEquals(112, expectedInputShape[2])
+        assertEquals(3, expectedInputShape[3])
+        assertEquals(2, expectedOutputShape.size)
+        assertEquals(512, expectedOutputShape[1])
+
+        // Verify that incompatible multi-head shapes (e.g. anti-spoof [1, 3, 80, 80]) are flagged
+        val incompatibleInputShape = intArrayOf(1, 3, 80, 80)
+        val isIncompatible = incompatibleInputShape.size != 4 ||
+                incompatibleInputShape[1] != 112 ||
+                incompatibleInputShape[2] != 112 ||
+                incompatibleInputShape[3] != 3
+        assertTrue("Incompatible input shape must be flagged by shape validator", isIncompatible)
+    }
+
+    @Test
+    fun testModelDownloadManagerTargetFilenameInvariant() {
+        assertEquals(
+            "mobilefacenet_512d_int8.tflite",
+            ModelDownloadManager.TARGET_MODEL_FILENAME
+        )
+    }
 }

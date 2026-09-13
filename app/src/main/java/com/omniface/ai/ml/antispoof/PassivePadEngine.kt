@@ -166,7 +166,8 @@ class PassivePadEngine(private val context: Context) : TfliteModel<Bitmap, Passi
         // 2. Storage
         val storageCandidates = listOf(
             File("/storage/emulated/0/AI-HUB/FR/models/$MODEL_FILENAME"),
-            File(context.getExternalFilesDir(null), "models/$MODEL_FILENAME")
+            File(context.getExternalFilesDir(null), "models/$MODEL_FILENAME"),
+            File(context.filesDir, "models/$MODEL_FILENAME")
         )
         for (f in storageCandidates) {
             if (f.exists() && f.canRead() && f.length() > 1024L) {

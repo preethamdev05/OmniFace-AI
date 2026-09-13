@@ -61,7 +61,7 @@ class ModelDownloadManager(private val context: Context) {
     companion object {
         private const val TAG = "OmniFaceModelDownloader"
         private const val MODELS_DIR = "models"
-        const val TARGET_MODEL_FILENAME = "unified_omniface.tflite"
+        const val TARGET_MODEL_FILENAME = "mobilefacenet_512d_int8.tflite"
         private const val TMP_EXTENSION = ".download.tmp"
         private val TFLITE_IDENTIFIER = byteArrayOf('T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte())
 
@@ -106,11 +106,13 @@ class ModelDownloadManager(private val context: Context) {
         val candidates = listOfNotNull(
             context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/$TARGET_MODEL_FILENAME") },
             File(context.filesDir, "$MODELS_DIR/$TARGET_MODEL_FILENAME"),
+            context.getExternalFilesDir(null)?.let { File(it, "$MODELS_DIR/mobilefacenet_512d_fp16.tflite") },
+            File(context.filesDir, "$MODELS_DIR/mobilefacenet_512d_fp16.tflite"),
             File("/storage/emulated/0/AI-HUB/FR/models/$TARGET_MODEL_FILENAME"),
             File("/sdcard/AI-HUB/FR/models/$TARGET_MODEL_FILENAME")
         )
         for (candidate in candidates) {
-            if (candidate.exists() && candidate.length() > 1024 * 1024) {
+            if (candidate.exists() && candidate.length() > 500 * 1024) {
                 if (verifyModelIntegrity(candidate)) {
                     return candidate
                 }
@@ -127,7 +129,15 @@ class ModelDownloadManager(private val context: Context) {
 
     fun isModelAvailable(): Boolean {
         cachedModelAvailable?.let { return it }
-        val available = findExistingModelFile() != null
+        val hasLocal = findExistingModelFile() != null
+        val hasAsset = try {
+            context.assets.open(TARGET_MODEL_FILENAME).use { true }
+        } catch (_: Throwable) {
+            try {
+                context.assets.open("mobilefacenet_512d_fp32.tflite").use { true }
+            } catch (_: Throwable) { false }
+        }
+        val available = hasLocal || hasAsset
         cachedModelAvailable = available
         return available
     }
@@ -152,7 +162,7 @@ class ModelDownloadManager(private val context: Context) {
         if (isModelAvailable()) {
             return ModelDownloadState.Ready(
                 activeModelName = "OmniFace Deep AI Engine",
-                modelSizeBytes = if (file.exists()) file.length() else 380182456L
+                modelSizeBytes = if (file.exists()) file.length() else 1610080L
             )
         }
         return ModelDownloadState.Idle(
@@ -211,7 +221,7 @@ class ModelDownloadManager(private val context: Context) {
                     val code = response.code
                     val errorMsg = when (code) {
                         401, 403 -> "🔒 CDN Access Denied ($code). Verify authorization secret."
-                        404 -> "❌ Unified model not found ($code) on CDN. Please upload model to R2."
+                        404 -> "❌ Neural model not found ($code) on CDN."
                         else -> "⚠️ Download failed with HTTP status code $code: ${response.message}"
                     }
                     _downloadState.value = ModelDownloadState.Error(errorMsg, canRetry = true)
@@ -221,7 +231,7 @@ class ModelDownloadManager(private val context: Context) {
 
                 val body = response.body
                 val contentLength = body.contentLength()
-                val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 362.6f
+                val totalMb = if (contentLength > 0) contentLength / (1024f * 1024f) else 1.54f
 
                 if (tmpFile.exists()) {
                     tmpFile.delete()

@@ -198,11 +198,14 @@ class OmniFaceApplication : Application() {
             "cavaface.tflite"
         )
         val privateModelsDir = java.io.File(filesDir, "models")
-        val found = candidates.any { java.io.File(privateModelsDir, it).exists() }
-        if (found) {
-            Log.i("OmniFaceApp", "Verified model in app private storage.")
+        val foundStorage = candidates.any { java.io.File(privateModelsDir, it).exists() }
+        val foundAssets = candidates.any { name ->
+            try { assets.open(name).use { true } } catch (_: Throwable) { false }
+        }
+        if (foundStorage || foundAssets) {
+            Log.i("OmniFaceApp", "Verified biometric neural model in app storage/assets.")
         } else {
-            Log.i("OmniFaceApp", "Model verification check complete.")
+            Log.i("OmniFaceApp", "Biometric model will be downloaded on-demand from CDN.")
         }
     }
 
