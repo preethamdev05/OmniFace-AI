@@ -179,3 +179,67 @@ For all subsequent model retraining and fine-tuning on the RTX 5060:
    ```
 4. **Sharded Cache Maintenance:**
    Keep precomputed teacher shards in `training/unified/data_cache/cavaface_shards/`. For new dataset additions, invoke `build_cavaface_cache.py` with multi-process workers to append shards without invalidating existing ones.
+
+---
+
+## 8. Empirical DataLoader Stall Dissection (The 23.48% Wait Time Analysis)
+
+Following rigorous empirical diagnostics ([`training/unified/profiling/profile_dataloader_breakdown.py`](../training/unified/profiling/profile_dataloader_breakdown.py)), the 23.48% (95.55 ms) DataLoader wait time observed in Experiment H was dissected down to individual micro-operations:
+
+### 8.1 Per-Sample CPU Processing Latency (1,000 Sample Audit):
+| Pipeline Operation | Mean Latency (ms) | Relative Share (%) | Mechanism / Subsystem |
+| :--- | :--- | :--- | :--- |
+| **JPEG Decompression** | **0.1349 ms** | 44.12% | PIL / libjpeg decompression from memory buffer |
+| **Raw Disk I/O** | **0.1067 ms** | 34.90% | NVMe SSD read / Windows OS Page Cache hit |
+| **NumPy Normalization** | **0.0486 ms** | 15.91% | `(x - 127.5) / 128.0` FP32 arithmetic |
+| **Tensor Transpose & Wrap** | **0.0082 ms** | 2.69% | HWC $\to$ CHW transpose + PyTorch Tensor creation |
+| **Teacher Cache Lookup** | **0.0071 ms** | 2.31% | FP16 memory-mapped contiguous shard lookup |
+| **Image Resize (112×112)** | **0.0002 ms** | 0.08% | Zero-cost (images are already pre-aligned) |
+| **Total Per-Sample CPU Time**| **0.3057 ms** | **100.0%** | Pure CPU processing per image |
+
+### 8.2 Batch-Level Staging Overhead (Batch Size = 256):
+| Staging Operation | Mean Latency (ms) | Bottleneck Mechanism |
+| :--- | :--- | :--- |
+| **Batch Collation (`torch.stack`)** | **11.44 ms** | Stacking 256 tensors into `[256, 3, 112, 112]` contiguous host tensor (38.5 MB) |
+| **Host DMA Pinned Memory (`pin_memory`)** | **88.29 ms** | Windows NT kernel page-locking physical RAM (`cudaHostRegister`) |
+| **Total Batch Staging Latency** | **99.73 ms** | Matches the empirical 95.55 ms data wait time almost exactly |
+
+### 8.3 Key Architectural Finding:
+Across 4 parallel DataLoader worker processes, the actual CPU image decoding time for 256 images is:
+$$\frac{256 \times 0.1349\text{ ms}}{4\text{ workers}} = \mathbf{8.63\text{ ms}}$$
+This proves definitively that **JPEG decoding is NOT choking the GPU**. The overwhelming majority (~88 ms out of 95 ms) is spent on host memory page-locking and tensor collation in the Windows PyTorch runtime.
+
+---
+
+## 9. Production Baseline Formalization & Experiment I (NVIDIA DALI) Decision Gate
+
+### 9.1 Formal Production Baseline Designation
+Experiments A through H now constitute the **Official Production Baseline** for OmniFace AI:
+* **Architecture:** MobileNetV4-Conv-Small (3.48M parameters, 7 intelligence heads)
+* **Distillation Backend:** Offline Sharded FP16 CavaFace Teacher Cache (`CavaFaceShardedCacheReader`, 1.90 µs/lookup)
+* **DataLoader Configuration:** `batch_sampler=IdentityPKSampler(P=64, K=4)`, `num_workers=4`, `pin_memory=True`, `non_blocking=True`
+* **Numerical Precision:** PyTorch AMP (`float16`) + TensorFloat-32 (`high`)
+* **Verified Throughput:** **629.19 samples/sec** (Peak: **701.4 samples/sec**), **76.07% GPU active compute**, 60–63°C thermals, 0 throttling events, 100% biometric preservation.
+
+### 9.2 Experiment I (NVIDIA DALI) Evaluation Protocol
+NVIDIA DALI will NOT replace the production baseline. Instead, it is registered as an isolated, optional **Experiment I** evaluated strictly on an A/B basis against the 629.19 samples/s baseline:
+
+```
+Production Baseline (A–H):
+Disk ──> PyTorch Multi-Worker DataLoader ──> RAM Cache ──> Host DMA Pinned ──> GPU (629 samp/s)
+
+Experiment I (DALI):
+Disk ──> DALI GPU Pipeline (nvJPEG / GPU Preprocessing) ──> UnifiedFaceModel (Evaluated A/B)
+```
+
+### 9.3 Strict DALI Acceptance / Rejection Gate:
+1. **Trivial Gain Rejection Gate:**
+   If Experiment I yields only **$\le 680\text{ samples/sec}$** ($< 8\%$ gain, e.g. $629 \to 645\text{ samp/s}$), **REJECT DALI**. The marginal gain does not justify introducing NVIDIA DALI's heavy external C++/CUDA runtime dependencies, Windows binary maintenance issues, and pipeline complexity.
+2. **Adoption Threshold:**
+   Adopt DALI if and only if it satisfies all of the following:
+   * **Throughput:** $\ge \mathbf{750 - 850\text{ samples/sec}}$ ($+19\%$ to $+35\%$ net speedup over baseline)
+   * **DataLoader Stall:** Reduced from $23.48\%$ down to $\mathbf{10 - 15\%}$
+   * **GPU Active Ratio:** Lifted from $76.07\%$ to $\ge \mathbf{85 - 90\%}$
+   * **VRAM Overhead:** Remains strictly $< 4.0\text{ GB}$ (preserving laptop headroom)
+   * **Biometric Parity:** Exact match with frozen V2 checkpoint ($\Delta \text{TAR} \le 0.5\%$, $\Delta d' \le 0.02$).
+

@@ -1,0 +1,29 @@
+{
+  "sample_breakdown": {
+    "raw_disk_io_ms": 0.10667650000000001,
+    "jpeg_decode_ms": 0.1348521,
+    "resize_ms": 0.00023070000000000002,
+    "numpy_norm_ms": 0.0486342,
+    "tensor_conv_ms": 0.008208499999999999,
+    "cache_lookup_ms": 0.007056699999999999,
+    "total_per_sample_cpu_ms": 0.3056587,
+    "percentages": {
+      "raw_disk_io_ms": 34.9,
+      "jpeg_decode_ms": 44.12,
+      "resize_ms": 0.08,
+      "numpy_norm_ms": 15.91,
+      "tensor_conv_ms": 2.69,
+      "cache_lookup_ms": 2.31
+    }
+  },
+  "batch_staging": {
+    "collate_ms": 11.436776666666669,
+    "pin_memory_ms": 88.29295333333333,
+    "batch_size": 256
+  },
+  "projection": {
+    "single_thread_256_ms": 78.2486272,
+    "four_workers_ideal_ms": 19.5621568,
+    "staging_ms": 99.72973
+  }
+}

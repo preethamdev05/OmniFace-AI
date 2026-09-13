@@ -221,8 +221,13 @@ The optimized training architecture eliminates this completely:
 
 ### Invariants for GPU Pipeline Optimization
 1. **Never Inflate Architecture**: Do not change MobileNetV4-Conv-Small (3.48M params) just to artificially raise `nvidia-smi` utilization. Optimize for `samples/sec` and low idle time.
-2. **Never Overwrite Production Artifacts**: Keep `production_winner_unified_v2.pt`, `unified_face_v2_fp16.tflite`, and `unified_face_v2_int8.tflite` safely frozen.
-3. **Numerical Verification**: Verify that offline cached teacher embeddings match online outputs within 1e-4 cosine tolerance.
+2. **Production Baseline Formalization**: The verified high-throughput pipeline (Offline FP16 mmap CavaFace cache, PyTorch DataLoader $w=4$, pinned memory, non-blocking H2D, $P=64, K=4$ Batch 256, AMP float16 + TF32) is the **Official Production Baseline** delivering **629.19 samples/sec** (Peak: **701.4 samples/sec**), 76.07% GPU active compute, 60–63°C safe thermals, and 0 throttling events.
+3. **NVIDIA DALI Evaluation Policy (Experiment I)**: Keep the production baseline. NVIDIA DALI is an isolated optional A/B benchmark (Experiment I), NOT a mandatory architectural requirement.
+   - Profiling proves per-sample JPEG decode is only 0.135 ms (8.63 ms total across 4 workers for 256 images); the 23.48% wait is mostly Windows host page-locking (`pin_memory`).
+   - Rejection Gate: Reject DALI if throughput is $\le 680\text{ samples/sec}$ (e.g. $629 \to 645\text{ samp/s}$) to avoid unnecessary C++/CUDA dependencies and Windows build brittleness.
+   - Adoption Gate: Adopt only if throughput reaches $\ge 750 - 850\text{ samples/sec}$ and stall drops to $10 - 15\%$.
+4. **Never Overwrite Production Artifacts**: Keep `production_winner_unified_v2.pt`, `unified_face_v2_fp16.tflite`, and `unified_face_v2_int8.tflite` safely frozen.
+5. **Numerical Verification**: Verify that offline cached teacher embeddings match online outputs within 1e-4 cosine tolerance (achieved $< 10^{-7}$).
 
 ---
 
