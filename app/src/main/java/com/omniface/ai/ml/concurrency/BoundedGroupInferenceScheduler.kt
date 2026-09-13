@@ -63,14 +63,18 @@ class BoundedGroupInferenceScheduler(
         }
 
     /**
-     * Dynamically adapts the concurrency ceiling based on real-time thermal telemetry.
+     * Dynamically adapts the concurrency ceiling based on real-time thermal telemetry
+     * and device capacity limits (1–3 permits).
      */
     @Synchronized
-    fun adaptToThermalState(thermalState: ThermalState) {
+    fun adaptToThermalState(
+        thermalState: ThermalState,
+        deviceCapacityCap: Int = DEFAULT_CONCURRENCY_SLOTS
+    ) {
         val targetSlots = when (thermalState) {
             ThermalState.CRITICAL -> 1 // Strictly sequential to mitigate thermal emergency
-            ThermalState.WARM -> 1     // Throttled concurrency
-            ThermalState.NOMINAL -> DEFAULT_CONCURRENCY_SLOTS
+            ThermalState.WARM -> maxOf(1, minOf(deviceCapacityCap - 1, 2)) // Throttled concurrency
+            ThermalState.NOMINAL -> deviceCapacityCap.coerceIn(MIN_CONCURRENCY_SLOTS, MAX_CONCURRENCY_SLOTS)
         }
         if (targetSlots != currentCapacity) {
             currentCapacity = targetSlots

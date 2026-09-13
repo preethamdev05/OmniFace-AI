@@ -266,6 +266,7 @@ class ScannerViewModel : ViewModel() {
     private val emaBoundingBoxes = ConcurrentHashMap<Int, androidx.compose.ui.geometry.Rect>()
     @Volatile
     var isProcessingFrame = false
+    val frameSkipCounter = java.util.concurrent.atomic.AtomicLong(0L)
     private var lastAnalysisTimestamp = 0L
     private var activeCameraControl: CameraControl? = null
     private var activeExposureState: ExposureState? = null
@@ -2008,10 +2009,12 @@ fun ScannerScreen(
                                                         )
 
                                                         // ASYNC PATH 2: Background Biometric Verification without stalling camera
-                                                        if (!viewModel.isProcessingFrame) {
+                                                        val activeThermal = ThermalGovernor.thermalState.value
+                                                        val skipMod = if (latestUi.isAutoScalingEnabled) activeThermal.frameSkipMod else 1L
+                                                        val shouldSkipBiometrics = skipMod > 1L && (viewModel.frameSkipCounter.incrementAndGet() % skipMod != 0L)
+                                                        if (!viewModel.isProcessingFrame && !shouldSkipBiometrics) {
                                                             val rawBitmap = BiometricCropUtils.imageProxyToBitmap(imageProxy)
                                                             if (rawBitmap != null) {
-                                                                val activeThermal = ThermalGovernor.thermalState.value
                                                                 val (scaledBitmap, downscaleFactor) = if (latestUi.isAutoScalingEnabled) {
                                                                     ThermalGovernor.scaleBitmapForThermal(rawBitmap, activeThermal)
                                                                 } else {

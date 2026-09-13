@@ -226,10 +226,21 @@ object ThermalGovernor {
 
     /**
      * Downscales the full resolution camera frame bitmap dynamically based on active thermal state.
-     * Returns the original bitmap (1.0f factor) to preserve crystal-clear biometric recognition clarity.
+     * Returns the scaled bitmap (or original if nominal) along with the active downscale factor.
      */
     fun scaleBitmapForThermal(sourceBitmap: Bitmap, state: ThermalState): Pair<Bitmap, Float> {
-        return sourceBitmap to 1.0f
+        val factor = if (_isAutoScalingEnabled.value) state.downscaleFactor else 1.0f
+        if (factor >= 0.99f || sourceBitmap.isRecycled) {
+            return sourceBitmap to 1.0f
+        }
+        val targetWidth = (sourceBitmap.width * factor).toInt().coerceAtLeast(112)
+        val targetHeight = (sourceBitmap.height * factor).toInt().coerceAtLeast(112)
+        return try {
+            val scaled = Bitmap.createScaledBitmap(sourceBitmap, targetWidth, targetHeight, true)
+            scaled to factor
+        } catch (_: Throwable) {
+            sourceBitmap to factor
+        }
     }
 
     /**
@@ -244,12 +255,17 @@ object ThermalGovernor {
         if (downscaleFactor >= 0.99f) return detectorBox
 
         val scale = 1.0f / downscaleFactor
-        val left = (detectorBox.left * scale).toInt().coerceIn(0, sourceWidth)
-        val top = (detectorBox.top * scale).toInt().coerceIn(0, sourceHeight)
-        val right = (detectorBox.right * scale).toInt().coerceIn(0, sourceWidth)
-        val bottom = (detectorBox.bottom * scale).toInt().coerceIn(0, sourceHeight)
+        val l = (detectorBox.left * scale).toInt().coerceIn(0, sourceWidth)
+        val t = (detectorBox.top * scale).toInt().coerceIn(0, sourceHeight)
+        val r = (detectorBox.right * scale).toInt().coerceIn(0, sourceWidth)
+        val b = (detectorBox.bottom * scale).toInt().coerceIn(0, sourceHeight)
 
-        return Rect(left, top, right, bottom)
+        return Rect(l, t, r, b).apply {
+            left = l
+            top = t
+            right = r
+            bottom = b
+        }
     }
 }
 

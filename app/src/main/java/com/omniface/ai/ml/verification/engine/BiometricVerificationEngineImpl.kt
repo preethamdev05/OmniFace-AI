@@ -307,7 +307,8 @@ class BiometricVerificationEngineImpl(
         val effectiveStudentMap = if (studentMap.isNotEmpty()) studentMap else identityMap.mapValues { it.value.displayName }
         val config = NeuralModelConfigManager.configState.value
         val scheduler = com.omniface.ai.ml.concurrency.BoundedGroupInferenceScheduler.getDefault()
-        scheduler.adaptToThermalState(ThermalGovernor.thermalState.value)
+        val maxPermits = com.omniface.ai.hardware.DeviceCapacityGovernor.getMaxConcurrentFaces(context)
+        scheduler.adaptToThermalState(ThermalGovernor.thermalState.value, maxPermits)
 
         val detectedTrackIds = faces.mapNotNull { it.trackingId }.toSet()
         val purgedTrackIds = tracker.onFrameTracksUpdated(detectedTrackIds)
@@ -409,10 +410,6 @@ class BiometricVerificationEngineImpl(
                 } else null
             } else null
 
-            if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
-                alignedFaceBitmap.recycle()
-            }
-
             var matchResult: MatchResult? = null
             var lastExtractedEmbedding: FloatArray? = null
             var passivePadResult: PassivePadResult? = null
@@ -512,6 +509,9 @@ class BiometricVerificationEngineImpl(
                 )
             }
 
+            if (isTemporaryAligned && alignedFaceBitmap != null && alignedFaceBitmap != faceCrop && !alignedFaceBitmap.isRecycled) {
+                alignedFaceBitmap.recycle()
+            }
             faceCrop?.recycle()
 
             // ── Synthesize Multi-Gate Decision ──

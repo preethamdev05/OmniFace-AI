@@ -86,6 +86,12 @@ class ExecutionGovernor private constructor(
             return Triple(interp, gpu, BackendType.CPU_XNNPACK)
         }
 
+        val effectiveThreads = when (thermalState) {
+            ThermalState.CRITICAL -> 2
+            ThermalState.WARM -> 3.coerceAtMost(numThreads)
+            ThermalState.NOMINAL -> numThreads
+        }
+
         // Check if decision was already probed and cached for this model version
         val cachedBackendName = prefs.getString(KEY_CACHED_BACKEND, null)
         val cachedVersion = prefs.getString(KEY_CACHED_MODEL_VERSION, null)
@@ -97,7 +103,7 @@ class ExecutionGovernor private constructor(
                     val (interp, gpu, nnapi) = InferenceBackend.createInterpreterWithFallback(
                         modelBuffer = modelBuffer,
                         preferredType = preferred,
-                        numThreads = numThreads
+                        numThreads = effectiveThreads
                     )
                     val activeType = when {
                         nnapi != null -> preferred
@@ -124,7 +130,7 @@ class ExecutionGovernor private constructor(
         val (interp, gpu, nnapi) = InferenceBackend.createInterpreterWithFallback(
             modelBuffer = modelBuffer,
             preferredType = selectedType,
-            numThreads = numThreads
+            numThreads = effectiveThreads
         )
 
         return Triple(interp, gpu ?: nnapi, selectedType)
